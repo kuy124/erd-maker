@@ -39,29 +39,42 @@ function resolveVars(element: Element): Record<string, string> {
   return vars;
 }
 
+/**
+ * Copies the computed presentation of every element onto the matching clone
+ * element.
+ *
+ * The pairing is by document position, computed *before* any element is
+ * removed from the clone. Removing first shifts every subsequent index by one,
+ * which silently applies each shape's styles to the wrong shape — the export
+ * looks plausible but renders as solid black blobs. Getting this ordering wrong
+ * is what made an earlier version of this file produce unreadable output.
+ */
 function inlineStyles(source: SVGSVGElement, clone: SVGSVGElement): void {
   const sourceNodes = [source, ...Array.from(source.querySelectorAll('*'))];
   const cloneNodes = [clone, ...Array.from(clone.querySelectorAll('*'))];
+
+  const props = [
+    'fill',
+    'stroke',
+    'stroke-width',
+    'stroke-dasharray',
+    'stroke-linejoin',
+    'font-family',
+    'font-size',
+    'font-weight',
+    'text-anchor',
+    'dominant-baseline',
+    'paint-order',
+    'opacity',
+  ];
 
   for (let i = 0; i < sourceNodes.length; i += 1) {
     const from = sourceNodes[i];
     const to = cloneNodes[i] as SVGElement | undefined;
     if (!from || !to) continue;
+    // Skip if the pairings have drifted apart; a wrong style is worse than none.
+    if (from.tagName !== to.tagName) continue;
     const computed = getComputedStyle(from);
-    const props = [
-      'fill',
-      'stroke',
-      'stroke-width',
-      'stroke-dasharray',
-      'stroke-linejoin',
-      'font-family',
-      'font-size',
-      'font-weight',
-      'text-anchor',
-      'dominant-baseline',
-      'paint-order',
-      'opacity',
-    ];
     for (const prop of props) {
       const value = computed.getPropertyValue(prop);
       if (value && value !== 'none' && value !== 'normal') {
@@ -98,13 +111,37 @@ export function serializeSvg(
 
   const clone = svg.cloneNode(true) as SVGSVGElement;
 
-  // Remove editing-only chrome: selection rings, peer cursors, hit targets.
+  // Styles are inlined FIRST, while the clone still has exactly the same nodes
+  // in exactly the same order as the live SVG. `inlineStyles` pairs the two by
+  // document position, so removing anything beforehand would shift every
+  // subsequent pair by one and paint the wrong fill on the wrong shape.
+  inlineStyles(svg, clone);
+
+  // Then strip editing-only chrome: selection rings, peer cursors, hit targets.
   // Table row rules are NOT removed: they are part of the drawing.
-  for (const selector of ['.selection-ring', '.peer-cursor', '.peer-ring', '.hit-target', '.leg-hit', '.connect-preview']) {
+  for (const selector of [
+    '.selection-ring',
+    '.peer-cursor',
+    '.peer-ring',
+    '.hit-target',
+    '.leg-hit',
+    '.connect-preview',
+    '.crow-link__hit',
+  ]) {
     clone.querySelectorAll(selector).forEach((n) => n.remove());
   }
 
-  inlineStyles(svg, clone);
+  // Neutralise the on-screen pan and zoom.
+  //
+  // The viewBox below is set from the diagram's own bounds, which are world
+  // coordinates. The live SVG wraps its content in `translate(x y) scale(z)`,
+  // so leaving that in place maps the drawing somewhere else entirely and the
+  // file shows an empty corner — or nothing — the moment the user has panned or
+  // zoomed before exporting. Resetting the group puts the world coordinates
+  // back in agreement with the viewBox.
+  clone.querySelectorAll('[data-viewport]').forEach((node) => {
+    node.removeAttribute('transform');
+  });
 
   const vars = resolveVars(svg);
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');

@@ -39,16 +39,23 @@ participation, both editable by clicking the line or its label.
 
 The crow's-foot view is the same document drawn a different way, not a second model: every entity
 becomes a table, key attributes become the primary key, and relationships become crow's-foot
-connectors.
+connectors labelled with their ratio (`1:1`, `1:N`, `N:N`). A connector can be selected and deleted
+here, so a relationship never has to be removed from the other view. A second bar near a table means
+every instance on that side must take part.
 
 ## Drawing
 
-Select a shape, then press `A` to add an attribute. It lands beside its owner in a column, already
-connected, with its name ready to type — press `A` again to add another to the same shape.
+Press a key and start typing — the name field is focused the moment a shape appears, so `E`, then
+"Customer", then `A`, then "email" builds an entity with an attribute without touching the mouse.
+`Escape` returns to the canvas.
+
+Attributes land beside their owner in a column, already connected. Press `A` again to add another to
+the same shape.
 
 To draw a relationship line, hold `Shift` and click two shapes. A dashed line follows your pointer and
 the shape under it is highlighted, so you can see what will connect before you click. `Escape` or a
-click on empty paper cancels.
+click on empty paper cancels. Attributes cannot be endpoints: their link to their owner is part of the
+attribute itself, so a line from an attribute would mean nothing.
 
 `Tidy` arranges everything, so a diagram built in any order still reads properly.
 

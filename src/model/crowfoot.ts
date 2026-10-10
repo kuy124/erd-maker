@@ -13,6 +13,7 @@
  */
 
 import { attributesOf, legsFor, type ErdDocument, type Entity } from './types';
+import { foreignKeyColumnName } from './sql';
 
 export interface CrowTable {
   entityId: string;
@@ -36,12 +37,24 @@ export interface CrowRow {
 
 export interface CrowLink {
   id: string;
+  /** The relationship this connector came from, so it can be selected and removed. */
+  relId: string;
   fromEntityId: string;
   toEntityId: string;
   /** Which end is the "many" side, so the crow's foot goes on the right table. */
   manyEntityId: string;
   oneEntityId: string;
   label: string;
+  /**
+   * The ratio written on the connector, in the form crow's-foot notation uses:
+   * `1:1`, `1:N`, or `N:N`. Naming the ratio is what makes the notation
+   * readable at a glance — a bare fan at each end says how many without saying
+   * which is which.
+   */
+  ratio: string;
+  /** Whether each end is mandatory, which adds a second bar near the table. */
+  fromMandatory: boolean;
+  toMandatory: boolean;
 }
 
 function typeFor(name: string): string {
@@ -89,7 +102,12 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
         // This entity is the many side; the one side is referenced.
         if (leg.cardinality === '1' || sibling.cardinality !== '1') continue;
         for (const key of keyRows(doc, other)) {
-          const name = `${other.name.toLowerCase().replace(/\s+/g, '_')}_${key.name}`;
+          // Shares the SQL generator's rule so a key already named after its
+          // table is not doubled into `customer_customer_id`.
+          const name = foreignKeyColumnName(
+            other.name.toLowerCase().replace(/\s+/g, '_'),
+            key.name,
+          );
           if (seen.has(name)) continue;
           seen.add(name);
           rows.push({
@@ -151,22 +169,40 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
     // it is many-to-many, and the foot is drawn at both ends.
     const aMany = a.leg.cardinality !== '1';
     const bMany = b.leg.cardinality !== '1';
+    // Participation decides whether an end is drawn mandatory: a minimum of one
+    // means every instance has to take part, which is a second bar.
+    const aMandatory = a.leg.participation.min >= 1;
+    const bMandatory = b.leg.participation.min >= 1;
+
+    // A leg's label describes the shape at its own end, so the ratio reads from
+    // the same end as the foot.
+    const ratio = `${a.leg.cardinality}:${b.leg.cardinality}`;
+
     links.push({
       id: rel.id,
+      relId: rel.id,
       fromEntityId: a.entity.id,
       toEntityId: b.entity.id,
       manyEntityId: aMany ? a.entity.id : b.entity.id,
       oneEntityId: aMany ? b.entity.id : a.entity.id,
       label: rel.name,
+      ratio,
+      fromMandatory: aMandatory,
+      toMandatory: bMandatory,
     });
     if (aMany && bMany) {
       links.push({
         id: `${rel.id}:reverse`,
+        relId: rel.id,
         fromEntityId: b.entity.id,
         toEntityId: a.entity.id,
         manyEntityId: b.entity.id,
         oneEntityId: a.entity.id,
         label: rel.name,
+        // Reversed, so the ratio reads from the other end.
+        ratio: `${b.leg.cardinality}:${a.leg.cardinality}`,
+        fromMandatory: bMandatory,
+        toMandatory: aMandatory,
       });
     }
   }

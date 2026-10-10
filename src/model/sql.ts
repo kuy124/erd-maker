@@ -47,6 +47,27 @@ function quote(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Names the foreign key column that points at `table.keyName`.
+ *
+ * Prefixing is the default, but a key already named after its own table should
+ * not be doubled up: a `customer_id` key in `customer` gives `customer_id`, not
+ * `customer_customer_id`. The repetition is noise that a reader has to unpick,
+ * and it is the common case because `<entity>_id` is the usual name for a key.
+ */
+export function foreignKeyColumnName(table: string, keyName: string): string {
+  if (keyName === table) return keyName;
+  if (!keyName.startsWith(`${table}_`)) return `${table}_${keyName}`;
+
+  // The key already begins with the table name. Whether that prefix is
+  // redundant depends on what follows it: `customer_id` restates the table, so
+  // qualifying it says nothing. `order_line_id` does not — it names the line
+  // entity, so qualifying it is exactly the information the column needs.
+  const rest = keyName.slice(table.length + 1);
+  const restatesTable = rest === 'id' || rest === 'key' || rest === 'pk';
+  return restatesTable ? keyName : `${table}_${keyName}`;
+}
+
 /** snake_case, stripped to characters SQL tolerates unquoted. */
 export function toSqlName(name: string): string {
   const cleaned = name
@@ -212,7 +233,7 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
       const targetCols = parentKeyColumns(doc, target);
       if (targetCols.length !== 1) continue; // composite targets are out of scope
       const targetCol = targetCols[0]!;
-      const fkName = `${toSqlName(target.name)}_${targetCol.name}`;
+      const fkName = foreignKeyColumnName(toSqlName(target.name), targetCol.name);
       if (columns.some((c) => c.name === fkName)) continue;
       columns.push({
         name: fkName,

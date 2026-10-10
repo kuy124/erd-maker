@@ -45,11 +45,8 @@ interface Options {
 
 export interface DragApi {
   drag: DragState | null;
-  panning: boolean;
   beginNodeDrag: (id: string, worldX: number, worldY: number, nodeX: number, nodeY: number) => void;
   beginPan: (clientX: number, clientY: number) => void;
-  /** True when the pointer is actively down, to suppress click handling. */
-  isActive: boolean;
 }
 
 export function useDrag(options: Options): DragApi {
@@ -145,9 +142,7 @@ export function useDrag(options: Options): DragApi {
 
   return {
     drag,
-    panning: pan !== null,
     beginNodeDrag,
     beginPan,
-    isActive: drag !== null || pan !== null,
   };
 }

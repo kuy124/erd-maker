@@ -73,8 +73,11 @@ describe('generateSql — one to many', () => {
   });
 
   it('adds the foreign key on the many side', () => {
-    expect(sql).toContain('"customer_customer_id" INTEGER');
-    expect(sql).toContain('FOREIGN KEY ("customer_customer_id") REFERENCES "customer" ("customer_id")');
+    // `customer_id` is already named after its table, so it is not doubled
+    // into `customer_customer_id`.
+    expect(sql).toContain('"customer_id" INTEGER');
+    expect(sql).toContain('FOREIGN KEY ("customer_id") REFERENCES "customer" ("customer_id")');
+    expect(sql).not.toContain('customer_customer_id');
   });
 
   it('does not put a foreign key on the one side', () => {

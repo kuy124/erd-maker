@@ -10,6 +10,7 @@
  * empty — an empty panel is a missed opportunity to teach the notation.
  */
 
+import { useEffect, useRef } from 'react';
 import type { EditorState } from '../state/useEditor';
 import type { AttributeKind } from '../model/types';
 
@@ -27,6 +28,25 @@ const ATTRIBUTE_KINDS: { value: AttributeKind; label: string }[] = [
 
 export function Inspector({ state }: Props) {
   const { doc, selection } = state;
+
+  /**
+   * Focus the name field when a newly added shape is selected.
+   *
+   * Adding a shape should leave the caret blinking, ready for its name. Without
+   * this the fastest possible path — press E, type "Customer" — needs a click
+   * on the right-hand panel first, which is the step that makes a new tool feel
+   * harder than it is.
+   *
+   * Scoped to a change in selection rather than a timer, so re-renders, typing,
+   * and undo all leave focus alone. Selecting an existing shape also lands here,
+   * which is convenient rather than harmful: the name is a single field and
+   * clicking the canvas is what moves focus away from it again.
+   */
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    nameRef.current?.focus();
+    nameRef.current?.select();
+  }, [selection]);
 
   const entity = doc.entities.find((e) => e.id === selection);
   const attribute = doc.attributes.find((a) => a.id === selection);
@@ -58,6 +78,7 @@ export function Inspector({ state }: Props) {
           <input
             id="entity-name"
             data-testid="inspector-name"
+            ref={nameRef}
             className="field__input"
             value={entity.name}
             onChange={(event) => state.updateEntity(entity.id, { name: event.target.value })}
@@ -134,6 +155,7 @@ export function Inspector({ state }: Props) {
           <input
             id="attr-name"
             data-testid="inspector-name"
+            ref={nameRef}
             className="field__input"
             value={attribute.name}
             onChange={(event) => state.updateAttribute(attribute.id, { name: event.target.value })}
@@ -200,6 +222,7 @@ export function Inspector({ state }: Props) {
           <input
             id="rel-name"
             data-testid="inspector-name"
+            ref={nameRef}
             className="field__input"
             value={relationship.name}
             onChange={(event) => state.updateRelationship(relationship.id, { name: event.target.value })}

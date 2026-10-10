@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveLinks, deriveTables, tableHeight } from '../../src/model/crowfoot';
+import { foreignKeyColumnName } from '../../src/model/sql';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 
 function shop(): ErdDocument {
@@ -36,7 +37,7 @@ describe('deriveTables', () => {
   it('adds a foreign key row on the many side', () => {
     const order = deriveTables(shop()).find((t) => t.name === 'Order')!;
     const fk = order.rows.find((r) => r.fk);
-    expect(fk?.name).toBe('customer_customer_id');
+    expect(fk?.name).toBe('customer_id');
     expect(fk?.references?.label).toBe('Customer.customer_id');
   });
 
@@ -83,6 +84,28 @@ describe('deriveTables', () => {
     const customer = deriveTables(shop()).find((t) => t.name === 'Customer')!;
     expect(customer.rows.find((r) => r.name === 'customer_id')!.type).toBe('INT');
     expect(customer.rows.find((r) => r.name === 'email')!.type).toBe('TEXT');
+  });
+});
+
+describe('foreign key column naming', () => {
+  it('does not double a key that is already named after its table', () => {
+    // `customer_id` is the usual name for a `customer` key; prefixing again
+    // gives `customer_customer_id`, which says nothing extra.
+    expect(foreignKeyColumnName('customer', 'customer_id')).toBe('customer_id');
+    expect(foreignKeyColumnName('order', 'order_id')).toBe('order_id');
+    expect(foreignKeyColumnName('book', 'book')).toBe('book');
+  });
+
+  it('prefixes a key that does not carry the table name', () => {
+    expect(foreignKeyColumnName('customer', 'isbn')).toBe('customer_isbn');
+    expect(foreignKeyColumnName('customer', 'id')).toBe('customer_id');
+  });
+
+  it('prefixes a key that starts with the table name but names something else', () => {
+    // `order_line_id` belongs to the line entity, so in table `order` it still
+    // needs qualifying. Only the table name followed by a separator counts.
+    expect(foreignKeyColumnName('order', 'order_line_id')).toBe('order_order_line_id');
+    expect(foreignKeyColumnName('order', 'orders')).toBe('order_orders');
   });
 });
 

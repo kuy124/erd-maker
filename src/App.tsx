@@ -167,6 +167,16 @@ export function App() {
         downloadText(serializeJson(state.doc), `${state.doc.name || 'erd'}.json`, 'application/json');
         return;
       }
+
+      // Escape leaves a text field before it does anything else. Without this,
+      // a new user types a name and presses Escape expecting to get on with the
+      // diagram, but focus stays in the field and every shortcut is inert —
+      // with nothing on screen saying why.
+      if (event.key === 'Escape' && typing) {
+        (target as HTMLElement).blur();
+        return;
+      }
+
       if (typing || event.ctrlKey || event.metaKey || event.altKey) return;
       switch (event.key.toLowerCase()) {
         case 'e':

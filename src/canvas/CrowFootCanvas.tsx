@@ -13,7 +13,15 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { CROW_HEADER_HEIGHT, CROW_ROW_HEIGHT, CROW_WIDTH, deriveLinks, deriveTables, tableHeight } from '../model/crowfoot';
+import {
+  CROW_HEADER_HEIGHT,
+  CROW_ROW_HEIGHT,
+  CROW_WIDTH,
+  deriveLinks,
+  deriveTables,
+  tableHeight,
+  type CrowLink,
+} from '../model/crowfoot';
 import type { EditorState } from '../state/useEditor';
 import { useDrag } from './useDrag';
 
@@ -137,13 +145,11 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
         aria-label="Crow's-foot table diagram canvas"
         data-testid="canvas"
       >
-        <defs>
-          <marker id="crow-foot" markerWidth="10" markerHeight="10" refX="0" refY="5" orient="auto">
-            <path d="M0 5 L10 0 M0 5 L10 5 M0 5 L10 10" stroke="var(--ink)" strokeWidth="1.4" fill="none" />
-          </marker>
-        </defs>
-
-        <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}>
+        {/* `data-viewport` marks the pan and zoom group; the exporter resets it. */}
+        <g
+          data-viewport="true"
+          transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}
+        >
           <g className="layer-links">
             {links.map((link) => {
               const from = byId.get(link.fromEntityId);
@@ -152,9 +158,12 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
               return (
                 <CrowConnector
                   key={link.id}
+                  link={link}
                   from={{ x: from.x, y: from.y, h: tableHeight(from) }}
                   to={{ x: to.x, y: to.y, h: tableHeight(to) }}
                   manyAtFrom={link.manyEntityId === link.fromEntityId}
+                  selected={selection === link.relId}
+                  onSelect={() => state.setSelection(link.relId)}
                 />
               );
             })}
@@ -266,10 +275,27 @@ interface End {
 
 /**
  * Draws one relationship line between two tables, with a crow's foot at the
- * many end and a single bar at the one end. The line leaves and enters the
- * nearest horizontal edge so it never crosses a table body.
+ * many end, a single bar at the one end, and the ratio written on the line.
+ *
+ * The connector is selectable so it can be deleted. A crow's-foot view where a
+ * relationship can be created but never removed is a trap: the only way out is
+ * to go back to Chen, find the diamond, and delete it there.
  */
-function CrowConnector({ from, to, manyAtFrom }: { from: End; to: End; manyAtFrom: boolean }) {
+function CrowConnector({
+  link,
+  from,
+  to,
+  manyAtFrom,
+  selected,
+  onSelect,
+}: {
+  link: CrowLink;
+  from: End;
+  to: End;
+  manyAtFrom: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   const fromCenter = { x: from.x + CROW_WIDTH / 2, y: from.y + from.h / 2 };
   const toCenter = { x: to.x + CROW_WIDTH / 2, y: to.y + to.h / 2 };
 
@@ -315,13 +341,69 @@ function CrowConnector({ from, to, manyAtFrom }: { from: End; to: End; manyAtFro
     return `M${c.x - perpendicular.x * half} ${c.y - perpendicular.y * half} L${c.x + perpendicular.x * half} ${c.y + perpendicular.y * half}`;
   };
 
+  // Mandatory ends get a second, nearer bar: one bar means "many", two means
+  // "many, and every one of them is required".
+  const mandatoryBars = [
+    link.fromMandatory && manyAtFrom ? bar(start, direction, 18) : null,
+    link.fromMandatory && !manyAtFrom ? bar(start, { x: -direction.x, y: -direction.y }, 18) : null,
+    link.toMandatory && manyAtFrom ? bar(end, { x: -direction.x, y: -direction.y }, 18) : null,
+    link.toMandatory && !manyAtFrom ? bar(end, direction, 18) : null,
+  ].filter(Boolean) as string[];
+
+  // The label sits at the midpoint, nudged off the line so it never sits on it.
+  const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  const labelOffset = horizontal ? 0 : 14;
+
   return (
-    <g>
+    <g
+      className={`crow-link${selected ? ' crow-link--selected' : ''}`}
+      role="button"
+      tabIndex={-1}
+      aria-label={`Relationship ${link.label}, ${link.ratio}`}
+      data-testid={`crow-link-${link.relId}`}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        onSelect();
+      }}
+    >
+      {/* A wide transparent band makes the thin line easy to hit, the same as
+          the relationship lines in the Chen view. */}
+      <line
+        className="crow-link__hit"
+        x1={start.x}
+        y1={start.y}
+        x2={end.x}
+        y2={end.y}
+      />
       <line className="leg" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
       <path className="leg" d={fan(manyEnd, manyDir)} fill="none" />
       <path className="leg" d={bar(oneEnd, oneDir, 12)} fill="none" />
+      {mandatoryBars.map((d, i) => (
+        <path key={i} className="leg" d={d} fill="none" />
+      ))}
+      {/* The ratio, stated rather than implied. */}
+      <text
+        className="crow-link__ratio"
+        x={mid.x + (horizontal ? 0 : labelOffset)}
+        y={mid.y + (horizontal ? -labelOffset : 0)}
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        {link.ratio}
+      </text>
+      {link.label ? (
+        <text
+          className="crow-link__label"
+          x={mid.x + (horizontal ? 0 : labelOffset)}
+          y={mid.y + (horizontal ? -labelOffset : 0) + (horizontal ? -14 : 14)}
+          textAnchor="middle"
+          dominantBaseline="middle"
+        >
+          {link.label}
+        </text>
+      ) : null}
     </g>
   );
 }
 
-export { CROW_ROW_HEIGHT, CROW_HEADER_HEIGHT };
+

@@ -16,6 +16,7 @@ import { documentBounds, edgePoint, offsetToward, segmentBetween } from './geome
 import { AttributeShape, EntityShape, IsaShape, RelationshipShape } from './NodeShapes';
 import { useDrag } from './useDrag';
 import type { ErdDocument } from '../model/types';
+import { canConnect } from '../model/placement';
 
 interface Props {
   state: EditorState;
@@ -112,12 +113,17 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
       // Shift-click connects two nodes, which is the fast path for drawing a leg.
       if (event.shiftKey) {
         if (connectFrom === null) {
-          setConnectFrom(id);
-        } else if (connectFrom !== id) {
+          // An attribute cannot be an endpoint: its link to its owner is stored
+          // as `ownerId`, so a leg from an attribute is a line that the SQL
+          // generator and the crow's-foot view both ignore. Refusing here means
+          // the user is never shown a connection that quietly does nothing.
+          if (!isAttribute(displayDoc, id)) setConnectFrom(id);
+        } else if (connectFrom !== id && canConnect(displayDoc, connectFrom, id)) {
           state.connect(connectFrom, id);
           setConnectFrom(null);
         }
-        // Clear the preview: the gesture is either started or finished here.
+        // Clear the preview: the gesture is either started, finished, or was
+        // refused, and either way it is not in flight.
         setConnectPointer(null);
         setConnectTarget(null);
         return;
@@ -160,7 +166,11 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
       const world = toWorld(event.clientX, event.clientY);
       setConnectPointer(world);
       const hovered = nodeAt(world.x, world.y);
-      setConnectTarget(hovered && hovered.id !== connectFrom ? hovered.id : null);
+      setConnectTarget(
+        hovered && hovered.id !== connectFrom && canConnect(displayDoc, connectFrom, hovered.id)
+          ? hovered.id
+          : null,
+      );
     },
     [connectFrom, tool, toWorld, nodeAt],
   );
@@ -248,7 +258,13 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
         aria-label="Entity relationship diagram canvas"
         data-testid="canvas"
       >
-        <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}>
+        {/* `data-viewport` marks the pan and zoom group. The exporter resets it,
+            because a file that keeps the on-screen transform lands outside its
+            own viewBox as soon as the user has panned or zoomed. */}
+        <g
+          data-viewport="true"
+          transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}
+        >
           {/* Legs first, so shapes sit on top of their connectors. */}
           <g className="layer-legs">
             {displayDoc.legs.map((leg) => {
@@ -357,7 +373,10 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
               return (
                 <line
                   key={`${attr.id}-link`}
-                  className="leg"
+                  // Distinguished from a relationship leg: this one says which
+                  // shape an attribute belongs to and carries no cardinality.
+                  className="leg leg--attribute"
+                  data-attribute-link={attr.id}
                   x1={from.x}
                   y1={from.y}
                   x2={to.x}
@@ -491,6 +510,10 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function isAttribute(doc: ErdDocument, id: string): boolean {
+  return doc.attributes.some((a) => a.id === id);
 }
 
 function formatParticipation(min: number, max: number | 'N'): string {

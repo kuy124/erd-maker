@@ -146,13 +146,20 @@ export function findAttributeSlot(
 /**
  * Whether a leg between two nodes makes sense.
  *
+ * Entities, relationships, and specializations can all take part in a line.
+ * Attributes cannot: their link to their owner is stored as `ownerId` and drawn
+ * separately, so a leg between two attributes is a line that the SQL
+ * generator and the crow's-foot view both ignore — a connection that appears to
+ * work and does nothing.
+ *
  * The UI uses this to decide what can be connected, so the rule lives here
  * rather than being re-implemented by each caller.
  */
 export function canConnect(doc: ErdDocument, fromId: string, toId: string): boolean {
   if (fromId === toId) return false;
-  if (!doc.entities.some((e) => e.id === fromId) && !doc.relationships.some((r) => r.id === fromId)) {
-    return false;
-  }
-  return doc.entities.some((e) => e.id === toId) || doc.relationships.some((r) => r.id === toId);
+  const connectable = (id: string): boolean =>
+    doc.entities.some((e) => e.id === id) ||
+    doc.relationships.some((r) => r.id === id) ||
+    doc.isas.some((i) => i.id === id);
+  return connectable(fromId) && connectable(toId);
 }

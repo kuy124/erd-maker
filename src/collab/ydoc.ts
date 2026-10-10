@@ -152,6 +152,11 @@ export function upsertLeg(ydoc: Y.Doc, leg: Leg): void {
 /** Removes a node and the legs and attributes that depended on it. */
 export function deleteNodeFromYdoc(ydoc: Y.Doc, id: string): void {
   ydoc.transact(() => {
+    // Legs are nodes too. Without this a relationship line cannot be deleted on
+    // its own: nothing below removes it, because a leg is never the `fromId` or
+    // `toId` of another leg.
+    ydoc.getMap(LEGS).delete(id);
+
     for (const key of [ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS] as const) {
       ydoc.getMap(key).delete(id);
     }
@@ -159,7 +164,8 @@ export function deleteNodeFromYdoc(ydoc: Y.Doc, id: string): void {
     legs.forEach((value, key) => {
       const leg = value as Y.Map<unknown>;
       if (leg.get('fromId') === id || leg.get('toId') === id) legs.delete(key);
-    });    const attributes = ydoc.getMap(ATTRIBUTES);
+    });
+    const attributes = ydoc.getMap(ATTRIBUTES);
     attributes.forEach((value, key) => {
       const attr = value as Y.Map<unknown>;
       if (attr.get('ownerId') === id) attributes.delete(key);

@@ -285,13 +285,33 @@ test.describe('keyboard shortcuts', () => {
     await openApp(page);
     await page.keyboard.press('e');
     await expect(node(page, /Entity New entity/i)).toBeVisible();
+
+    // Adding a shape puts the caret in its name field, so single-key shortcuts
+    // are deliberately inert until focus leaves the field. Escape returns to
+    // the canvas without changing anything.
+    await page.keyboard.press('Escape');
+    await expect(nameField(page)).not.toBeFocused();
+
     await page.keyboard.press('a');
-    // Pressing A while an entity is selected attaches the attribute to it.
+    // The entity is still selected, so this attribute is owned by it.
     await expect(node(page, /Attribute 1/i)).toBeVisible();
+
+    await page.keyboard.press('Escape');
     await page.keyboard.press('r');
     await expect(node(page, /Relationship relationship/i)).toBeVisible();
+
+    await page.keyboard.press('Escape');
     await page.keyboard.press('s');
     await expect(node(page, 'Specialization')).toBeVisible();
+  });
+
+  test('a new shape is ready to name without clicking the inspector', async ({ page }) => {
+    await openApp(page);
+    // The whole point: press a key, type the name, done.
+    await page.keyboard.press('e');
+    await expect(nameField(page)).toBeFocused();
+    await page.keyboard.type('Customer');
+    await expect(node(page, /Entity Customer/i)).toBeVisible();
   });
 
   test('typing in a text field does not trigger shortcuts', async ({ page }) => {
@@ -302,7 +322,7 @@ test.describe('keyboard shortcuts', () => {
     // "area" contains a, r, and e; none may add a shape.
     await field.type('area', { delay: 30 });
     await expect(field).toHaveValue('area');
-    await expect(node(page, /Attribute attribute/i)).toBeHidden();
+    await expect(node(page, /Attribute 1/i)).toBeHidden();
     await expect(node(page, /Relationship relationship/i)).toBeHidden();
   });
 
@@ -310,6 +330,9 @@ test.describe('keyboard shortcuts', () => {
     await openApp(page);
     await addShape(page, 'entity');
     await expect(node(page, /Entity New entity/i)).toBeVisible();
+    // Focus is in the name field, where Ctrl+Z is the browser's own text undo.
+    // Move off the field so the shortcut reaches the diagram.
+    await page.keyboard.press('Escape');
     await page.keyboard.press('Control+z');
     await expect(node(page, /Entity New entity/i)).toBeHidden();
   });

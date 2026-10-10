@@ -183,6 +183,29 @@ describe('deleteNodeFromYdoc', () => {
     expect(ydoc.getMap(LEGS).size).toBe(0);
   });
 
+  it('removes a single leg without touching the shapes it joins', () => {
+    const ydoc = new Y.Doc();
+    const doc = sample();
+    // Two legs, so removing one leaves the other in place.
+    doc.legs.push({
+      id: 'l2',
+      fromId: 'r1',
+      toId: 'e2',
+      cardinality: 'N',
+      participation: { min: 0, max: 1 },
+    });
+    seedDocument(ydoc, doc);
+    expect(snapshotFromYdoc(ydoc).legs).toHaveLength(2);
+
+    deleteNodeFromYdoc(ydoc, 'l1');
+
+    const after = snapshotFromYdoc(ydoc);
+    expect(after.legs.map((l) => l.id)).toEqual(['l2']);
+    // Both endpoints survive, and the relationship that owns the line does too.
+    expect(after.entities).toHaveLength(2);
+    expect(after.relationships).toHaveLength(1);
+  });
+
   it('is a no-op for an unknown id', () => {
     const ydoc = new Y.Doc();
     seedDocument(ydoc, sample());

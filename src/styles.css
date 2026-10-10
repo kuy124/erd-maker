@@ -483,6 +483,56 @@ body {
   stroke-width: 2;
 }
 
+/* An attribute's connector says which shape it belongs to and carries no
+   cardinality, so it is drawn lighter than a relationship leg. Same ink, less
+   weight: the two are different kinds of statement and should not look alike. */
+.leg--attribute {
+  stroke-width: 1.2;
+}
+
+/* ------------------------------------------- crow's-foot connectors */
+
+.crow-link {
+  cursor: pointer;
+}
+
+.crow-link__hit {
+  stroke: transparent;
+  stroke-width: 16;
+  fill: none;
+  pointer-events: stroke;
+}
+
+.crow-link__ratio {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.crow-link__label {
+  fill: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.crow-link--selected .leg {
+  stroke: var(--signal);
+  stroke-width: 2;
+}
+
+.crow-link--selected .crow-link__ratio {
+  fill: var(--signal-strong);
+}
+
 /* An invisible, wider band over each relationship line so the thin stroke is
    still easy to click. It must not appear in exports. */
 .leg-hit {
@@ -635,10 +685,6 @@ body {
 
 .canvas-status__dot--live {
   background: var(--signal);
-}
-
-.canvas-status__dot--offline {
-  background: var(--warn);
 }
 
 /* Empty state sits in the middle of the paper and invites the first action.
