@@ -10,7 +10,7 @@
  * coordinates and hit-testing is one inverse transform.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
 import { documentBounds, edgePoint, offsetToward, segmentBetween } from './geometry';
 import { AttributeShape, EntityShape, IsaShape, RelationshipShape } from './NodeShapes';
@@ -32,6 +32,14 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
   const { doc, viewport, selection, tool, peers, identity } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
+
+  // While a connection is being drawn, the pointer position drives a preview
+  // line and the shape under it is highlighted. Without this, connecting two
+  // shapes is a two-click gesture with nothing drawn between the clicks, so
+  // there is no way to see what is about to happen or to tell what is a valid
+  // target.
+  const [connectPointer, setConnectPointer] = useState<{ x: number; y: number } | null>(null);
+  const [connectTarget, setConnectTarget] = useState<string | null>(null);
 
   // Track the container size so the SVG fills it. The setter is guarded so an
   // unchanged measurement does not produce a new object and re-render forever.
@@ -109,6 +117,9 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
           state.connect(connectFrom, id);
           setConnectFrom(null);
         }
+        // Clear the preview: the gesture is either started or finished here.
+        setConnectPointer(null);
+        setConnectTarget(null);
         return;
       }
 
@@ -130,12 +141,42 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
       // Clicking empty paper clears the selection and any pending connection.
       if (tool === 'select' && event.button === 0) {
         setConnectFrom(null);
+        setConnectPointer(null);
+        setConnectTarget(null);
         state.setSelection(null);
         drag.beginPan(event.clientX, event.clientY);
       }
     },
     [tool, drag, setConnectFrom, state],
   );
+
+  /**
+   * Tracks the pointer while a connection is pending, and remembers which shape
+   * it is over so that shape can be highlighted as the target.
+   */
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent) => {
+      if (connectFrom === null || tool !== 'select') return;
+      const world = toWorld(event.clientX, event.clientY);
+      setConnectPointer(world);
+      const hovered = nodeAt(world.x, world.y);
+      setConnectTarget(hovered && hovered.id !== connectFrom ? hovered.id : null);
+    },
+    [connectFrom, tool, toWorld, nodeAt],
+  );
+
+  /** Escape cancels a pending connection instead of only closing dialogs. */
+  useEffect(() => {
+    if (connectFrom === null) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setConnectFrom(null);
+      setConnectPointer(null);
+      setConnectTarget(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [connectFrom, setConnectFrom]);
 
   const handleWheel = useCallback(
     (event: React.WheelEvent) => {
@@ -195,6 +236,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
         measuredRef(node);
       }}
       onPointerDown={handleBackgroundPointerDown}
+      onPointerMove={handlePointerMove}
       onWheel={handleWheel}
     >
       <svg
@@ -323,9 +365,35 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                 />
               );
             })}
+
+            {/* The connection being drawn right now. It snaps to the hovered
+                shape when one is under the pointer, so it is obvious what will
+                be connected before the click lands. */}
+            {connectFrom && connectPointer
+              ? (() => {
+                  const origin = edgePoint(displayDoc, connectFrom, connectPointer);
+                  const anchor = { x: origin?.x ?? connectPointer.x, y: origin?.y ?? connectPointer.y };
+                  const destination = connectTarget
+                    ? edgePoint(displayDoc, connectTarget, anchor)
+                    : connectPointer;
+                  if (!origin || !destination) return null;
+                  return (
+                    <line
+                      className="connect-preview"
+                      data-testid="connect-preview"
+                      x1={origin.x}
+                      y1={origin.y}
+                      x2={destination.x}
+                      y2={destination.y}
+                    />
+                  );
+                })()
+              : null}
           </g>
 
-          {/* Shapes. */}
+          {/* Shapes. `connecting` marks the shape a leg is being drawn from, and
+              `connectable` marks a legal target, so the gesture is visible
+              rather than something the user has to hold in their head. */}
           <g className="layer-nodes">
             {displayDoc.isas.map((isa) => (
               <IsaShape
@@ -333,6 +401,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                 isa={isa}
                 selected={selection === isa.id}
                 peerColor={peerBySelection.get(isa.id)}
+                connecting={connectFrom === isa.id}
+                connectable={connectFrom !== null && connectTarget === isa.id}
                 onPointerDown={handleNodePointerDown(isa.id)}
               />
             ))}
@@ -342,6 +412,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                 relationship={rel}
                 selected={selection === rel.id}
                 peerColor={peerBySelection.get(rel.id)}
+                connecting={connectFrom === rel.id}
+                connectable={connectFrom !== null && connectTarget === rel.id}
                 onPointerDown={handleNodePointerDown(rel.id)}
               />
             ))}
@@ -351,6 +423,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                 attribute={attr}
                 selected={selection === attr.id}
                 peerColor={peerBySelection.get(attr.id)}
+                connecting={connectFrom === attr.id}
+                connectable={connectFrom !== null && connectTarget === attr.id}
                 onPointerDown={handleNodePointerDown(attr.id)}
               />
             ))}
@@ -360,6 +434,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                 entity={entity}
                 selected={selection === entity.id}
                 peerColor={peerBySelection.get(entity.id)}
+                connecting={connectFrom === entity.id}
+                connectable={connectFrom !== null && connectTarget === entity.id}
                 onPointerDown={handleNodePointerDown(entity.id)}
               />
             ))}

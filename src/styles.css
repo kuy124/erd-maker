@@ -430,6 +430,34 @@ body {
   fill: none;
 }
 
+/* Drawing a relationship line. The source shape is ringed so it is obvious
+   which shape the line is leaving, and the shape under the pointer is filled so
+   it is obvious what clicking will connect to. Both use the signal colour
+   rather than a new one, so the gesture reads as the same kind of action
+   everywhere else in the interface.
+
+   These style the shape body rather than the selection ring, because the ring
+   only exists while a shape is selected — styling it here would mean the hint
+   appears and disappears as the selection changes. */
+.node--connecting .node__body {
+  stroke: var(--signal);
+  stroke-width: 2.5px;
+}
+
+.node--connectable .node__body {
+  stroke: var(--signal);
+  stroke-width: 2.5px;
+  fill: var(--signal-quiet);
+}
+
+.connect-preview {
+  stroke: var(--signal);
+  stroke-width: 1.5px;
+  stroke-dasharray: 6 4;
+  fill: none;
+  pointer-events: none;
+}
+
 .node__label {
   fill: var(--ink);
   font-family: var(--font-sans);

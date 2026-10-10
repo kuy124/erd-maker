@@ -15,7 +15,7 @@ import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
 import { documentBounds } from './canvas/geometry';
 import { applyLayout } from './model/layout';
-import { findFreeSlot } from './model/placement';
+import { findFreeSlot, occupiedBoxes } from './model/placement';
 import { parseJsonImport, downloadText, serializeJson } from './export';
 import { normalizeDocument } from './model/snapshot';
 import type { ErdDocument } from './model/types';
@@ -38,25 +38,42 @@ export function App() {
   const isCrowFoot = state.doc.view === 'crowfoot';
 
   /**
-   * Adds a node in the first free slot of a loose grid.
+   * Adds a node.
    *
-   * New shapes must never land on top of an existing one: a shape hidden
-   * underneath another cannot be clicked, dragged, or even seen, which reads as
-   * the app having dropped it. A grid walk is enough here because the search
-   * only has to cover the area already in use, and it stays stable across
-   * repeated adds rather than spiralling away from the origin.
+   * Shapes land in the first free slot of a loose grid rather than on top of
+   * each other: a shape hidden underneath another cannot be clicked, dragged,
+   * or even seen, which reads as the app having dropped it.
+   *
+   * Attributes are the exception. They go beside their owner, because the
+   * connector line is what says which shape an attribute describes. That only
+   * works if there is an owner, so an attribute is attached to whatever is
+   * selected; with nothing selected it floats and can be claimed later from the
+   * inspector.
    */
-  const addAtCenter = useCallback(
+  const addShape = useCallback(
     (kind: 'entity' | 'attribute' | 'relationship' | 'isa') => {
-      const occupied = [
-        ...state.doc.entities.map((n) => ({ x: n.x, y: n.y, w: 150, h: 60 })),
-        ...state.doc.attributes.map((n) => ({ x: n.x, y: n.y, w: 130, h: 52 })),
-        ...state.doc.relationships.map((n) => ({ x: n.x, y: n.y, w: 150, h: 72 })),
-        ...state.doc.isas.map((n) => ({ x: n.x, y: n.y, w: 96, h: 56 })),
-      ];
-      const { x, y } = findFreeSlot(occupied);
+      if (kind === 'attribute') {
+        // Which shape owns the new attribute.
+        //
+        // Adding an attribute selects it, so a second press of A would find an
+        // attribute selected and lose the owner — meaning the second attribute
+        // floats free and the third has nothing to attach to. Following the
+        // owner of a selected attribute keeps consecutive presses on the same
+        // entity, which is what adding several attributes to one thing means.
+        const selectedAttribute = state.doc.attributes.find((a) => a.id === state.selection);
+        const ownerId =
+          state.doc.entities.some((e) => e.id === state.selection) ||
+          state.doc.relationships.some((r) => r.id === state.selection) ||
+          state.doc.isas.some((i) => i.id === state.selection)
+            ? state.selection
+            : (selectedAttribute?.ownerId ?? null);
+        const { x, y } = findFreeSlot(occupiedBoxes(state.doc));
+        state.addAttribute(x, y, ownerId);
+        return;
+      }
+
+      const { x, y } = findFreeSlot(occupiedBoxes(state.doc));
       if (kind === 'entity') state.addEntity(x, y);
-      else if (kind === 'attribute') state.addAttribute(x, y, state.selection ?? null);
       else if (kind === 'relationship') state.addRelationship(x, y);
       else state.addIsa(x, y);
     },
@@ -154,19 +171,19 @@ export function App() {
       switch (event.key.toLowerCase()) {
         case 'e':
           event.preventDefault();
-          addAtCenter('entity');
+          addShape('entity');
           break;
         case 'a':
           event.preventDefault();
-          addAtCenter('attribute');
+          addShape('attribute');
           break;
         case 'r':
           event.preventDefault();
-          addAtCenter('relationship');
+          addShape('relationship');
           break;
         case 's':
           event.preventDefault();
-          addAtCenter('isa');
+          addShape('isa');
           break;
         case 'v':
           state.setTool('select');
@@ -196,7 +213,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [state, addAtCenter, fitToView]);
+  }, [state, addShape, fitToView]);
 
   // Undo/redo through Yjs's manager, which is CRDT-aware so it never resurrects
   // a node a peer deleted.
@@ -323,7 +340,7 @@ export function App() {
       </header>
 
       <div className="workspace" id="canvas-region">
-        <ShapeRail state={state} onAdd={addAtCenter} />
+        <ShapeRail state={state} onAdd={addShape} />
 
         {isCrowFoot ? (
           <CrowFootCanvas state={state} svgRef={svgRef} />

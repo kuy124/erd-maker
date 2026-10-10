@@ -19,6 +19,22 @@ interface BaseProps {
   selected: boolean;
   onPointerDown: (event: React.PointerEvent) => void;
   peerColor?: string | undefined;
+  /** True while a relationship line is being drawn from this shape. */
+  connecting?: boolean | undefined;
+  /** True when the pointer is over this shape as a legal connection target. */
+  connectable?: boolean | undefined;
+}
+
+/**
+ * Extra class for the connection gesture.
+ *
+ * Kept in one place so every primitive lights up the same way; a legend that
+ * highlights some shapes and not others teaches the wrong thing.
+ */
+function connectClass(props: Pick<BaseProps, 'connecting' | 'connectable'>): string {
+  if (props.connecting) return ' node--connecting';
+  if (props.connectable) return ' node--connectable';
+  return '';
 }
 
 function Outline({ selected, peerColor, x, y, w, h }: { selected: boolean; peerColor?: string | undefined; x: number; y: number; w: number; h: number }) {
@@ -40,12 +56,14 @@ export const EntityShape = memo(function EntityShape({
   selected,
   onPointerDown,
   peerColor,
+  connecting,
+  connectable,
 }: BaseProps & { entity: Entity }) {
   const { w, h } = NODE_SIZE.entity;
   const weak = entity.kind === 'weak';
   return (
     <g
-      className={`node${weak ? ' node--weak' : ''}`}
+      className={`node${weak ? ' node--weak' : ''}${connectClass({ connecting, connectable })}`}
       transform={`translate(${entity.x} ${entity.y})`}
       onPointerDown={onPointerDown}
       role="button"
@@ -68,6 +86,8 @@ export const RelationshipShape = memo(function RelationshipShape({
   selected,
   onPointerDown,
   peerColor,
+  connecting,
+  connectable,
 }: BaseProps & { relationship: Relationship }) {
   const { w, h } = NODE_SIZE.relationship;
   const hw = w / 2;
@@ -76,7 +96,7 @@ export const RelationshipShape = memo(function RelationshipShape({
   const points = `${hw},0 ${w},${hh} ${hw},${h} 0,${hh}`;
   return (
     <g
-      className={`node${weak ? ' node--weak' : ''}`}
+      className={`node${weak ? ' node--weak' : ''}${connectClass({ connecting, connectable })}`}
       transform={`translate(${relationship.x} ${relationship.y})`}
       onPointerDown={onPointerDown}
       role="button"
@@ -104,6 +124,8 @@ export const AttributeShape = memo(function AttributeShape({
   selected,
   onPointerDown,
   peerColor,
+  connecting,
+  connectable,
 }: BaseProps & { attribute: Attribute }) {
   const { w, h } = NODE_SIZE.attribute;
   const rx = w / 2;
@@ -114,7 +136,7 @@ export const AttributeShape = memo(function AttributeShape({
 
   return (
     <g
-      className="node"
+      className={`node${connectClass({ connecting, connectable })}`}
       transform={`translate(${attribute.x} ${attribute.y})`}
       onPointerDown={onPointerDown}
       role="button"
@@ -168,6 +190,8 @@ export const IsaShape = memo(function IsaShape({
   selected,
   onPointerDown,
   peerColor,
+  connecting,
+  connectable,
 }: BaseProps & { isa: Isa }) {
   const { w, h } = NODE_SIZE.isa;
   const hw = w / 2;
@@ -176,7 +200,7 @@ export const IsaShape = memo(function IsaShape({
   const points = `0,${h} ${w},${h} ${hw},0`;
   return (
     <g
-      className="node"
+      className={`node${connectClass({ connecting, connectable })}`}
       transform={`translate(${isa.x} ${isa.y})`}
       onPointerDown={onPointerDown}
       role="button"

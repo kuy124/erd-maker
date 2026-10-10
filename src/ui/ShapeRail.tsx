@@ -85,7 +85,8 @@ export function ShapeRail({ state, onAdd }: Props) {
       <div className="rail__group">
         <h2 className="panel__title">Connect</h2>
         <p className="rail__hint">
-          Hold <kbd>Shift</kbd> and click two shapes to draw a relationship between them.
+          Hold <kbd>Shift</kbd> and click two shapes to draw a relationship between them. A line follows
+          your pointer, so you can see what will connect before you click.
         </p>
       </div>
     </aside>

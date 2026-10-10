@@ -100,7 +100,7 @@ export function serializeSvg(
 
   // Remove editing-only chrome: selection rings, peer cursors, hit targets.
   // Table row rules are NOT removed: they are part of the drawing.
-  for (const selector of ['.selection-ring', '.peer-cursor', '.peer-ring', '.hit-target', '.leg-hit']) {
+  for (const selector of ['.selection-ring', '.peer-cursor', '.peer-ring', '.hit-target', '.leg-hit', '.connect-preview']) {
     clone.querySelectorAll(selector).forEach((n) => n.remove());
   }
 

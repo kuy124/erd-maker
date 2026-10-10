@@ -41,6 +41,17 @@ The crow's-foot view is the same document drawn a different way, not a second mo
 becomes a table, key attributes become the primary key, and relationships become crow's-foot
 connectors.
 
+## Drawing
+
+Select a shape, then press `A` to add an attribute. It lands beside its owner in a column, already
+connected, with its name ready to type — press `A` again to add another to the same shape.
+
+To draw a relationship line, hold `Shift` and click two shapes. A dashed line follows your pointer and
+the shape under it is highlighted, so you can see what will connect before you click. `Escape` or a
+click on empty paper cancels.
+
+`Tidy` arranges everything, so a diagram built in any order still reads properly.
+
 ## Collaboration
 
 - **Same browser, several tabs** sync over `BroadcastChannel`. No network at all.

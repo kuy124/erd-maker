@@ -125,7 +125,8 @@ test.describe('editor basics', () => {
     await addShape(page, 'isa');
 
     await expect(node(page, /^Entity New entity/i)).toBeVisible();
-    await expect(node(page, /^Attribute attribute/i)).toBeVisible();
+    // The entity is still selected, so this attribute is owned and numbered.
+    await expect(node(page, /^Attribute 1/i)).toBeVisible();
     await expect(node(page, /^Relationship relationship/i)).toBeVisible();
     await expect(node(page, 'Specialization')).toBeVisible();
   });
@@ -186,6 +187,97 @@ test.describe('editor basics', () => {
     // Owner is the selected entity; one connector line should be drawn.
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(1);
   });
+
+  test('an attribute lands beside its owner, not in a distant slot', async ({ page }) => {
+    await openApp(page);
+    // Put the entity well away from the origin, so a free slot would be far off.
+    await addNamedEntity(page, 'Customer');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click();
+    await addShape(page, 'attribute');
+
+    const entity = (await node(page, /Entity Customer/i).boundingBox())!;
+    const attribute = (await page.getByTestId('canvas').locator('[data-node-id^="attr_"]').boundingBox())!;
+
+    // Beside means horizontally separated but vertically overlapping: the
+    // attribute must share a row with its owner, not float away from it.
+    expect(attribute.x).toBeGreaterThan(entity.x + entity.width - 5);
+    const overlapTop = Math.max(entity.y, attribute.y);
+    const overlapBottom = Math.min(entity.y + entity.height, attribute.y + attribute.height);
+    expect(overlapBottom - overlapTop, 'attribute should share a row with its owner').toBeGreaterThan(0);
+  });
+
+  test('a second attribute stacks below the first', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click();
+    await addShape(page, 'attribute');
+    await addShape(page, 'attribute');
+
+    const attrs = page.getByTestId('canvas').locator('[data-node-id^="attr_"]');
+    await expect(attrs).toHaveCount(2);
+    const first = (await attrs.nth(0).boundingBox())!;
+    const second = (await attrs.nth(1).boundingBox())!;
+    // The two must not overlap each other.
+    expect(second.y).toBeGreaterThan(first.y + first.height - 5);
+  });
+
+  test('attributes added to different entities do not collide', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click();
+    await addShape(page, 'attribute');
+    await node(page, /Entity Order/i).click();
+    await addShape(page, 'attribute');
+
+    const attrs = page.getByTestId('canvas').locator('[data-node-id^="attr_"]');
+    await expect(attrs).toHaveCount(2);
+    const a = (await attrs.nth(0).boundingBox())!;
+    const b = (await attrs.nth(1).boundingBox())!;
+    const separated =
+      a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+    expect(separated, 'attributes of different entities must not overlap').toBe(true);
+  });
+
+  test('an attribute with no owner still gets a free slot', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    // Nothing selected, so this one floats.
+    await canvas(page).click({ position: { x: 40, y: 40 } });
+    await addShape(page, 'attribute');
+
+    const attribute = page.getByTestId('canvas').locator('[data-node-id^="attr_"]');
+    await expect(attribute).toHaveCount(1);
+    const entity = (await node(page, /Entity Customer/i).boundingBox())!;
+    const box = (await attribute.boundingBox())!;
+    const overlapping =
+      box.x < entity.x + entity.width && box.x + box.width > entity.x &&
+      box.y < entity.y + entity.height && box.y + box.height > entity.y;
+    expect(overlapping, 'a floating attribute must not land on an entity').toBe(false);
+    // With no owner there is no connector line.
+    await expect(page.locator('.layer-legs line.leg')).toHaveCount(0);
+  });
+
+  test('attributes are numbered so they are not all called attribute', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await node(page, /Entity Customer/i).click();
+    await addShape(page, 'attribute');
+    await addShape(page, 'attribute');
+
+    const attrs = page.getByTestId('canvas').locator('[data-node-id^="attr_"]');
+    await expect(attrs.nth(0)).toHaveAttribute('aria-label', /Attribute 1/);
+    await expect(attrs.nth(1)).toHaveAttribute('aria-label', /Attribute 2/);
+  });
 });
 
 test.describe('keyboard shortcuts', () => {
@@ -194,7 +286,8 @@ test.describe('keyboard shortcuts', () => {
     await page.keyboard.press('e');
     await expect(node(page, /Entity New entity/i)).toBeVisible();
     await page.keyboard.press('a');
-    await expect(node(page, /Attribute attribute/i)).toBeVisible();
+    // Pressing A while an entity is selected attaches the attribute to it.
+    await expect(node(page, /Attribute 1/i)).toBeVisible();
     await page.keyboard.press('r');
     await expect(node(page, /Relationship relationship/i)).toBeVisible();
     await page.keyboard.press('s');
@@ -240,6 +333,94 @@ test.describe('connections', () => {
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
 
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(2);
+  });
+
+  test('shows a preview line while a connection is being drawn', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    // Nothing is pending before the gesture starts.
+    await expect(page.getByTestId('connect-preview')).toHaveCount(0);
+
+    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+
+    // The source shape is marked, and moving the pointer draws a preview.
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+    await node(page, /Entity Order/i).hover();
+    await expect(page.getByTestId('connect-preview')).toHaveCount(1);
+
+    // The shape under the pointer is marked as the target.
+    await expect(page.locator('.node--connectable')).toHaveCount(1);
+
+    // Completing the gesture draws a real line and clears the preview.
+    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await expect(page.getByTestId('connect-preview')).toHaveCount(0);
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
+    await expect(page.locator('.layer-legs line.leg')).toHaveCount(1);
+  });
+
+  test('the preview line is not part of an export', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await node(page, /Entity Order/i).hover();
+    await expect(page.getByTestId('connect-preview')).toHaveCount(1);
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('button', { name: 'Download SVG' }).click();
+    const file = await downloadPromise;
+
+    const stream = await file.createReadStream();
+    let svg = '';
+    for await (const chunk of stream) svg += String(chunk);
+    expect(svg).not.toContain('connect-preview');
+  });
+
+  test('Escape cancels a connection in progress', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await node(page, /Entity Order/i).hover();
+    await expect(page.getByTestId('connect-preview')).toHaveCount(1);
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('connect-preview')).toHaveCount(0);
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
+
+    // The second shift-click must start a fresh gesture rather than completing
+    // the cancelled one.
+    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+    await expect(page.locator('.layer-legs line.leg')).toHaveCount(0);
+  });
+
+  test('clicking empty paper cancels a connection in progress', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+
+    // Click a far corner of the canvas, well away from any shape.
+    const box = (await canvas(page).boundingBox())!;
+    await page.mouse.click(box.x + 30, box.y + box.height - 30);
+
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
   });
 
   test('a new line defaults to cardinality 1 and can be changed to N', async ({ page }) => {

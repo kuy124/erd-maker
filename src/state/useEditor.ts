@@ -24,6 +24,7 @@ import {
   upsertRelationship,
 } from '../collab/ydoc';
 import { newRoomId, parseShareHash } from '../model/snapshot';
+import { findAttributeSlot } from '../model/placement';
 import { emptyDocument, type ErdDocument } from '../model/types';
 
 export type Tool = 'select' | 'pan';
@@ -254,9 +255,30 @@ export function useEditor(): EditorState {
       return id;
     },
 
+    /**
+     * Adds an attribute.
+     *
+     * When `ownerId` is given, the attribute is placed beside that shape rather
+     * than at a free slot somewhere else, because in Chen notation the
+     * connector line is what says which shape an attribute describes. Landing it
+     * across the canvas turns a readable diagram into a hairball and costs a
+     * drag to fix every time.
+     *
+     * Reads the document straight from Yjs rather than from React state: this
+     * closure is memoised on the room, so the state captured here would be
+     * whatever the document looked like when the room was created.
+     */
     addAttribute: (x, y, ownerId = null) => {
       const id = makeId('attr');
-      mutate(() => upsertAttribute(room.ydoc, { id, name: 'attribute', x, y, kind: 'simple', ownerId }));
+      const live = snapshotFromYdoc(room.ydoc);
+      const slot = findAttributeSlot(live, ownerId);
+      const nextX = slot ? slot.x : x;
+      const nextY = slot ? slot.y : y;
+      // Numbered rather than all called "attribute", so a diagram with several
+      // attributes does not look like a row of identical shapes.
+      const index = live.attributes.filter((a) => a.ownerId === ownerId).length + 1;
+      const name = ownerId ? String(index) : 'attribute';
+      mutate(() => upsertAttribute(room.ydoc, { id, name, x: nextX, y: nextY, kind: 'simple', ownerId }));
       setSelection(id);
       return id;
     },
