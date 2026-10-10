@@ -1,0 +1,1001 @@
+/*
+ * ERD Maker — design tokens and layout.
+ *
+ * The visual thesis: the interface is built from the diagram's own primitives.
+ * Chrome is hairline ink on drafting paper, with no shadows and no fills, so
+ * the only saturated colour on screen is either a collaborator's identity or
+ * an active state. Nothing here is decorative.
+ *
+ * Tokens are defined once and everything derives from them. Radii vary by
+ * purpose rather than being one value everywhere: 0 for the canvas furniture
+ * that should read as drawn, 2px for controls that should read as pressed
+ * metal, 999px only for the presence avatars.
+ */
+
+:root {
+  /* Surfaces */
+  --paper: #f2f4f3;
+  --paper-raised: #fbfcfb;
+  --grid-fine: #e4e8e6;
+  --grid-major: #d8dedb;
+  --rule: #d3d8d6;
+  /* Borders on interactive controls must clear 3:1 against the surface behind
+     them, which is what makes an input identifiable without relying on its
+     placeholder. `--rule` is for separators, where that bar does not apply. */
+  --rule-strong: #7f8a87;
+
+  /* Ink */
+  --ink: #16181a;
+  --ink-secondary: #5b6167;
+  /* Tertiary is used for 11px helper text, so it has to clear 4.5:1 like any
+     other body copy — small text is exactly where a too-light grey fails. */
+  --ink-tertiary: #666e73;
+  --ink-inverse: #fbfcfb;
+
+  /* Signal: reserved for selection and live presence. Nothing else uses it. */
+  --signal: #0f7b8a;
+  --signal-quiet: #d9ebee;
+  --signal-strong: #0a5c68;
+
+  /* Semantic */
+  --danger: #a32d1f;
+  --danger-quiet: #f7e4e1;
+  --warn: #8a5a00;
+
+  /* Type */
+  --font-sans: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+
+  /* Spacing scale, 4px base */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
+  --s7: 3rem;
+
+  /* Radii, by purpose */
+  --r-drawn: 0;
+  --r-control: 2px;
+  --r-panel: 3px;
+  --r-pill: 999px;
+
+  /* Motion. Exits are faster than entrances; everything is short. */
+  --t-fast: 90ms;
+  --t-base: 140ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  --hairline: 1px;
+
+  color-scheme: light;
+}
+
+/* Dark mode is designed, not inverted: surfaces lighten with elevation and
+   chroma is pulled back so the signal colour does not glow.
+ *
+ * It follows the operating system rather than a toggle in the UI. A diagram
+ * tool is used alongside an editor and a terminal, so the honest default is to
+ * match the rest of the screen; a theme switch would be one more piece of
+ * chrome to build, persist, and get wrong. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14171a;
+    --paper-raised: #1b1f22;
+    --grid-fine: #1f2428;
+    --grid-major: #262c30;
+    --rule: #2b3136;
+    --rule-strong: #68737a;
+
+    --ink: #e8eceb;
+    --ink-secondary: #a4adb2;
+    --ink-tertiary: #98a1a6;
+    --ink-inverse: #14171a;
+
+    --signal: #3fa8b8;
+    --signal-quiet: #17383d;
+    --signal-strong: #6cc4d2;
+
+    --danger: #e0776a;
+    --danger-quiet: #3a2320;
+    --warn: #d9a441;
+
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus is visible everywhere, never removed. */
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------- shell */
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-bottom: var(--hairline) solid var(--rule);
+  background: var(--paper-raised);
+}
+
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  white-space: nowrap;
+  margin: 0;
+}
+
+.wordmark__mark {
+  font-weight: 500;
+  color: var(--signal);
+}
+
+.docname {
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--ink);
+  background: transparent;
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-control);
+  padding: var(--s1) var(--s2);
+  min-width: 8ch;
+  max-width: 40ch;
+  width: 28ch;
+}
+
+.docname:hover {
+  border-color: var(--rule);
+}
+
+.docname:focus {
+  border-color: var(--signal);
+  background: var(--paper);
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+/* ------------------------------------------------------------- controls */
+
+.btn {
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--paper-raised);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--r-control);
+  padding: var(--s2) var(--s3);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--paper);
+  border-color: var(--ink-tertiary);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--grid-major);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  color: var(--ink-inverse);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #2b3033;
+  border-color: #2b3033;
+}
+
+.btn--ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--grid-fine);
+  border-color: transparent;
+}
+
+.btn--danger {
+  color: var(--danger);
+  border-color: var(--rule);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-quiet);
+  border-color: var(--danger);
+}
+
+.btn--icon {
+  padding: var(--s2);
+}
+
+/* ---------------------------------------------------------------- body */
+
+.workspace {
+  display: grid;
+  /* 176px is the width "Specialization" actually needs at 13px, plus the button
+     padding and glyph column. The rail is also the legend, so a truncated
+     notation name is worse than a few pixels of canvas. */
+  grid-template-columns: 176px 1fr 268px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rail,
+.inspector {
+  overflow-y: auto;
+  background: var(--paper-raised);
+  min-height: 0;
+}
+
+.rail {
+  border-right: var(--hairline) solid var(--rule);
+  padding: var(--s3) var(--s2);
+}
+
+.inspector {
+  border-left: var(--hairline) solid var(--rule);
+  padding: var(--s3);
+}
+
+.panel__title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-tertiary);
+  margin: 0 0 var(--s2);
+}
+
+.rail__group {
+  margin-bottom: var(--s4);
+}
+
+.rail__hint {
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+  line-height: 1.45;
+  margin: var(--s1) 0 0;
+}
+
+.shape-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: var(--s2);
+  margin-bottom: 2px;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: transparent;
+  border: var(--hairline) solid transparent;
+  border-radius: var(--r-control);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.shape-btn:hover {
+  background: var(--grid-fine);
+}
+
+.shape-btn[aria-pressed='true'] {
+  background: var(--signal-quiet);
+  border-color: var(--signal);
+}
+
+.shape-btn__glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 20px;
+}
+
+.shape-btn__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shape-btn__key {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--r-control);
+  padding: 0 4px;
+  line-height: 1.4;
+}
+
+/* -------------------------------------------------------------- canvas */
+
+.canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--paper);
+  background-image:
+    linear-gradient(var(--grid-fine) var(--hairline), transparent var(--hairline)),
+    linear-gradient(90deg, var(--grid-fine) var(--hairline), transparent var(--hairline)),
+    linear-gradient(var(--grid-major) var(--hairline), transparent var(--hairline)),
+    linear-gradient(90deg, var(--grid-major) var(--hairline), transparent var(--hairline));
+  background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px;
+  cursor: default;
+  min-width: 0;
+}
+
+.canvas-wrap[data-tool='pan'] {
+  cursor: grab;
+}
+
+.canvas-wrap[data-tool='pan']:active {
+  cursor: grabbing;
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.canvas text {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Shapes read as drawn: no fill except paper, hairline ink. */
+.node__body {
+  fill: var(--paper-raised);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.node--weak .node__body {
+  fill: none;
+}
+
+.node__label {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+}
+
+.node__key-line {
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+
+.leg {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.leg--selected {
+  stroke: var(--signal);
+  stroke-width: 2;
+}
+
+/* An invisible, wider band over each relationship line so the thin stroke is
+   still easy to click. It must not appear in exports. */
+.leg-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.leg__cardinality {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  cursor: pointer;
+}
+
+.leg__participation {
+  fill: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  cursor: pointer;
+}
+
+.selection-ring {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  pointer-events: none;
+}
+
+.isa-triangle {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.isa-label {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  paint-order: stroke;
+  stroke: var(--paper);
+  stroke-width: 3px;
+}
+
+/* Crow's-foot table typography. The header is the table's name; rows carry a
+   key marker, the column name, and a type. Numerals and types are mono so
+   columns line up across tables. */
+.crow-table__name {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  dominant-baseline: middle;
+}
+
+.crow-row__key {
+  fill: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  dominant-baseline: middle;
+}
+
+.crow-row__name {
+  fill: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  dominant-baseline: middle;
+}
+
+/* Primary keys are underlined, matching the Chen view's key convention. */
+.crow-row__name--pk {
+  text-decoration: underline;
+}
+
+.crow-row__type {
+  fill: var(--ink-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-anchor: end;
+  dominant-baseline: middle;
+}
+
+.crow-row__rule {
+  stroke: var(--grid-fine);
+  stroke-width: 1;
+}
+
+/* Peer cursors and selection. Name always accompanies colour. */
+.peer-cursor__name {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ink-inverse);
+}
+
+.peer-cursor__chip {
+  rx: var(--r-control);
+}
+
+.peer-ring {
+  fill: none;
+  stroke-width: 2;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+}
+
+/* Live connection state, top-left of the canvas. */
+.canvas-status {
+  position: absolute;
+  top: var(--s3);
+  left: var(--s3);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  color: var(--ink-secondary);
+  background: var(--paper-raised);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--r-control);
+  padding: var(--s1) var(--s2);
+  pointer-events: none;
+}
+
+.canvas-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--ink-tertiary);
+}
+
+.canvas-status__dot--live {
+  background: var(--signal);
+}
+
+.canvas-status__dot--offline {
+  background: var(--warn);
+}
+
+/* Empty state sits in the middle of the paper and invites the first action.
+   It gets its own solid surface because it overlays the drafting grid: helper
+   text sitting directly on a grid line drops below 4.5:1, and the grid is
+   decoration that should never cost legibility. The fill matches the canvas
+   base, so the only visible difference is that lines no longer cross the copy. */
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  pointer-events: none;
+  padding: var(--s5);
+}
+
+.canvas-empty__card {
+  display: grid;
+  justify-items: center;
+  gap: var(--s3);
+  text-align: center;
+  max-width: 52ch;
+  padding: var(--s5) var(--s6);
+  background: var(--paper);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--r-panel);
+}
+
+.canvas-empty__title {
+  font-size: var(--text-lg);
+  font-weight: 500;
+  margin: 0;
+  color: var(--ink);
+}
+
+.canvas-empty__body {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  margin: 0;
+  max-width: 46ch;
+  line-height: 1.55;
+}
+
+.canvas-empty__hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+  margin: 0;
+}
+
+/* ---------------------------------------------------------- inspector */
+
+.field {
+  margin-bottom: var(--s3);
+}
+
+.field__label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-secondary);
+  margin-bottom: var(--s1);
+}
+
+.field__input,
+.field__select {
+  font: inherit;
+  font-size: var(--text-sm);
+  width: 100%;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--r-control);
+  padding: var(--s2);
+}
+
+.field__input:focus,
+.field__select:focus {
+  border-color: var(--signal);
+}
+
+.field__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s2);
+}
+
+.field__help {
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+  margin: var(--s1) 0 0;
+  line-height: 1.4;
+}
+
+.seg {
+  display: flex;
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--r-control);
+  overflow: hidden;
+}
+
+.seg__btn {
+  flex: 1;
+  font-family: inherit;
+  font-size: var(--text-xs);
+  padding: var(--s2) var(--s1);
+  background: var(--paper-raised);
+  border: 0;
+  border-right: var(--hairline) solid var(--rule);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out);
+}
+
+.seg__btn:last-child {
+  border-right: 0;
+}
+
+.seg__btn:hover {
+  background: var(--grid-fine);
+}
+
+.seg__btn[aria-pressed='true'] {
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-weight: 600;
+}
+
+.inspector__empty {
+  font-size: var(--text-sm);
+  color: var(--ink-tertiary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.attr-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.attr-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s1) 0;
+  font-size: var(--text-sm);
+  border-bottom: var(--hairline) solid var(--grid-fine);
+}
+
+.attr-list__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attr-list__tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+}
+
+/* ------------------------------------------------------------ statusbar */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s1) var(--s3);
+  border-top: var(--hairline) solid var(--rule);
+  background: var(--paper-raised);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  min-height: 34px;
+}
+
+.statusbar__group {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.statusbar__spacer {
+  flex: 1;
+}
+
+.statusbar__count {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.statusbar__sep {
+  width: var(--hairline);
+  height: 16px;
+  background: var(--rule);
+}
+
+/* Presence avatars. Colour is always paired with the name in the title. */
+.presence {
+  display: flex;
+  align-items: center;
+}
+
+.presence__avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-inverse);
+  border: 2px solid var(--paper-raised);
+  margin-left: -6px;
+}
+
+.presence__avatar:first-child {
+  margin-left: 0;
+}
+
+.presence__label {
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  margin-left: var(--s2);
+}
+
+/* --------------------------------------------------------------- modal */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(12 14 15 / 0.42);
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+  z-index: 50;
+}
+
+.modal {
+  background: var(--paper-raised);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--r-panel);
+  width: min(560px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: var(--hairline) solid var(--rule);
+}
+
+.modal__title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal__body {
+  padding: var(--s4);
+  overflow-y: auto;
+}
+
+.modal__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-top: var(--hairline) solid var(--rule);
+}
+
+.modal__footer .spacer {
+  flex: 1;
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: pre;
+  overflow: auto;
+  background: var(--paper);
+  border: var(--hairline) solid var(--rule);
+  border-radius: var(--r-control);
+  padding: var(--s3);
+  margin: 0;
+  max-height: 46vh;
+  color: var(--ink);
+}
+
+.field__input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.note {
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  line-height: 1.5;
+  margin: var(--s3) 0 0;
+}
+
+.note--warn {
+  color: var(--warn);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--s3);
+  top: -100px;
+  z-index: 100;
+  background: var(--ink);
+  color: var(--ink-inverse);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-control);
+  font-size: var(--text-sm);
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: var(--s3);
+}
+
+/* ---------------------------------------------------------- responsive */
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 56px 1fr 0;
+  }
+
+  .rail__group .panel__title,
+  .shape-btn__label,
+  .shape-btn__key,
+  .rail__hint {
+    display: none;
+  }
+
+  .shape-btn {
+    justify-content: center;
+  }
+
+  .inspector {
+    display: none;
+  }
+}
+
+/* The inspector becomes a bottom sheet when it has content on small screens. */
+@media (max-width: 640px) {
+  .workspace {
+    grid-template-columns: 52px 1fr 0;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: var(--s2);
+  }
+
+  .docname {
+    width: 100%;
+    order: 10;
+  }
+
+  .statusbar {
+    flex-wrap: wrap;
+    row-gap: var(--s1);
+  }
+}
