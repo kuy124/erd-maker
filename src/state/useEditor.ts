@@ -47,6 +47,12 @@ export interface EditorState {
   directPeers: number;
   loaded: boolean;
   selection: string | null;
+  /**
+   * The shape created by the most recent add, or null. The inspector focuses
+   * its name field for this one, so a new shape can be named straight away
+   * without clicking into the panel.
+   */
+  justCreated: string | null;
   viewport: Viewport;
   tool: Tool;
   setTool: (tool: Tool) => void;
@@ -102,6 +108,14 @@ export function useEditor(): EditorState {
   const [connected, setConnected] = useState(false);
   const [directPeers, setDirectPeers] = useState(0);
   const [selection, setSelection] = useState<string | null>(null);
+  /**
+   * The id of the shape created by the most recent add, or null.
+   *
+   * Tracked separately from `selection` because they are not the same thing: a
+   * shape being selected is not a reason to pull focus into the inspector, but
+   * a shape having just been created is, so its name can be typed straight away.
+   */
+  const [justCreated, setJustCreated] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>('select');
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [identity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
@@ -191,7 +205,7 @@ export function useEditor(): EditorState {
     [room],
   );
 
-  const api = useMemo<Omit<EditorState, 'doc' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
+  const api = useMemo<Omit<EditorState, 'doc' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
     setTool,
     setSelection,
     setViewport,
@@ -252,6 +266,7 @@ export function useEditor(): EditorState {
       const id = makeId('ent');
       mutate(() => upsertEntity(room.ydoc, { id, name: 'New entity', x, y, kind: 'strong' }));
       setSelection(id);
+      setJustCreated(id);
       return id;
     },
 
@@ -280,6 +295,7 @@ export function useEditor(): EditorState {
       const name = ownerId ? String(index) : 'attribute';
       mutate(() => upsertAttribute(room.ydoc, { id, name, x: nextX, y: nextY, kind: 'simple', ownerId }));
       setSelection(id);
+      setJustCreated(id);
       return id;
     },
 
@@ -287,6 +303,7 @@ export function useEditor(): EditorState {
       const id = makeId('rel');
       mutate(() => upsertRelationship(room.ydoc, { id, name: 'relationship', x, y, kind: 'strong' }));
       setSelection(id);
+      setJustCreated(id);
       return id;
     },
 
@@ -294,6 +311,7 @@ export function useEditor(): EditorState {
       const id = makeId('isa');
       mutate(() => upsertIsa(room.ydoc, { id, x, y, parentId: null, childIds: [] }));
       setSelection(id);
+      setJustCreated(id);
       return id;
     },
 
@@ -358,5 +376,6 @@ export function useEditor(): EditorState {
     ydoc: room.ydoc,
     awareness: room.awareness,
     ...api,
+    justCreated,
   };
 }

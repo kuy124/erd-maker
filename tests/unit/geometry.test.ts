@@ -6,6 +6,7 @@ import {
   edgePoint,
   ellipseEdge,
   hitTestNode,
+  legLabelPoints,
   offsetToward,
   rectEdge,
   segmentBetween,
@@ -181,6 +182,32 @@ describe('offsetToward', () => {
 
   it('returns the original point when direction is degenerate', () => {
     expect(offsetToward({ x: 3, y: 4 }, { x: 3, y: 4 }, 10)).toEqual({ x: 3, y: 4 });
+  });
+});
+
+describe('legLabelPoints', () => {
+  it('puts the labels at their fractions of the leg, off the line', () => {
+    const [near, far] = legLabelPoints({ x: 0, y: 0 }, { x: 100, y: 0 }, [0.25, 0.5]);
+    // Travelling +x, the normal is (0, 1) in screen coordinates.
+    expect(near.x).toBeCloseTo(25);
+    expect(far.x).toBeCloseTo(50);
+    expect(near.y).toBeCloseTo(14);
+    expect(far.y).toBe(near.y);
+  });
+
+  it('separates labels on legs that share a start point and direction', () => {
+    // The case that broke it: Tidy stacked both entities in one column, so both
+    // legs leave the same vertex going the same way. A fixed offset put both
+    // cardinality labels on one pixel, unreadable and unclickable.
+    const vertex = { x: 75, y: 360 };
+    const [a] = legLabelPoints(vertex, { x: 75, y: 60 }, [0.28, 0.52]);
+    const [b] = legLabelPoints(vertex, { x: 75, y: 240 }, [0.28, 0.52]);
+    expect(a.y).not.toBeCloseTo(b.y);
+  });
+
+  it('returns the shared point when the leg has no length', () => {
+    const p = { x: 3, y: 4 };
+    expect(legLabelPoints(p, p, [0.3, 0.6])).toEqual([{ ...p }, { ...p }]);
   });
 });
 

@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
-import { documentBounds, edgePoint, offsetToward, segmentBetween } from './geometry';
+import { documentBounds, edgePoint, legLabelPoints, segmentBetween } from './geometry';
 import { AttributeShape, EntityShape, IsaShape, RelationshipShape } from './NodeShapes';
 import { useDrag } from './useDrag';
 import type { ErdDocument } from '../model/types';
@@ -105,10 +105,35 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
     [doc],
   );
 
+  /**
+   * Gives the keyboard back to the canvas when the canvas is clicked.
+   *
+   * Blurring the panel is not enough on its own: the browser still runs its
+   * own focus handling for the click, and ends up restoring focus to the name
+   * field afterwards. The visible symptom is that after clicking the diagram,
+   * typing goes into the inspector instead of doing the shortcut the user
+   * pressed, and `Escape` merely blurs instead of cancelling a connection.
+   *
+   * Cancelling the default action stops that browser focus work, and focusing
+   * the canvas puts the keyboard where the user just clicked. Drags still work
+   * because movement is tracked with pointer events, which this does not block.
+   */
+  const focusCanvas = useCallback(
+    (event: React.PointerEvent) => {
+      event.preventDefault();
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || !containerRef.current?.contains(active)) {
+        svgRef.current?.focus();
+      }
+    },
+    [svgRef],
+  );
+
   const handleNodePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
       event.stopPropagation();
       if (tool === 'pan') return;
+      focusCanvas(event);
 
       // Shift-click connects two nodes, which is the fast path for drawing a leg.
       if (event.shiftKey) {
@@ -120,7 +145,24 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
           if (!isAttribute(displayDoc, id)) setConnectFrom(id);
         } else if (connectFrom !== id && canConnect(displayDoc, connectFrom, id)) {
           state.connect(connectFrom, id);
-          setConnectFrom(null);
+          // Chen relationships are drawn as a chain: entity, diamond, entity.
+          // Staying on the diamond means the next click completes the other
+          // side rather than restarting the gesture, which is what someone
+          // drawing that shape wants next.
+          //
+          // It closes once both sides are joined, because leaving it open would
+          // keep saying "pick another shape" on a relationship that is already
+          // finished. A ternary relationship is still possible: shift-click the
+          // diamond again to start a third leg.
+          const anchorId = displayDoc.relationships.some((r) => r.id === connectFrom)
+            ? connectFrom
+            : displayDoc.relationships.some((r) => r.id === id)
+              ? id
+              : null;
+          const sides = anchorId
+            ? displayDoc.legs.filter((l) => l.fromId === anchorId || l.toId === anchorId).length + 1
+            : 0;
+          setConnectFrom(sides >= 2 ? null : anchorId);
         }
         // Clear the preview: the gesture is either started, finished, or was
         // refused, and either way it is not in flight.
@@ -134,7 +176,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
       const node = nodeAt(world.x, world.y);
       if (node) drag.beginNodeDrag(node.id, world.x, world.y, node.x, node.y);
     },
-    [tool, connectFrom, setConnectFrom, state, toWorld, nodeAt, drag],
+    [tool, connectFrom, setConnectFrom, state, toWorld, nodeAt, drag, focusCanvas],
   );
 
   const handleBackgroundPointerDown = useCallback(
@@ -146,6 +188,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
       }
       // Clicking empty paper clears the selection and any pending connection.
       if (tool === 'select' && event.button === 0) {
+        focusCanvas(event);
         setConnectFrom(null);
         setConnectPointer(null);
         setConnectTarget(null);
@@ -153,7 +196,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
         drag.beginPan(event.clientX, event.clientY);
       }
     },
-    [tool, drag, setConnectFrom, state],
+    [tool, drag, setConnectFrom, state, focusCanvas],
   );
 
   /**
@@ -180,6 +223,17 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
     if (connectFrom === null) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      // Escape inside a text field belongs to the field: it means "I am done
+      // typing", and the app-level handler moves focus back to the canvas.
+      // Cancelling here as well would silently discard a connection the user
+      // was about to complete — they named the relationship, pressed Escape to
+      // get back to the canvas, and found it unconnected.
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true;
+      if (typing) return;
       setConnectFrom(null);
       setConnectPointer(null);
       setConnectTarget(null);
@@ -257,6 +311,9 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
         role="application"
         aria-label="Entity relationship diagram canvas"
         data-testid="canvas"
+        // Focusable so clicking the diagram can hand the keyboard back to it.
+        // See `focusCanvas`.
+        tabIndex={-1}
       >
         {/* `data-viewport` marks the pan and zoom group. The exporter resets it,
             because a file that keeps the on-screen transform lands outside its
@@ -271,6 +328,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
               const seg = segmentBetween(displayDoc, leg.fromId, leg.toId);
               if (!seg) return null;
               const isSelected = selection === leg.id;
+              const labels = legLabelPoints(seg.from, seg.to, [0.28, 0.52]);
               return (
                 <g key={leg.id} className="leg-group">
                   {/* An invisible wider band under the visible line, so the thin
@@ -296,14 +354,16 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                     x2={seg.to.x}
                     y2={seg.to.y}
                   />
-                  {/* Cardinality sits near the source end, participation just inside it.
-                      Both labels select the leg when clicked, which is the
-                      natural way to change a cardinality: click the number. */}
+                  {/* Cardinality sits near the source end, participation a little
+                      further along. Both labels select the leg when clicked,
+                      which is the natural way to change a cardinality: click
+                      the number. `legLabelPoints` keeps them from landing on top
+                      of each other when two legs share a start point. */}
                   <text
                     className="leg__cardinality"
                     data-testid="leg-cardinality"
-                    x={offsetToward(seg.from, seg.to, 22).x}
-                    y={offsetToward(seg.from, seg.to, 22).y}
+                    x={labels[0].x}
+                    y={labels[0].y}
                     onPointerDown={(event) => {
                       event.stopPropagation();
                       state.setSelection(leg.id);
@@ -314,8 +374,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                   <text
                     className="leg__participation"
                     data-testid="leg-participation"
-                    x={offsetToward(seg.from, seg.to, 46).x}
-                    y={offsetToward(seg.from, seg.to, 46).y}
+                    x={labels[1].x}
+                    y={labels[1].y}
                     onPointerDown={(event) => {
                       event.stopPropagation();
                       state.setSelection(leg.id);

@@ -147,6 +147,38 @@ export function segmentBetween(doc: ErdDocument, fromId: NodeId, toId: NodeId): 
   };
 }
 
+/**
+ * Where a leg's cardinality and participation labels sit.
+ *
+ * Placed at a fraction of the leg rather than a fixed distance from its start.
+ * Two legs can leave the same shape in the same direction — a relationship
+ * joined to two entities Tidy stacked in one column, for instance — and a fixed
+ * offset then puts both labels on the identical pixel, leaving them unreadable
+ * and impossible to click. A fraction separates them, because the two legs have
+ * different lengths.
+ *
+ * Nudged sideways off the line so the text does not sit on the stroke.
+ */
+export function legLabelPoints(
+  from: Point,
+  to: Point,
+  fractions: [number, number],
+  standoff = 14,
+): [Point, Point] {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return [{ ...from }, { ...from }];
+  // Unit normal to the leg. Points to the left of the direction of travel.
+  const nx = -dy / len;
+  const ny = dx / len;
+  const place = (fraction: number): Point => ({
+    x: from.x + dx * fraction + nx * standoff,
+    y: from.y + dy * fraction + ny * standoff,
+  });
+  return [place(fractions[0]), place(fractions[1])];
+}
+
 /** A point offset from `point` toward `toward` by `distance` pixels. */
 export function offsetToward(point: Point, toward: Point, distance: number): Point {
   const dx = toward.x - point.x;

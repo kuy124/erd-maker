@@ -73,11 +73,20 @@ export function App() {
       }
 
       const { x, y } = findFreeSlot(occupiedBoxes(state.doc));
-      if (kind === 'entity') state.addEntity(x, y);
-      else if (kind === 'relationship') state.addRelationship(x, y);
-      else state.addIsa(x, y);
+      if (kind === 'entity') {
+        state.addEntity(x, y);
+      } else if (kind === 'relationship') {
+        // A relationship means nothing until it joins two entities, so adding
+        // one starts the connection gesture from it. That removes the "which
+        // shape do I start from" decision — the shape just made is the obvious
+        // answer — and turns a four-click job into two.
+        const id = state.addRelationship(x, y);
+        if (id) setConnectFrom(id);
+      } else {
+        state.addIsa(x, y);
+      }
     },
-    [state],
+    [state, setConnectFrom],
   );
 
   /**

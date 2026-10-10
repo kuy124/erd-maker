@@ -77,6 +77,23 @@ async function addShape(page: Page, kind: 'entity' | 'attribute' | 'relationship
   await page.getByTestId(`add-${kind}`).click();
 }
 
+/**
+ * Connects a relationship to two entities.
+ *
+ * Adding a relationship starts the connection gesture from it and each
+ * completed leg stays on the diamond, so two shift-clicks finish the chain.
+ */
+async function connectBothSides(
+  page: Page,
+  rel: RegExp,
+  first: RegExp,
+  second: RegExp,
+): Promise<void> {
+  await node(page, first).click({ modifiers: ['Shift'] });
+  await node(page, second).click({ modifiers: ['Shift'] });
+  await expect(node(page, rel)).toBeVisible();
+}
+
 /** The inspector's name field for whatever is selected. */
 const nameField = (page: Page) => page.getByTestId('inspector-name');
 
@@ -350,12 +367,88 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Tidy' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
-    await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await connectBothSides(
+      page,
+      /Relationship places/i,
+      /Entity Customer/i,
+      /Entity Order/i,
+    );
 
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(2);
+  });
+
+  test('a new relationship is ready to connect as soon as it is made', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await addShape(page, 'relationship');
+    await nameField(page).fill('places');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    // The relationship just added is already the connection source, so there is
+    // nothing to select before connecting it.
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+    await node(page, /Entity Customer/i).hover();
+    await expect(page.locator('.node--connectable')).toHaveCount(1);
+
+    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    // One leg drawn, and the gesture stays on the diamond for the second.
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(1);
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+
+    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
+    // The gesture is finished.
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
+  });
+
+  test('Escape abandons a relationship the app started connecting', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addShape(page, 'relationship');
+    await nameField(page).fill('places');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(0);
+  });
+
+  test('Escape while naming a relationship does not cancel the connection', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await addShape(page, 'relationship');
+
+    // Escape here means "I am done typing". It must not also throw away the
+    // connection that was waiting to be made — the user would name the
+    // relationship, step back to the canvas, and find it unconnected.
+    await nameField(page).fill('places');
+    await expect(nameField(page)).toBeFocused();
+    await page.keyboard.press('Escape');
+
+    await expect(nameField(page)).not.toBeFocused();
+    await expect(page.locator('.node--connecting')).toHaveCount(1);
+  });
+
+  test('naming a relationship and stepping back leaves it ready to connect', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await addShape(page, 'relationship');
+    await nameField(page).fill('places');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
   });
 
   test('shows a preview line while a connection is being drawn', async ({ page }) => {
@@ -414,10 +507,12 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Tidy' }).click();
     await page.waitForTimeout(150);
 
+    // Focus must be off the name field for Escape to mean "cancel the
+    // connection" rather than "stop typing", which is what this test is about.
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await expect(nameField(page)).not.toBeFocused();
     await node(page, /Entity Order/i).hover();
     await expect(page.getByTestId('connect-preview')).toHaveCount(1);
-
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('connect-preview')).toHaveCount(0);
     await expect(page.locator('.node--connecting')).toHaveCount(0);
@@ -427,6 +522,43 @@ test.describe('connections', () => {
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
     await expect(page.locator('.node--connecting')).toHaveCount(1);
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(0);
+  });
+
+  test('clicking the canvas takes the keyboard off the name field', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await expect(nameField(page)).toBeFocused();
+
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await node(page, /Entity Customer/i).click();
+
+    // The browser restores focus to a field after a canvas click unless the
+    // click is told otherwise. The symptom is invisible but crippling: the user
+    // clicks a shape, presses `e` to add an entity, and "e" is typed into the
+    // name field instead.
+    await expect(nameField(page)).not.toBeFocused();
+
+    // And the shortcut now does what it says.
+    await page.keyboard.press('e');
+    await expect(page.getByRole('button', { name: /Entity New entity/i })).toBeVisible();
+  });
+
+  test('clicking the canvas takes the keyboard off the name field on empty paper too', async ({
+    page,
+  }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await expect(nameField(page)).toBeFocused();
+
+    // The bottom-right corner: shapes are laid out from the top-left, so this
+    // is genuinely bare paper rather than a shape. Clicking it deselects, so
+    // the name field goes away entirely rather than merely losing focus.
+    const box = (await canvas(page).boundingBox())!;
+    await canvas(page).click({ position: { x: box.width - 12, y: box.height - 12 } });
+
+    await expect(nameField(page)).toHaveCount(0);
+    await expect(canvas(page)).toBeFocused();
   });
 
   test('clicking empty paper cancels a connection in progress', async ({ page }) => {

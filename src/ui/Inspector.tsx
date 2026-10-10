@@ -30,23 +30,22 @@ export function Inspector({ state }: Props) {
   const { doc, selection } = state;
 
   /**
-   * Focus the name field when a newly added shape is selected.
+   * Focus the name field for a shape that was just created.
    *
-   * Adding a shape should leave the caret blinking, ready for its name. Without
-   * this the fastest possible path — press E, type "Customer" — needs a click
-   * on the right-hand panel first, which is the step that makes a new tool feel
-   * harder than it is.
+   * Adding a shape should leave the caret blinking, ready for its name, so the
+   * fastest path — press E, type "Customer" — needs no click on this panel.
    *
-   * Scoped to a change in selection rather than a timer, so re-renders, typing,
-   * and undo all leave focus alone. Selecting an existing shape also lands here,
-   * which is convenient rather than harmful: the name is a single field and
-   * clicking the canvas is what moves focus away from it again.
+   * Only for newly created shapes, not for every selection. Focusing on every
+   * selection change means clicking any shape on the canvas yanks the caret
+   * into the side panel, which fights the user and swallows the next keystroke
+   * as text entry.
    */
   const nameRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
+    if (!selection || selection !== state.justCreated) return;
     nameRef.current?.focus();
     nameRef.current?.select();
-  }, [selection]);
+  }, [selection, state.justCreated]);
 
   const entity = doc.entities.find((e) => e.id === selection);
   const attribute = doc.attributes.find((a) => a.id === selection);
