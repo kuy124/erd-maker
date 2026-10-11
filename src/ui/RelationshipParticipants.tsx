@@ -105,7 +105,11 @@ function ParticipantRow({ state, row, index, onChange, onRemove }: {
     {row.entityId ? <>
       <label className="field__label" htmlFor={id + '-card'}>Cardinality at {name}</label>
       <select id={id + '-card'} className="field__select" value={row.cardinality}
-        onChange={(event) => onChange({ cardinality: event.target.value as Cardinality })}>
+        onChange={(event) => {
+          const cardinality = event.target.value as Cardinality;
+          onChange({ cardinality, participation: { min: cardinality === '1' ? Math.min(row.participation.min, 1) : row.participation.min,
+            max: cardinality === '1' ? 1 : 'N' } });
+        }}>
         <option value="1">1 — one</option><option value="N">N — many</option><option value="M">M — many</option>
       </select>
       <div className="seg participation-choice" role="group" aria-label={'Participation of ' + name}>
@@ -115,7 +119,8 @@ function ParticipantRow({ state, row, index, onChange, onRemove }: {
           onClick={() => onChange({ participation: { ...row.participation, min: 1 } })}>Required</button>
       </div>
       <details className="advanced-participation"><summary>Minimum / maximum</summary>
-        <ParticipationFields value={row.participation} onChange={(participation) => onChange({ participation })} />
+        <ParticipationFields value={row.participation} onChange={(participation) => onChange({ participation,
+          cardinality: participation.max === 1 ? '1' : row.cardinality === 'M' ? 'M' : 'N' })} />
       </details>
     </> : null}
   </div>;

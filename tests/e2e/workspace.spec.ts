@@ -354,6 +354,36 @@ test('phone sheets fit above a simulated keyboard and Help remains scrollable at
 });
 
 
+test('Chen endpoints match ERDPlus and keep legacy leg orientations and exported symbols', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  const doc = createExample('orders');
+  doc.attributes = [];
+  const customer = doc.entities[0]!;
+  const order = doc.entities[1]!;
+  doc.legs[0] = { ...doc.legs[0]!, fromId: customer.id, toId: doc.relationships[0]!.id,
+    cardinality: 'N', participation: { min: 1, max: 'N' } };
+  doc.legs[1] = { ...doc.legs[1]!, cardinality: '1', participation: { min: 1, max: 1 } };
+  await importDocument(page, doc);
+  const left = page.getByTestId('leg-cardinality').filter({ has: page.locator('path[data-cardinality="many"]') });
+  const right = page.getByTestId('leg-cardinality').filter({ has: page.locator('path[data-cardinality="one"]') });
+  await expect(left).toHaveAttribute('data-entity-id', customer.id);
+  await expect(left.locator('g[transform]')).toHaveAttribute('transform', 'translate(250 270) rotate(0)');
+  await expect(right).toHaveAttribute('data-entity-id', order.id);
+  await expect(right.locator('g[transform]')).toHaveAttribute('transform', 'translate(600 270) rotate(180)');
+  await expect(right.locator('path')).toHaveCount(2);
+  await expect(page.getByTestId('leg-participation')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/shots/erdplus-notation-light.png' });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: 'test-results/shots/erdplus-notation-dark.png' });
+  const svg = (await exportDocument(page, 'SVG')).toString();
+  expect(svg).toContain('data-cardinality="many"');
+  expect(svg).toContain('data-participation="required"');
+  expect(svg).not.toContain('leg-endpoint__hit');
+  expect(svg).not.toContain('leg--selected');
+  const restored = await json(page);
+  expect(restored.legs).toEqual(doc.legs);
+});
+
 test('crow’s-foot draws two many ends for Student–Course and two one ends for one-to-one', async ({ page }) => {
   await page.goto('/'); await ready(page);
   await importDocument(page, createExample('courses'));

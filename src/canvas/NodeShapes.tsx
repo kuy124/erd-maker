@@ -13,6 +13,7 @@
 
 import { memo } from 'react';
 import { NODE_SIZE, type Attribute, type Entity, type Isa, type Relationship } from '../model/types';
+import type { Point } from './geometry';
 
 interface BaseProps {
   selected: boolean;
@@ -226,6 +227,20 @@ export const IsaShape = memo(function IsaShape({
     </g>
   );
 });
+
+/** ERDPlus-style endpoint symbols, also used by the table renderer. */
+export function CardinalityMarker({ origin, toward, many, required, className = 'leg' }: {
+  origin: Point; toward: Point; many: boolean; required: boolean; className?: string;
+}) {
+  const angle = Math.atan2(toward.y - origin.y, toward.x - origin.x) * 180 / Math.PI;
+  return <g transform={`translate(${origin.x} ${origin.y}) rotate(${angle})`} pointerEvents="none">
+    <path className={className} data-cardinality={many ? 'many' : 'one'}
+      d={many ? 'M14 0 L1 9 M14 0 L1 -9' : 'M10 -9 L10 9'} />
+    {required ? <path className={className} data-participation="required" d="M22 -9 L22 9" /> :
+      <circle className={className} data-participation="optional" cx={22} cy={0} r={4}
+        style={{ fill: 'var(--paper)' }} />}
+  </g>;
+}
 
 /** Small preview glyphs for the tool rail. Drawn, not iconic. */
 export function ShapeGlyph({ kind, size = 20 }: { kind: 'entity' | 'attribute' | 'relationship' | 'isa'; size?: number }) {

@@ -135,6 +135,7 @@ export function serializeSvg(
     node.classList.remove('leg--selected', 'crow-link--selected', 'node--connecting', 'node--connectable');
   });
 
+  clone.querySelectorAll('.leg-endpoint__hit').forEach((node) => node.remove());
   // Then strip editing-only chrome: selection rings, peer cursors, hit targets.
   // Table row rules are NOT removed: they are part of the drawing.
   for (const selector of [

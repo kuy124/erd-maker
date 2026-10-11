@@ -148,6 +148,28 @@ export function findAttributeSlot(
   return { x: columnX, y };
 }
 
+/** Keep an automatic diamond between its entities, stepping sideways if space is tight. */
+export function findRelationshipSlot(doc: ErdDocument, fromId: string, toId: string): { x: number; y: number } {
+  const from = doc.entities.find((entity) => entity.id === fromId)!;
+  const to = doc.entities.find((entity) => entity.id === toId)!;
+  const size = NODE_SIZE.relationship;
+  const origin = {
+    x: (from.x + to.x + NODE_SIZE.entity.w - size.w) / 2,
+    y: (from.y + to.y + NODE_SIZE.entity.h - size.h) / 2,
+  };
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  const normal = length ? { x: -dy / length, y: dx / length } : { x: 0, y: 1 };
+  const occupied = occupiedBoxes({ ...doc, view: 'chen' });
+  for (let index = 0; index < 48; index += 1) {
+    const distance = Math.ceil(index / 2) * SLOT_GAP * (index % 2 ? 1 : -1);
+    const point = { x: origin.x + normal.x * distance, y: origin.y + normal.y * distance };
+    if (!occupied.some((box) => overlaps({ ...point, ...size }, box, SLOT_GAP))) return point;
+  }
+  return findFreeSlot(occupied, origin, size);
+}
+
 /**
  * Whether a leg between two nodes makes sense.
  *

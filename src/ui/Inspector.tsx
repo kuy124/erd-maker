@@ -364,7 +364,7 @@ export function Inspector({ state }: Props) {
           <ParticipationFields key={leg.id} value={leg.participation}
             onChange={(value) => state.updateLeg(leg.id, { min: value.min, max: value.max })} />
           <p className="field__help">
-            Written as (min,max). A minimum of 1 means every instance must take part.
+            A circle means optional; a bar means required. A fork means many. Exact numeric ranges also appear beside the line.
           </p>
         </div>
         <button type="button" className="btn btn--danger" onClick={() => state.remove(leg.id)}>

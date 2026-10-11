@@ -549,6 +549,12 @@ body {
   cursor: pointer;
 }
 
+.leg-endpoint { cursor: pointer; }
+.leg-endpoint__hit { fill: transparent; stroke: none; pointer-events: all; }
+
+.endpoint-examples > div { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.endpoint-examples svg { flex: none; }
+
 .leg__cardinality {
   fill: var(--ink);
   font-family: var(--font-mono);

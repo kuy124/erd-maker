@@ -31,6 +31,7 @@ import type {
   Relationship,
 } from '../model/types';
 import { emptyDocument } from '../model/types';
+import { canConnect, findRelationshipSlot } from '../model/placement';
 
 export const META = 'meta';
 export const ENTITIES = 'entities';
@@ -147,6 +148,29 @@ export function upsertLeg(ydoc: Y.Doc, leg: Leg): void {
   const next = new Y.Map<unknown>();
   setFields(next, fields);
   map.set(leg.id, next);
+}
+
+/** Entity pairs become a diamond and two legs in one shared, undoable change. */
+export function connectNodes(
+  ydoc: Y.Doc, fromId: string, toId: string, makeId: (kind: string) => string,
+): string | null {
+  const doc = snapshotFromYdoc(ydoc);
+  if (!canConnect(doc, fromId, toId)) return null;
+  const entityPair = doc.entities.some((entity) => entity.id === fromId) &&
+    doc.entities.some((entity) => entity.id === toId);
+  const id = makeId(entityPair ? 'rel' : 'leg');
+  ydoc.transact(() => {
+    if (entityPair) {
+      upsertRelationship(ydoc, { id, name: 'relationship', kind: 'strong', ...findRelationshipSlot(doc, fromId, toId) });
+      for (const entityId of [fromId, toId]) {
+        upsertLeg(ydoc, { id: makeId('leg'), fromId: id, toId: entityId,
+          cardinality: '1', participation: { min: 0, max: 1 } });
+      }
+    } else {
+      upsertLeg(ydoc, { id, fromId, toId, cardinality: '1', participation: { min: 0, max: 1 } });
+    }
+  });
+  return id;
 }
 
 /** Removes a node and the legs and attributes that depended on it. */

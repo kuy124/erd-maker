@@ -414,6 +414,36 @@ test.describe('connections', () => {
     await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
   });
 
+  test('dragging between entities creates an editable relationship with atomic Undo and Redo', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    const from = (await node(page, /Entity Customer/i).boundingBox())!;
+    const to = (await node(page, /Entity Order/i).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+    await page.mouse.up();
+    const relationship = node(page, /Relationship relationship/i);
+    await expect(relationship).toBeVisible();
+    const id = await relationship.getAttribute('data-node-id');
+    await expect(nameField(page)).toBeFocused();
+    await expect(page.getByTestId('participant-row')).toHaveCount(2);
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
+    await expect(page.getByTestId('connect-preview')).toHaveCount(0);
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(relationship).toHaveCount(0);
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(0);
+    await expect(node(page, /Entity Customer/i)).toBeVisible();
+    await expect(node(page, /Entity Order/i)).toBeVisible();
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await expect(relationship).toHaveAttribute('data-node-id', id!);
+    await expect(page.getByTestId('leg-cardinality')).toHaveCount(2);
+  });
+
   test('a connect drag released on empty paper draws nothing', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
@@ -563,7 +593,8 @@ test.describe('connections', () => {
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
     await expect(page.getByTestId('connect-preview')).toHaveCount(0);
     await expect(page.locator('.node--connecting')).toHaveCount(0);
-    await expect(page.locator('.layer-legs line.leg')).toHaveCount(1);
+    await expect(page.locator('.layer-legs line.leg')).toHaveCount(2);
+    await expect(node(page, /Relationship relationship/i)).toBeVisible();
   });
 
   test('the preview line is not part of an export', async ({ page }) => {
@@ -676,12 +707,13 @@ test.describe('connections', () => {
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
 
-    await expect(page.locator('.leg__cardinality')).toHaveText(['1']);
-
-    // Select the line through the inspector is not possible by clicking the
-    // line, so verify the default rendering only. Cardinality editing is
-    // covered by the unit tests and the SQL export test.
-    await expect(page.locator('.leg__cardinality')).toHaveCount(1);
+    const endpoints = page.getByTestId('leg-cardinality');
+    await expect(endpoints).toHaveCount(2);
+    await expect(endpoints.first()).toHaveAttribute('data-cardinality', '1');
+    await endpoints.first().click();
+    await page.getByRole('button', { name: 'N', exact: true }).click();
+    await expect(endpoints.first()).toHaveAttribute('data-cardinality', 'N');
+    await expect(endpoints.first().locator('path[data-cardinality="many"]')).toHaveCount(1);
   });
 });
 
@@ -809,7 +841,7 @@ test.describe('export', () => {
     await page.getByTestId('leg-cardinality').nth(1).click();
     await expect(page.getByRole('heading', { name: /relationship line/i })).toBeVisible();
     await page.getByRole('button', { name: 'N', exact: true }).click();
-    await expect(page.getByTestId('leg-cardinality').nth(1)).toHaveText('N');
+    await expect(page.getByTestId('leg-cardinality').nth(1)).toHaveAttribute('data-cardinality', 'N');
 
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     await page.getByRole('tab', { name: 'SQL' }).click();
@@ -819,7 +851,7 @@ test.describe('export', () => {
     await expect(code).toContainText('REFERENCES "customer"');
   });
 
-  test('changing a cardinality label updates the diagram', async ({ page }) => {
+  test('changing an endpoint updates its ERDPlus symbols and participation', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
@@ -829,15 +861,21 @@ test.describe('export', () => {
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
 
-    await expect(page.getByTestId('leg-cardinality')).toHaveText(['1']);
-
-    await page.getByTestId('leg-cardinality').click();
+    const endpoint = page.getByTestId('leg-cardinality').first();
+    await expect(endpoint).toHaveAttribute('data-cardinality', '1');
+    await endpoint.click();
     await page.getByRole('button', { name: 'N', exact: true }).click();
-    await expect(page.getByTestId('leg-cardinality')).toHaveText(['N']);
+    await expect(endpoint).toHaveAttribute('data-cardinality', 'N');
+    await expect(endpoint.locator('path[data-cardinality="many"]')).toHaveCount(1);
+    await expect(endpoint.locator('circle[data-participation="optional"]')).toHaveCount(1);
 
     // Participation can be edited too: set a minimum of 1 to mark it mandatory.
     await page.getByLabel('Minimum').fill('1');
-    await expect(page.getByTestId('leg-participation')).toHaveText(['(1,1)']);
+    await expect(endpoint).toHaveAttribute('data-min', '1');
+    await expect(endpoint.locator('path[data-participation="required"]')).toHaveCount(1);
+    await expect(endpoint.locator('circle')).toHaveCount(0);
+    await page.getByLabel('Maximum').fill('5');
+    await expect(page.getByTestId('leg-participation')).toHaveText('(1,5)');
   });
 });
 

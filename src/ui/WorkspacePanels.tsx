@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ShapeGlyph } from '../canvas/NodeShapes';
+import { CardinalityMarker, ShapeGlyph } from '../canvas/NodeShapes';
 import { EXAMPLES, createExample } from '../model/examples';
 import { getDiagramIssues } from '../model/issues';
 import type { ErdDocument } from '../model/types';
@@ -80,6 +80,20 @@ export function HelpPanel() {
       <div className="relationship-example">Customer <strong>1</strong> — places — <strong>N</strong> Order</div>
       <p>One customer can place many orders. Each order belongs to one customer. N and M both mean many.</p>
       <p>Participation says whether every instance must take part. Minimum 0 is optional; minimum 1 is required. Maximum N means there is no fixed upper limit.</p>
+      <div className="endpoint-examples">
+        {[[false, true, 'Required one'], [false, false, 'Optional one'],
+          [true, true, 'Required many'], [true, false, 'Optional many']].map(([many, required, label]) => (
+          <div key={String(label)}>
+            <svg width={84} height={28} viewBox="0 0 84 28" aria-hidden="true">
+              <line className="leg" x1={8} y1={14} x2={78} y2={14} />
+              <CardinalityMarker origin={{ x: 8, y: 14 }} toward={{ x: 78, y: 14 }}
+                many={Boolean(many)} required={Boolean(required)} />
+            </svg><span>{label}</span>
+          </div>
+        ))}
+      </div>
+      <p>The endpoint beside an entity describes that entity. Click its symbols to edit. N and M use a fork; advanced numeric limits are written beside the line.</p>
+      <p>Connect two entities to create a relationship diamond automatically. Connect an entity to an existing diamond to add a participant.</p>
       <h3>Chen and crow’s-foot</h3>
       <p>Both views use the same entities, attributes, and relationships. The table view infers column types and may generate keys and foreign keys. Edit the source attribute or relationship to change them.</p>
       <p>Specializations, derived attributes, and attributes on relationships are shown in Chen. Many-to-many associations are drawn as connectors; SQL export maps them to junction tables.</p>

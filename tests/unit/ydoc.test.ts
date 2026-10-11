@@ -5,6 +5,7 @@ import {
   ENTITIES,
   LEGS,
   RELATIONSHIPS,
+  connectNodes,
   deleteNodeFromYdoc,
   seedDocument,
   setMeta,
@@ -37,6 +38,45 @@ function sample(): ErdDocument {
   });
   return doc;
 }
+
+describe('connecting nodes', () => {
+  const ids = () => { let count = 0; return (kind: string) => kind + '_' + ++count; };
+
+  it('creates one diamond and two participant legs in a single Undo action', () => {
+    const ydoc = new Y.Doc();
+    const doc = sample(); doc.relationships = []; doc.legs = [];
+    seedDocument(ydoc, doc);
+    const undo = new Y.UndoManager([ydoc.getMap(ENTITIES), ydoc.getMap(RELATIONSHIPS), ydoc.getMap(LEGS)]);
+    const id = connectNodes(ydoc, 'e1', 'e2', ids());
+    const connected = snapshotFromYdoc(ydoc);
+    expect(connected.relationships.map((node) => node.id)).toEqual([id]);
+    expect(connected.legs.map((leg) => [leg.fromId, leg.toId])).toEqual([[id, 'e1'], [id, 'e2']]);
+    expect(undo.undoStack).toHaveLength(1);
+    ydoc.transact(() => (ydoc.getMap(ENTITIES).get('e2') as Y.Map<unknown>).set('name', 'Remote copy'), 'remote');
+    undo.undo();
+    expect(snapshotFromYdoc(ydoc).relationships).toHaveLength(0);
+    expect(snapshotFromYdoc(ydoc).legs).toHaveLength(0);
+    expect(snapshotFromYdoc(ydoc).entities.find((entity) => entity.id === 'e2')?.name).toBe('Remote copy');
+    undo.redo();
+    expect(snapshotFromYdoc(ydoc).legs).toEqual(connected.legs);
+  });
+
+  it('keeps connections to an existing diamond as ordinary legs', () => {
+    const ydoc = new Y.Doc(); seedDocument(ydoc, sample());
+    const id = connectNodes(ydoc, 'r1', 'e2', ids());
+    expect(snapshotFromYdoc(ydoc).relationships).toEqual(sample().relationships);
+    expect(snapshotFromYdoc(ydoc).legs.find((leg) => leg.id === id)).toMatchObject({ fromId: 'r1', toId: 'e2' });
+  });
+
+  it('refuses self-connections, attributes, and endpoints removed before the drop', () => {
+    const ydoc = new Y.Doc(); seedDocument(ydoc, sample());
+    const before = snapshotFromYdoc(ydoc);
+    for (const [from, to] of [['e1', 'e1'], ['a1', 'e2'], ['e1', 'missing']] as const) {
+      expect(connectNodes(ydoc, from, to, ids())).toBeNull();
+    }
+    expect(snapshotFromYdoc(ydoc)).toEqual(before);
+  });
+});
 
 describe('seedDocument / snapshotFromYdoc', () => {
   it('round-trips a full document through Yjs', () => {

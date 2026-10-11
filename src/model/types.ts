@@ -6,15 +6,14 @@
  * it is plain data plus pure functions, so it can be unit tested in isolation
  * and reused by the SQL generator, the exporters, and the layout engine.
  *
- * Cardinality semantics follow Chen notation, where a leg's cardinality is the
- * number of instances of the node at the *far* end that participate with one
- * instance of the node at the near end:
+ * A relationship leg's cardinality describes its connected entity, regardless
+ * of whether that entity is stored in `fromId` or `toId`:
  *
  *   Customer --(1)---<buys>---(N)-- Order
  *   one customer places many orders
  *
- * Crow's-foot rendering reads the same legs and places the crow's foot on the
- * many side, so the two notations never disagree about the data.
+ * Both renderers read these same constraints. Chen keeps the relationship
+ * diamond and draws ERDPlus-style endpoint symbols beside the entity.
  */
 
 export type EntityKind = 'strong' | 'weak';
@@ -22,7 +21,7 @@ export type RelationshipKind = 'strong' | 'weak';
 export type AttributeKind = 'simple' | 'key' | 'multivalued' | 'derived' | 'composite';
 export type Cardinality = '1' | 'N' | 'M';
 
-/** Participation constraint on a leg, written (min,max) in Chen notation. */
+/** Participation constraint; advanced numeric ranges are written (min,max). */
 export interface Participation {
   min: number;
   /** `'N'` is written for unbounded, which keeps (1,N) and (0,N) legible. */
@@ -70,7 +69,7 @@ export interface Leg {
   fromId: string;
   toId: string;
   cardinality: Cardinality;
-  /** Participation constraint shown on the `fromId` end of the line. */
+  /** Participation of the connected entity, or the source for a legacy concept line. */
   participation: Participation;
 }
 

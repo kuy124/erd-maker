@@ -22,6 +22,8 @@ The Build panel adds entities, attributes, relationships, and specializations. C
 
 Relationship properties list participants. Choose an entity for each row, then set its cardinality and optional or required participation. **Minimum / maximum** accepts whole numbers and N for an unlimited maximum. Unfinished or invalid input stays local until corrected. Relationships can remain incomplete or have more than two participants.
 
+In Chen, choose **Connect** and drag from one entity to another, or Shift-click both. The editor creates a relationship diamond with both participants, opens its name for editing, and lets you undo the whole connection at once. Connect to an existing diamond to add another participant.
+
 Use **Diagram** to search every shape and center a selection. **Check diagram** offers hints for missing names and keys, unattached attributes, incomplete relationships, and invalid participation ranges. Selecting a hint opens the affected properties. Help explains notation and keyboard shortcuts alongside the canvas.
 
 At 1100px and wider, Build/Diagram and Properties sit beside the canvas. Tablets use side drawers. Phones use Build, Diagram, Properties, and Help sheets that scroll above the on-screen keyboard.
@@ -43,6 +45,8 @@ At 1100px and wider, Build/Diagram and Properties sit beside the canvas. Tablets
 | Underlined attribute | Key |
 
 A weak entity’s partial key identifies it within its parent; SQL export combines it with the parent’s key.
+
+Chen relationships use ERDPlus-style symbols at the entity endpoints: two bars for required one, a circle and bar for optional one, a bar and fork for required many, and a circle and fork for optional many. N and M both use the fork. Advanced numeric ranges remain visible beside the line. Click an endpoint symbol to edit its constraints.
 
 Crow’s-foot tables show source attributes as editable rows. Rows marked **gen** are generated keys or foreign keys. Column types are inferred from names. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
 

@@ -12,8 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
-import { documentBounds, edgePoint, legLabelPoints, segmentBetween } from './geometry';
-import { AttributeShape, EntityShape, IsaShape, RelationshipShape } from './NodeShapes';
+import { documentBounds, edgePoint, legLabelPoints, offsetToward, segmentBetween } from './geometry';
+import { AttributeShape, CardinalityMarker, EntityShape, IsaShape, RelationshipShape } from './NodeShapes';
 import { useDrag } from './useDrag';
 import type { ErdDocument } from '../model/types';
 import { canConnect } from '../model/placement';
@@ -148,7 +148,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
       // `doc`, not `displayDoc`: the two differ only while a node is mid-drag,
       // and a drag and a connection are never in flight at the same time.
       if (!canConnect(doc, connectFrom, id)) return false;
-      state.connect(connectFrom, id);
+      if (!state.connect(connectFrom, id)) return false;
       const anchorId = doc.relationships.some((r) => r.id === connectFrom)
         ? connectFrom
         : doc.relationships.some((r) => r.id === id)
@@ -298,11 +298,16 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
       setConnectPointer(null);
       setConnectTarget(null);
     };
+    const onCancel = () => {
+      setConnectFrom(null);
+      setConnectPointer(null);
+      setConnectTarget(null);
+    };
     window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointercancel', onCancel);
     return () => {
       window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointercancel', onCancel);
     };
   }, [tool, connectFrom, connectTo, setConnectFrom, toWorld, nodeAt]);
 
@@ -413,6 +418,15 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
               const seg = segmentBetween(displayDoc, leg.fromId, leg.toId);
               if (!seg) return null;
               const isSelected = selection === leg.id;
+              const entity = displayDoc.entities.find((node) => node.id === leg.fromId || node.id === leg.toId);
+              const relationship = displayDoc.relationships.find((node) => node.id === leg.fromId || node.id === leg.toId);
+              const endpoint = entity?.id === leg.fromId ? seg.from : seg.to;
+              const toward = entity?.id === leg.fromId ? seg.to : seg.from;
+              const markerCenter = offsetToward(endpoint, toward, 14);
+              const many = leg.cardinality !== '1';
+              const required = leg.participation.min > 0;
+              const advanced = leg.participation.min > 1 ||
+                leg.participation.max !== (many ? 'N' : 1);
               const labels = legLabelPoints(seg.from, seg.to, [0.28, 0.52]);
               const participationLabel = legLabelPoints(seg.from, seg.to, [0.28, 0.52], -14)[1];
               return (
@@ -440,11 +454,30 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
                     x2={seg.to.x}
                     y2={seg.to.y}
                   />
-                  {/* Cardinality sits near the source end, participation a little
-                      further along. Both labels select the leg when clicked,
-                      which is the natural way to change a cardinality: click
-                      the number. `legLabelPoints` keeps them from landing on top
-                      of each other when two legs share a start point. */}
+                  {entity && relationship ? <>
+                    <g className="leg-endpoint" data-testid="leg-cardinality" role="button" tabIndex={-1}
+                      aria-label={`${entity.name}: ${required ? 'required' : 'optional'} ${many ? 'many' : 'one'}. Edit relationship line`}
+                      data-entity-id={entity.id} data-cardinality={leg.cardinality}
+                      data-min={leg.participation.min} data-max={leg.participation.max}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
+                        focusCanvas(event);
+                        state.setSelection(leg.id);
+                      }}>
+                      <title>{`${entity.name}: ${required ? 'required' : 'optional'} ${many ? 'many' : 'one'} ${formatParticipation(leg.participation.min, leg.participation.max)}. Click to edit.`}</title>
+                      <rect className="leg-endpoint__hit" x={markerCenter.x - 22 / viewport.zoom}
+                        y={markerCenter.y - 22 / viewport.zoom} width={44 / viewport.zoom} height={44 / viewport.zoom} />
+                      <CardinalityMarker origin={endpoint} toward={toward} many={many} required={required}
+                        className={`leg${isSelected ? ' leg--selected' : ''}`} />
+                    </g>
+                    {advanced ? <text className="leg__participation" data-testid="leg-participation"
+                      x={participationLabel.x} y={participationLabel.y}
+                      onPointerDown={(event) => { event.stopPropagation(); state.setSelection(leg.id); }}>
+                      {formatParticipation(leg.participation.min, leg.participation.max)}
+                    </text> : null}
+                  </> : <>
+                  {/* Legacy lines between other concepts retain their numeric labels. */}
                   <text
                     className="leg__cardinality"
                     data-testid="leg-cardinality"
@@ -469,6 +502,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
                   >
                     {formatParticipation(leg.participation.min, leg.participation.max)}
                   </text>
+                  </>}
                 </g>
               );
             })}

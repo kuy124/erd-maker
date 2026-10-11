@@ -3,6 +3,7 @@ import {
   canConnect,
   findAttributeSlot,
   findFreeSlot,
+  findRelationshipSlot,
   occupiedBoxes,
   type Box,
 } from '../../src/model/placement';
@@ -37,6 +38,26 @@ function docWith(entities: { x: number; y: number }[], attributes: { x: number; 
     legs: [],
   };
 }
+
+describe('automatic relationship placement', () => {
+  it('centers a diamond between separated entities', () => {
+    const doc = docWith([{ x: 0, y: 100 }, { x: 600, y: 100 }]);
+    expect(findRelationshipSlot(doc, 'e0', 'e1')).toEqual({ x: 300, y: 94 });
+  });
+
+  it.each([
+    [{ x: 0, y: 0 }, { x: 190, y: 0 }],
+    [{ x: 0, y: 0 }, { x: 0, y: 90 }],
+    [{ x: 0, y: 0 }, { x: 160, y: 90 }],
+    [{ x: 0, y: 0 }, { x: 0, y: 0 }],
+  ])('avoids the endpoints even when they are close or stacked: %j', (first, second) => {
+    const doc = docWith([first, second]);
+    const point = findRelationshipSlot(doc, 'e0', 'e1');
+    for (const box of occupiedBoxes(doc)) {
+      expect(overlaps({ ...point, ...NODE_SIZE.relationship }, box, 40)).toBe(false);
+    }
+  });
+});
 
 describe('findFreeSlot', () => {
   it('places the first shape at the origin', () => {

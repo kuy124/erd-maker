@@ -374,7 +374,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
           <button type="button" className="btn btn--ghost tool-btn" aria-label="Select tool" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}>Select</button>
           {isCrowFoot ?
             <button type="button" className="btn btn--ghost" aria-label="Add relationship" onClick={() => addShape('relationship')}><span className="wide-label">Add </span>Relationship</button> :
-            <button type="button" className="btn btn--ghost tool-btn" aria-label="Connect tool" aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}>Connect</button>}
+            <button type="button" className="btn btn--ghost tool-btn" aria-label="Connect tool" title="Connect two entities to create a relationship (C)" aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}>Connect</button>}
           <button type="button" className="btn btn--ghost tool-btn" aria-label="Pan tool" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}>Pan</button>
         </div>
         <button type="button" className="btn btn--ghost arrange-btn" onClick={tidy} title="Arrange the diagram automatically">Auto-arrange</button>

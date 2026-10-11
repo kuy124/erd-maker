@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
 import { createLocalIdentity, type Identity } from '../collab/identity';
 import {
+  connectNodes,
   deleteNodeFromYdoc,
   seedDocument,
   setMeta,
@@ -20,7 +21,6 @@ import {
   upsertAttribute,
   upsertEntity,
   upsertIsa,
-  upsertLeg,
   upsertRelationship,
 } from '../collab/ydoc';
 import { writeParticipants, type RelationshipParticipant } from '../collab/participants';
@@ -266,12 +266,15 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       mutate(() => {
         const map = room.ydoc.getMap('legs').get(id) as Y.Map<unknown> | undefined;
         if (!map) return;
-        const min = patch.min ?? Number(map.get('min') ?? 0);
-        const max = patch.max ?? (map.get('max') as number | 'N' | undefined) ?? 1;
+        const min = patch.min ?? (patch.cardinality === '1' ? Math.min(1, Number(map.get('min') ?? 0)) : Number(map.get('min') ?? 0));
+        const max = patch.max ?? (patch.cardinality ? (patch.cardinality === '1' ? 1 : 'N') :
+          (map.get('max') as number | 'N' | undefined) ?? 1);
         if (!validParticipation(min, max)) return;
-        if (patch.cardinality !== undefined) map.set('cardinality', patch.cardinality);
-        if (patch.min !== undefined) map.set('min', patch.min);
-        if (patch.max !== undefined) map.set('max', patch.max);
+        const cardinality = patch.cardinality ?? (patch.max !== undefined ?
+          (max === 1 ? '1' : map.get('cardinality') === 'M' ? 'M' : 'N') : map.get('cardinality'));
+        if (map.get('cardinality') !== cardinality) map.set('cardinality', cardinality);
+        if (map.get('min') !== min) map.set('min', min);
+        if (map.get('max') !== max) map.set('max', max);
       }),
 
     setParticipants: (relationshipId, participants) => {
@@ -356,18 +359,13 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     },
 
     connect: (fromId, toId) => {
-      if (fromId === toId) return null;
-      const id = makeId('leg');
-      mutate(() =>
-        upsertLeg(room.ydoc, {
-          id,
-          fromId,
-          toId,
-          cardinality: '1',
-          participation: { min: 0, max: 1 },
-        }),
-        true,
-      );
+      let id: string | null = null;
+      mutate(() => { id = connectNodes(room.ydoc, fromId, toId, makeId); }, true);
+      if (id && room.ydoc.getMap('relationships').has(id)) {
+        setSelection(id);
+        setJustCreated(id);
+        setTool('select');
+      }
       return id;
     },
 

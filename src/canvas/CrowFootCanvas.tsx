@@ -24,6 +24,7 @@ import {
 } from '../model/crowfoot';
 import type { EditorState } from '../state/useEditor';
 import { useDrag } from './useDrag';
+import { CardinalityMarker } from './NodeShapes';
 
 interface Props {
   state: EditorState;
@@ -330,37 +331,6 @@ function CrowConnector({
     ? { x: toCenter.x > fromCenter.x ? to.x : to.x + CROW_WIDTH, y: toCenter.y }
     : { x: toCenter.x, y: toCenter.y > fromCenter.y ? to.y : to.y + to.h };
 
-  const direction = horizontal
-    ? { x: Math.sign(end.x - start.x) || 1, y: 0 }
-    : { x: 0, y: Math.sign(end.y - start.y) || 1 };
-
-  const endDirection = { x: -direction.x, y: -direction.y };
-
-  const perpendicular = horizontal ? { x: 0, y: 1 } : { x: 1, y: 0 };
-
-  const fan = (origin: { x: number; y: number }, dir: { x: number; y: number }) => {
-    const tip = { x: origin.x + dir.x * 14, y: origin.y + dir.y * 14 };
-    const spread = 9;
-    const back = { x: origin.x + dir.x * 1, y: origin.y + dir.y * 1 };
-    return [
-      `M${tip.x} ${tip.y} L${back.x + perpendicular.x * spread} ${back.y + perpendicular.y * spread}`,
-      `M${tip.x} ${tip.y} L${back.x} ${back.y}`,
-      `M${tip.x} ${tip.y} L${back.x - perpendicular.x * spread} ${back.y - perpendicular.y * spread}`,
-    ].join(' ');
-  };
-
-  const bar = (origin: { x: number; y: number }, dir: { x: number; y: number }, distance: number) => {
-    const c = { x: origin.x + dir.x * distance, y: origin.y + dir.y * distance };
-    const half = 9;
-    return `M${c.x - perpendicular.x * half} ${c.y - perpendicular.y * half} L${c.x + perpendicular.x * half} ${c.y + perpendicular.y * half}`;
-  };
-
-  const marker = (point: { x: number; y: number }, dir: { x: number; y: number }, many: boolean, required: boolean) => <>
-    <path className="leg" data-cardinality={many ? 'many' : 'one'} d={many ? fan(point, dir) : bar(point, dir, 10)} fill="none" />
-    {required ? <path className="leg" d={bar(point, dir, 22)} fill="none" /> :
-      <circle className="leg" cx={point.x + dir.x * 22} cy={point.y + dir.y * 22} r={4} />}
-  </>;
-
   // The label sits at the midpoint, nudged off the line so it never sits on it.
   const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
   const labelOffset = horizontal ? 20 : 14;
@@ -387,8 +357,10 @@ function CrowConnector({
         y2={end.y}
       />
       <line className="leg" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
-      {marker(start, direction, link.fromMany, link.fromMandatory)}
-      {marker(end, endDirection, link.toMany, link.toMandatory)}
+      <CardinalityMarker origin={start} toward={horizontal ? { x: end.x, y: start.y } : { x: start.x, y: end.y }}
+        many={link.fromMany} required={link.fromMandatory} />
+      <CardinalityMarker origin={end} toward={horizontal ? { x: start.x, y: end.y } : { x: end.x, y: start.y }}
+        many={link.toMany} required={link.toMandatory} />
       {/* The ratio, stated rather than implied. */}
       <text
         className="crow-link__ratio"
