@@ -35,7 +35,26 @@ export function ExportDialog({ state, svgRef, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const sql = useMemo(() => generateSql(state.doc), [state.doc]);
+  /**
+   * `generateSql` throws `SqlError` for documents that cannot become a schema
+   * yet — a relationship bound to a field that is not a single-column primary
+   * key, or one bound to an attribute a collaborator has just deleted. That is
+   * a normal modelling state, not a fault, so it must never escape into render:
+   * an uncaught render throw unmounts the whole editor and the user gets a
+   * blank page instead of an explanation.
+   *
+   * It is computed for every tab, which is why the failure was so far-reaching:
+   * an SVG, PNG, or JSON download was taken down by a problem that only affects
+   * SQL. `describeSqlReadiness` below catches the same error and turns it into
+   * the message shown under the schema.
+   */
+  const sql = useMemo(() => {
+    try {
+      return generateSql(state.doc);
+    } catch {
+      return null;
+    }
+  }, [state.doc]);
   const sqlReadiness = useMemo(() => describeSqlReadiness(state.doc), [state.doc]);
   const stem = fileStem(state.doc.name);
 
@@ -84,6 +103,11 @@ export function ExportDialog({ state, svgRef, onClose }: Props) {
   };
 
   const exportSql = () => {
+    // The button is disabled when there is no schema, so this is a type guard.
+    if (sql === null) {
+      setError(sqlReadiness);
+      return;
+    }
     downloadText(sql, `${stem}.sql`, 'text/plain');
     flash(`Saved ${stem}.sql`);
   };
@@ -167,14 +191,17 @@ export function ExportDialog({ state, svgRef, onClose }: Props) {
             The schema this diagram describes. Key attributes become the primary key, and each
             relationship becomes a foreign key or its own table.
           </p>
-          <pre className="code" aria-label="Generated SQL">
-            {sql}
-          </pre>
-          {sqlReadiness !== 'Ready.' ? <p className="note note--warn">{sqlReadiness}</p> : null}
+          {sql ? (
+            <pre className="code" aria-label="Generated SQL">
+              {sql}
+            </pre>
+          ) : null}
+          {sqlReadiness !== 'Ready.' ? <p className="note note--warn" role="alert">{sqlReadiness}</p> : null}
           <button
             type="button"
             className="btn btn--primary"
             onClick={exportSql}
+            disabled={!sql}
             style={{ marginTop: 'var(--s3)' }}
           >
             Download SQL

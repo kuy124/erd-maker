@@ -652,6 +652,20 @@ body {
 }
 
 /* Peer cursors and selection. Name always accompanies colour. */
+
+/*
+ * Cursors are drawn over the diagram and must never take a click.
+ *
+ * SVG paint order decides what receives pointer events, and this layer is on
+ * top, so without this another person's arrow makes the shape underneath it
+ * unclickable — a shape that is impossible to select while a peer happens to
+ * be pointing at it. `pointer-events: none` hands every click back to the
+ * drawing. The exporter strips this layer anyway; see src/export/index.ts.
+ */
+.layer-peers {
+  pointer-events: none;
+}
+
 .peer-cursor__name {
   font-family: var(--font-sans);
   font-size: 11px;

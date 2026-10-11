@@ -13,6 +13,7 @@
 
 import { memo } from 'react';
 import { NODE_SIZE, type Attribute, type Entity, type Isa, type Relationship } from '../model/types';
+import type { PeerState } from '../collab/provider';
 import type { Point } from './geometry';
 
 interface BaseProps {
@@ -240,6 +241,35 @@ export function CardinalityMarker({ origin, toward, many, required, className = 
       <circle className={className} data-participation="optional" cx={22} cy={0} r={4}
         style={{ fill: 'var(--paper)' }} />}
   </g>;
+}
+
+/**
+ * Where everyone else is pointing.
+ *
+ * Lives in the viewport group so cursors sit in world coordinates and move with
+ * the diagram under each reader's own pan and zoom — the same convention the
+ * selection rings use. Shared by both notations because a peer is a peer.
+ *
+ * The name always travels with the colour: colour alone is not something
+ * everyone can tell apart, and an unnamed arrow says nothing.
+ */
+export function PeerCursors({ peers }: { peers: PeerState[] }) {
+  return (
+    <g className="layer-peers">
+      {peers.map((peer) =>
+        peer.cursor ? (
+          <g key={peer.clientId} className="peer-cursor" data-peer-id={peer.clientId}
+            transform={`translate(${peer.cursor.x} ${peer.cursor.y})`}>
+            <path d="M0 0 L0 15 L4 11 L7 17 L10 15.5 L7 10 L12 10 Z" fill={peer.color} stroke="var(--paper)" strokeWidth="1" />
+            <rect className="peer-cursor__chip" x="14" y="12" width={peer.name.length * 6.4 + 10} height="17" fill={peer.color} />
+            <text className="peer-cursor__name" x="19" y="24">
+              {peer.name}
+            </text>
+          </g>
+        ) : null,
+      )}
+    </g>
+  );
 }
 
 /** Small preview glyphs for the tool rail. Drawn, not iconic. */

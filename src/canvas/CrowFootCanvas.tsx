@@ -27,8 +27,8 @@ import {
   type CrowTable,
 } from '../model/crowfoot';
 import type { EditorState } from '../state/useEditor';
-import { useDrag } from './useDrag';
-import { CardinalityMarker } from './NodeShapes';
+import { useDrag, usePeerCursor } from './useDrag';
+import { CardinalityMarker, PeerCursors } from './NodeShapes';
 
 interface Props {
   state: EditorState;
@@ -37,7 +37,7 @@ interface Props {
 }
 
 export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
-  const { doc, viewport, selection, tool } = state;
+  const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
   const [connectFrom, setConnectFrom] = useState<ColumnEndpoint | null>(null);
@@ -86,6 +86,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
     viewport,
     panMode: tool === 'pan',
   });
+
+  // The table view had no presence at all; moving the mouse is now enough to be seen.
+  usePeerCursor(toWorld, state.awareness);
 
   const chooseColumn = (end: ColumnEndpoint) => {
     if (connectFrom) {
@@ -347,6 +350,8 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
             const y = rowCenter(table, connectFrom.columnId);
             return <path className="connect-preview" d={`M${x} ${y} H${x + (x > table.x ? 36 : -36)} V${pointer.y} H${pointer.x}`} />;
           })() : null}
+
+          <PeerCursors peers={peers} />
         </g>
       </svg>
 

@@ -11,6 +11,91 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Awareness } from 'y-protocols/awareness';
+
+/**
+ * Milliseconds between cursor broadcasts.
+ *
+ * Awareness re-broadcasts on every field write, and a pointermove fires far
+ * faster than any link can usefully carry — the same reason dragging commits
+ * to Yjs only on pointer up. Twenty a second is smooth to the eye and a small
+ * fraction of the traffic. Raising this is the first thing to try if a room of
+ * many peers ever makes presence feel heavy.
+ */
+const CURSOR_INTERVAL_MS = 50;
+
+/**
+ * Publishes the local pointer into awareness so peers watch the cursor move.
+ *
+ * This used to hang off the drag listeners, which only exist while a shape is
+ * being dragged or the canvas panned. That made the cursor appear only once
+ * somebody grabbed something — you had to drag to be seen. It is a separate
+ * listener now, always on, so moving the mouse is enough.
+ *
+ * The cursor is cleared when the pointer leaves the window, because otherwise a
+ * peer who alt-tabs away leaves a frozen arrow parked on the diagram for the
+ * full 30-second awareness timeout, pointing at nothing.
+ */
+export function usePeerCursor(
+  toWorld: (clientX: number, clientY: number) => { x: number; y: number },
+  awareness: Awareness,
+): void {
+  const latest = useRef({ toWorld, awareness });
+  latest.current = { toWorld, awareness };
+
+  useEffect(() => {
+    let lastSent = 0;
+    let sent = false;
+    let timer: number | null = null;
+    let pending: PointerEvent | null = null;
+
+    const publish = (event: PointerEvent) => {
+      pending = null;
+      sent = true;
+      lastSent = performance.now();
+      latest.current.awareness.setLocalStateField('cursor', latest.current.toWorld(event.clientX, event.clientY));
+    };
+
+    /**
+     * Leading edge, plus the position the pointer actually stopped at.
+     *
+     * A plain "skip anything within 50ms" throttle also throws away the last
+     * event of a gesture, so the cursor froze wherever the pointer was when the
+     * window closed rather than where it came to rest. Keeping the newest event
+     * and sending it on the trailing edge costs one field write and makes the
+     * final position correct.
+     */
+    const move = (event: PointerEvent) => {
+      pending = event;
+      if (timer !== null) return; // A send is already queued; it will pick this up.
+      timer = window.setTimeout(() => {
+        timer = null;
+        if (pending) publish(pending);
+      }, Math.max(0, CURSOR_INTERVAL_MS - (performance.now() - lastSent)));
+    };
+
+    const clear = () => {
+      if (timer !== null) { window.clearTimeout(timer); timer = null; }
+      pending = null;
+      if (!sent) return;
+      sent = false;
+      lastSent = 0;
+      latest.current.awareness.setLocalStateField('cursor', null);
+    };
+
+    window.addEventListener('pointermove', move);
+    // `pointerleave` on the document fires when the pointer exits the window;
+    // `blur` covers alt-tabbing away, which is how people actually leave.
+    document.addEventListener('pointerleave', clear);
+    window.addEventListener('blur', clear);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerleave', clear);
+      window.removeEventListener('blur', clear);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
+}
 
 export interface DragState {
   id: string;
@@ -35,8 +120,6 @@ interface Options {
   toWorld: (clientX: number, clientY: number) => { x: number; y: number };
   /** Called once, on drop, with the final position. */
   onCommit: (id: string, x: number, y: number) => void;
-  /** Called continuously while the pointer moves, for awareness updates. */
-  onPointerWorld?: (x: number, y: number) => void;
   onPan: (x: number, y: number) => void;
   viewport: { x: number; y: number; zoom: number };
   /** True when the current tool pans instead of selecting. */
@@ -90,8 +173,6 @@ export function useDrag(options: Options): DragApi {
     if (!drag && !pan) return undefined;
 
     const onMove = (event: PointerEvent) => {
-      latest.current.onPointerWorld?.(event.clientX, event.clientY);
-
       const currentDrag = dragRef.current;
       if (currentDrag) {
         const world = latest.current.toWorld(event.clientX, event.clientY);

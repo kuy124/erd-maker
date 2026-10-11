@@ -20,6 +20,7 @@
  */
 
 import { expect, test as base, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { Buffer } from 'node:buffer';
 
 /** The signalling server started by `playwright.config.ts`. */
 const LOCAL_SIGNALING = 'ws://127.0.0.1:4444';
@@ -117,6 +118,46 @@ async function waitForLink(pages: Page[]): Promise<void> {
   for (const page of pages) {
     await expect(page.locator('.canvas-status')).toContainText(/Live with/, { timeout: 45_000 });
   }
+}
+
+/**
+ * Downloads one export format and returns the file name.
+ *
+ * Every export test needs the same three beats — open the dialog, pick the tab,
+ * wait for the download — and each one that re-implements them is a chance to
+ * assert against the wrong file.
+ */
+async function download(page: Page, format: 'SVG' | 'PNG' | 'JSON' | 'SQL'): Promise<string> {
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('tab', { name: format, exact: true }).click();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download ' + format }).click();
+  const name = (await pending).suggestedFilename();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  return name;
+}
+
+/** Clicks a zoom control until it stops changing, to hit its clamp. */
+async function zoomToLimit(page: Page, label: RegExp, times = 30): Promise<string> {
+  const button = page.getByRole('button', { name: label });
+  for (let i = 0; i < times; i += 1) {
+    if (await button.isDisabled()) break;
+    await button.click();
+  }
+  return page.locator('.zoom-value').textContent().then((text) => (text ?? '').trim());
+}
+
+/**
+ * Centres the diagram in the open workspace.
+ *
+ * Shapes are placed in world coordinates near the middle of the canvas, which
+ * is where the workspace panels sit. Without this a node can land underneath
+ * the shape rail and every click on it is intercepted.
+ */
+async function tidy(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Auto-arrange' }).click();
+  await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.waitForTimeout(250);
 }
 
 test.describe('editor basics', () => {
@@ -851,6 +892,113 @@ test.describe('export', () => {
     await expect(code).toContainText('REFERENCES "customer"');
   });
 
+  /**
+   * A crow's-foot diagram whose relationship is bound to real columns.
+   *
+   * `customerColumn` is what the Customer-side leg points at, which is the knob
+   * these tests turn: a non-key field makes SQL generation throw, and a column
+   * that no longer exists makes it throw for the reason a collaborator causes.
+   */
+  function connectedDiagram(customerColumn: string): string {
+    return JSON.stringify({
+      name: 'Shop',
+      view: 'crowfoot',
+      entities: [
+        { id: 'c', name: 'Customer', x: 80, y: 80, kind: 'strong' },
+        { id: 'o', name: 'Order', x: 620, y: 124, kind: 'strong' },
+      ],
+      attributes: [
+        { id: 'c-key', name: 'customer_id', ownerId: 'c', kind: 'key', x: 0, y: 0 },
+        { id: 'c-email', name: 'email', ownerId: 'c', kind: 'simple', x: 0, y: 0 },
+        { id: 'o-buyer', name: 'buyer_ref', ownerId: 'o', kind: 'simple', x: 0, y: 0 },
+      ],
+      relationships: [{ id: 'r', name: 'places', x: 400, y: 80, kind: 'strong' }],
+      isas: [],
+      legs: [
+        { id: 'l1', fromId: 'r', toId: 'c', columnId: customerColumn, cardinality: '1', participation: { min: 1, max: 1 } },
+        { id: 'l2', fromId: 'r', toId: 'o', columnId: 'attribute:o-buyer', cardinality: 'N', participation: { min: 0, max: 'N' } },
+      ],
+    });
+  }
+
+  /** Imports a diagram through the real file input, as a user would. */
+  async function importDiagram(page: Page, json: string): Promise<void> {
+    await openApp(page);
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'shop.json', mimeType: 'application/json', buffer: Buffer.from(json),
+    });
+    await expect(page.getByTestId('table-Customer')).toBeVisible();
+  }
+
+  test('a diagram SQL cannot be generated from still opens the dialog and still exports', async ({ page }) => {
+    await importDiagram(page, connectedDiagram('attribute:c-email'));
+
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    // The editor survived the click. This is the regression: the throw used to
+    // unmount the whole tree, leaving #root empty.
+    await expect(page.getByTestId('canvas')).toBeVisible();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    // SVG, PNG, and JSON have nothing to do with SQL, so all three still work.
+    for (const format of ['SVG', 'PNG', 'JSON'] as const) {
+      await page.getByRole('tab', { name: format, exact: true }).click();
+      const pending = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Download ' + format }).click();
+      expect((await pending).suggestedFilename()).toBe(`shop.${format.toLowerCase()}`);
+    }
+
+    // And SQL explains itself instead of rendering nothing.
+    await page.getByRole('tab', { name: 'SQL', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('choose a single-column primary key at Customer');
+    await expect(page.getByRole('button', { name: 'Download SQL' })).toBeDisabled();
+    await expect(page.getByTestId('canvas')).toBeVisible();
+  });
+
+  test("a collaborator's delete cannot blank the page for whoever exports next", async ({ context }) => {
+    const alice = await context.newPage();
+    await importDiagram(alice, connectedDiagram('attribute:c-key'));
+
+    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    const link = await alice.getByLabel('Share link').inputValue();
+    await alice.getByRole('button', { name: 'Done', exact: true }).click();
+
+    const bob = await context.newPage();
+    await openApp(bob);
+    await bob.goto(link);
+    await expect(bob.getByTestId('table-Customer')).toBeVisible({ timeout: 20_000 });
+    // Presence, not `waitForLink`: the crow's-foot canvas status bar reports
+    // tables, so awareness has to be waited for in the status bar instead.
+    for (const page of [alice, bob]) {
+      await expect(page.locator('.collaboration-status')).toContainText('Editing with', { timeout: 45_000 });
+    }
+
+    // With Bob merely present, Alice's export is unaffected.
+    expect(await download(alice, 'SVG')).toBe('shop.svg');
+
+    // Bob deletes the column Alice's relationship leg is bound to. The edit
+    // reaches her document, leaving her leg pointing at nothing. Customer keeps
+    // its key, so this isolates the stale binding from "no key at all".
+    await bob.getByLabel('Edit attribute buyer_ref').click();
+    await bob.getByRole('button', { name: 'Delete attribute', exact: true }).click();
+    await expect(bob.getByLabel('Edit attribute buyer_ref')).toHaveCount(0);
+    await expect(alice.getByTestId('table-Order')).not.toContainText('buyer_ref');
+
+    // The reported bug: this click used to blank her page.
+    await alice.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect(alice.getByTestId('canvas')).toBeVisible();
+    await expect(alice.getByRole('dialog')).toBeVisible();
+
+    await alice.getByRole('tab', { name: 'SQL', exact: true }).click();
+    await expect(alice.getByRole('alert')).toContainText('Choose an available connection attribute');
+    await alice.getByRole('button', { name: 'Done', exact: true }).click();
+
+    // The other three formats are unaffected by a SQL-only problem.
+    expect(await download(alice, 'SVG')).toBe('shop.svg');
+
+    await alice.close();
+    await bob.close();
+  });
+
   test('changing an endpoint updates its ERDPlus symbols and participation', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
@@ -876,6 +1024,146 @@ test.describe('export', () => {
     await expect(endpoint.locator('circle')).toHaveCount(0);
     await page.getByLabel('Maximum').fill('5');
     await expect(page.getByTestId('leg-participation')).toHaveText('(1,5)');
+  });
+});
+
+/**
+ * Things a person actually does between opening the app and pushing to Git.
+ *
+ * These are the unremarkable paths — a fresh diagram, a rename, a reload, a
+ * zoom held down, a big diagram — that are easy to leave broken because no
+ * single feature test walks them. Each one here has broken a real editor at
+ * some point, usually in the gap between two features that are each tested.
+ */
+test.describe('everyday use', () => {
+  test('a brand new diagram can be exported in every format without a crash', async ({ page }) => {
+    await openApp(page);
+
+    // SVG and PNG render an empty canvas; JSON is an empty document; SQL has
+    // nothing to say yet but must explain itself instead of failing.
+    expect(await download(page, 'SVG')).toBe('untitled-diagram.svg');
+    expect(await download(page, 'PNG')).toBe('untitled-diagram.png');
+    expect(await download(page, 'JSON')).toBe('untitled-diagram.json');
+
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('tab', { name: 'SQL', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('Add an entity');
+    await expect(page.getByTestId('canvas')).toBeVisible();
+  });
+
+  test('renaming the diagram renames every export file', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await page.getByLabel('Diagram name').fill('Warehouse v2 (final)!');
+
+    // Odd characters become a filesystem-safe stem rather than a broken name.
+    expect(await download(page, 'JSON')).toBe('warehouse-v2-final.json');
+    expect(await download(page, 'SVG')).toBe('warehouse-v2-final.svg');
+  });
+
+  test('a JSON export re-imports as the same diagram', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addShape(page, 'attribute');
+    await nameField(page).fill('customer_id');
+    await page.getByRole('button', { name: 'Key', exact: true }).click();
+    await addNamedEntity(page, 'Invoice');
+
+    // Export, then feed the exact bytes back in through the real file input.
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('tab', { name: 'JSON', exact: true }).click();
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download JSON' }).click();
+    const stream = await (await pending).createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const part of stream) chunks.push(Buffer.from(part));
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await tidy(page);
+
+    await node(page, /Entity Customer/i).click();
+    await page.keyboard.press('Delete');
+    await expect(node(page, /Entity Customer/i)).toHaveCount(0);
+
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'round-trip.json', mimeType: 'application/json', buffer: Buffer.concat(chunks),
+    });
+    await expect(node(page, /Entity Customer/i)).toBeVisible();
+    await expect(node(page, /Entity Invoice/i)).toBeVisible();
+    // And the key survived, so this is a real round trip and not just a name.
+    await expect(page.locator('.diagram-counts')).toContainText('1 attributes');
+  });
+
+  test('a reload keeps the diagram, the name, and the notation', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await page.getByLabel('Diagram name').fill('Kept across reloads');
+    await page.getByRole('button', { name: /Crow/ }).click();
+    await expect(page.getByTestId('table-Customer')).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByTestId('canvas')).toBeVisible();
+    await expect(page.getByTestId('table-Customer')).toBeVisible();
+    await expect(page.getByLabel('Diagram name')).toHaveValue('Kept across reloads');
+  });
+
+  test('zoom stops at its limits instead of running away', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+
+    expect(await zoomToLimit(page, /Zoom in/)).toBe('300%');
+    expect(await zoomToLimit(page, /Zoom out/)).toBe('25%');
+    // The canvas is still alive at both extremes.
+    await expect(page.getByTestId('canvas')).toBeVisible();
+    expect(await download(page, 'SVG')).toBe('untitled-diagram.svg');
+  });
+
+  test('a long editing session unwinds completely with Undo and replays with Redo', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await nameField(page).fill('Renamed');
+    await tidy(page);
+
+    const box = (await node(page, /Entity Renamed/i).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2 + 90, { steps: 8 });
+    await page.mouse.up();
+    await expect(node(page, /Entity Renamed/i)).toBeVisible();
+
+    const undo = page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true });
+    const redo = page.getByRole('toolbar').getByRole('button', { name: 'Redo', exact: true });
+
+    // Every step of the session — add, rename, arrange, drag — is one undo.
+    // Running the stack dry has to return an empty canvas, not a half-built one.
+    for (let i = 0; i < 12 && !(await undo.isDisabled()); i += 1) await undo.click();
+    await expect(page.getByText(/Start with an entity/i)).toBeVisible();
+    await expect(undo).toBeDisabled();
+
+    // Redo replays the same steps in order, so the shape returns fully built
+    // and still carries the name it was given.
+    for (let i = 0; i < 12 && !(await redo.isDisabled()); i += 1) await redo.click();
+    await expect(node(page, /Entity Renamed/i)).toBeVisible();
+    await expect(redo).toBeDisabled();
+    await expect(undo).toBeEnabled();
+  });
+
+  test('a large diagram stays usable and still exports', async ({ page }) => {
+    await openApp(page);
+    for (let i = 0; i < 24; i += 1) {
+      await addNamedEntity(page, 'Entity ' + (i + 1));
+    }
+    await expect(page.locator('.diagram-counts')).toContainText('24 entities');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.waitForTimeout(300);
+
+    // Still interactive, not just painted.
+    await expect(page.getByTestId('canvas')).toBeVisible();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    expect(await download(page, 'JSON')).toBe('untitled-diagram.json');
+
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('tab', { name: 'SQL', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
   });
 });
 
@@ -1114,6 +1402,117 @@ test.describe('multiplayer', () => {
 
     await aliceContext.close();
     await bobContext.close();
+  });
+});
+
+/**
+ * Seeing what the other person is doing.
+ *
+ * The cursor used to be published from the drag listeners, which only exist
+ * while a shape is being dragged or the canvas panned — so you had to grab
+ * something to be seen, and a plain mouse move showed nobody anything. These
+ * assert the everyday case: move the mouse, the other side sees it.
+ */
+test.describe('live presence', () => {
+  /** Two tabs in one browser, linked over BroadcastChannel. */
+  async function pair(context: BrowserContext): Promise<[Page, Page]> {
+    const alice = await context.newPage();
+    await openApp(alice);
+    await addNamedEntity(alice, 'Shared');
+    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    const link = await alice.getByLabel('Share link').inputValue();
+    await alice.getByRole('button', { name: 'Done', exact: true }).click();
+    const bob = await context.newPage();
+    await openApp(bob);
+    await bob.goto(link);
+    await expect(node(bob, /Entity Shared/i)).toBeVisible({ timeout: 20_000 });
+    await waitForLink([alice, bob]);
+    return [alice, bob];
+  }
+
+  test('a cursor appears on plain mouse movement, with no click or drag', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    // Nobody has touched the canvas yet.
+    await expect(alice.locator('.peer-cursor')).toHaveCount(0);
+
+    await bob.mouse.move(700, 400);
+    await bob.mouse.move(720, 420);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+    // The name travels with the colour; an unnamed arrow says nothing.
+    await expect(alice.locator('.peer-cursor__name')).not.toBeEmpty();
+  });
+
+  test('the cursor tracks the pointer instead of freezing where it appeared', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    await bob.mouse.move(900, 500);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+    await alice.waitForTimeout(400);
+    const before = await alice.locator('.peer-cursor').first().getAttribute('transform');
+
+    await bob.mouse.move(300, 200);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+    await expect.poll(async () => alice.locator('.peer-cursor').first().getAttribute('transform')).not.toBe(before);
+  });
+
+  test('crow’s-foot view shows cursors too', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    for (const page of [alice, bob]) {
+      await page.getByRole('button', { name: /Crow/ }).click();
+      await expect(page.getByTestId('table-Shared')).toBeVisible();
+    }
+    await bob.mouse.move(600, 350);
+    await bob.waitForTimeout(300);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+  });
+
+  test('a cursor never reaches an export', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    await bob.mouse.move(650, 420);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+
+    // A peer's arrow is live presence, not part of the drawing.
+    await alice.getByRole('button', { name: 'Export', exact: true }).click();
+    await alice.getByRole('tab', { name: 'SVG', exact: true }).click();
+    const pending = alice.waitForEvent('download');
+    await alice.getByRole('button', { name: 'Download SVG' }).click();
+    const stream = await (await pending).createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const part of stream) chunks.push(Buffer.from(part));
+    const markup = Buffer.concat(chunks).toString();
+    expect(markup).not.toContain('peer-cursor');
+    expect(markup).toContain('Entity Shared');
+  });
+
+  test('a cursor disappears when its owner leaves instead of parking on the diagram', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    await bob.mouse.move(640, 400);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+
+    await bob.close();
+    await expect(alice.locator('.peer-cursor')).toHaveCount(0, { timeout: 45_000 });
+    await expect(alice.locator('.collaboration-status')).toContainText('Editing alone');
+  });
+
+  test('a peer’s selection is visible in their colour', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    const shape = node(bob, /Entity Shared/i);
+    const box = (await shape.boundingBox())!;
+    await bob.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await shape.click();
+    await expect(alice.locator('.selection-ring')).toHaveCount(1);
+  });
+
+  test('a peer’s cursor never swallows a click on the shape under it', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+    // Bob parks his pointer on the exact shape Alice is about to click. The
+    // cursor layer paints over the drawing, so without pointer-events: none the
+    // arrow eats the click and the shape cannot be selected at all.
+    const box = (await node(alice, /Entity Shared/i).boundingBox())!;
+    await bob.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+
+    await node(alice, /Entity Shared/i).click();
+    await expect(nameField(alice)).toHaveValue('Shared');
   });
 });
 

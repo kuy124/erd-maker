@@ -13,8 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
 import { documentBounds, edgePoint, legLabelPoints, offsetToward, segmentBetween } from './geometry';
-import { AttributeShape, CardinalityMarker, EntityShape, IsaShape, RelationshipShape } from './NodeShapes';
-import { useDrag } from './useDrag';
+import { AttributeShape, CardinalityMarker, EntityShape, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
+import { useDrag, usePeerCursor } from './useDrag';
 import type { ErdDocument } from '../model/types';
 import { canConnect } from '../model/placement';
 
@@ -79,14 +79,13 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
       else if (doc.relationships.some((r) => r.id === id)) state.updateRelationship(id, { x, y });
       else state.applyPositions(new Map([[id, { x, y }]]));
     },
-    onPointerWorld: (clientX, clientY) => {
-      const world = toWorld(clientX, clientY);
-      state.awareness.setLocalStateField('cursor', world);
-    },
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
     viewport,
     panMode: tool === 'pan',
   });
+
+  // Independent of dragging: moving the mouse is enough to be seen.
+usePeerCursor(toWorld, state.awareness);
 
   // Node under the pointer, topmost first so later-drawn wins.
   const nodeAt = useCallback(
@@ -641,19 +640,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
           </g>
 
           {/* Peer cursors. The name always travels with the colour. */}
-          <g className="layer-peers">
-            {peers.map((peer) =>
-              peer.cursor ? (
-                <g key={peer.clientId} className="peer-cursor" transform={`translate(${peer.cursor.x} ${peer.cursor.y})`}>
-                  <path d="M0 0 L0 15 L4 11 L7 17 L10 15.5 L7 10 L12 10 Z" fill={peer.color} stroke="var(--paper)" strokeWidth="1" />
-                  <rect className="peer-cursor__chip" x="14" y="12" width={peer.name.length * 6.4 + 10} height="17" fill={peer.color} />
-                  <text className="peer-cursor__name" x="19" y="24">
-                    {peer.name}
-                  </text>
-                </g>
-              ) : null,
-            )}
-          </g>
+          <PeerCursors peers={peers} />
         </g>
       </svg>
 
