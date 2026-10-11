@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   centerOf,
+  cursorOrigin,
   diamondEdge,
   documentBounds,
   edgePoint,
   ellipseEdge,
   hitTestNode,
+  isVisibleIn,
   legLabelPoints,
   offsetToward,
   rectEdge,
@@ -262,5 +264,77 @@ describe('documentBounds', () => {
   it('uses a custom padding', () => {
     const doc = scene();
     expect(documentBounds(doc, 0).maxX).toBe(550);
+  });
+});
+
+describe('cursorOrigin', () => {
+  const SIZE = { w: 150, h: 60 };
+  const RECT = { left: 0, top: 0, width: 1000, height: 800 };
+  const VIEWPORT = { x: 0, y: 0, zoom: 1 };
+
+  it('centres the shape on the pointer', () => {
+    // Pointer at (300,400) in a canvas at the origin: the 150x60 shape's
+    // top-left is the pointer minus half its size.
+    expect(cursorOrigin(SIZE, { x: 300, y: 400 }, RECT, VIEWPORT)).toEqual({ x: 225, y: 370 });
+  });
+
+  it('falls back to the middle of the canvas with no pointer', () => {
+    expect(cursorOrigin(SIZE, null, RECT, VIEWPORT)).toEqual({ x: 425, y: 370 });
+  });
+
+  it('falls back to the middle with no measured canvas', () => {
+    expect(cursorOrigin(SIZE, { x: 300, y: 400 }, null, VIEWPORT)).toEqual({ x: 325, y: 270 });
+  });
+
+  it('accounts for pan and zoom', () => {
+    // Panned right by 100 and zoomed to 2x: client (300,400) maps to world
+    // (100,200), so the shape's top-left is that minus half its size.
+    expect(cursorOrigin(SIZE, { x: 300, y: 400 }, RECT, { x: 100, y: 0, zoom: 2 })).toEqual({ x: 25, y: 170 });
+  });
+
+  it('accounts for the canvas not being at the page origin', () => {
+    // A canvas offset by a 64px header: the same client point is 64 higher.
+    const offset = { left: 0, top: 64, width: 1000, height: 800 };
+    expect(cursorOrigin(SIZE, { x: 300, y: 464 }, offset, VIEWPORT)).toEqual({ x: 225, y: 370 });
+  });
+
+  it('keeps a shape on screen when the pointer wanders past the edge', () => {
+    // Pointer far below the canvas: the shape is clamped to the bottom margin,
+    // not dropped out of sight below the fold.
+    const origin = cursorOrigin(SIZE, { x: 300, y: 5000 }, RECT, VIEWPORT);
+    expect(origin.y + SIZE.h).toBeLessThanOrEqual(800 - 16);
+    expect(origin.y + SIZE.h).toBeGreaterThan(800 - 16 - 1);
+  });
+
+  it('keeps a shape on screen when the pointer is over a side panel', () => {
+    const origin = cursorOrigin(SIZE, { x: -240, y: 400 }, RECT, VIEWPORT);
+    expect(origin.x).toBeGreaterThanOrEqual(16);
+  });
+
+  it('centres a shape too large to fit rather than fighting the clamp', () => {
+    // 4000x3000 in a 1000x800 canvas: centred on the visible area, which is
+    // inset by the 16px margin on each side.
+    const huge = { w: 4000, h: 3000 };
+    expect(cursorOrigin(huge, { x: 10, y: 10 }, RECT, VIEWPORT)).toEqual({ x: -1500, y: -1100 });
+  });
+});
+
+describe('isVisibleIn', () => {
+  const VIEWPORT = { x: 0, y: 0, zoom: 1 };
+  it('accepts a shape inside the visible area', () => {
+    expect(isVisibleIn(100, 100, { w: 150, h: 60 }, 1000, 800, VIEWPORT)).toBe(true);
+  });
+  it('rejects a shape past the right or bottom edge', () => {
+    expect(isVisibleIn(900, 100, { w: 150, h: 60 }, 1000, 800, VIEWPORT)).toBe(false);
+    expect(isVisibleIn(100, 780, { w: 150, h: 60 }, 1000, 800, VIEWPORT)).toBe(false);
+  });
+  it('follows pan and zoom', () => {
+    // Content panned right by 500, so visible world x runs from -500 to 500.
+    const panned = { x: 500, y: 0, zoom: 1 };
+    expect(isVisibleIn(-400, 100, { w: 150, h: 60 }, 1000, 800, panned)).toBe(true);
+    expect(isVisibleIn(-600, 100, { w: 150, h: 60 }, 1000, 800, panned)).toBe(false);
+    // Zoomed to 2x with no pan, only world 0..500 is on screen.
+    expect(isVisibleIn(600, 100, { w: 150, h: 60 }, 1000, 800, { x: 0, y: 0, zoom: 2 })).toBe(false);
+    expect(isVisibleIn(300, 100, { w: 150, h: 60 }, 1000, 800, { x: 0, y: 0, zoom: 2 })).toBe(true);
   });
 });

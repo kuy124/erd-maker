@@ -88,7 +88,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
   });
 
   // The table view had no presence at all; moving the mouse is now enough to be seen.
-  usePeerCursor(toWorld, state.awareness);
+  usePeerCursor(toWorld, state.awareness, state.pointer);
 
   const chooseColumn = (end: ColumnEndpoint) => {
     if (connectFrom) {

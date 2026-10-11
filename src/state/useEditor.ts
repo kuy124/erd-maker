@@ -58,6 +58,15 @@ export interface EditorState {
   loaded: boolean;
   selection: string | null;
   /**
+   * Latest pointer position in client coordinates, or null when the pointer is
+   * not over the window.
+   *
+   * A ref rather than state: it updates on every pointer move and is read only
+   * when a creation shortcut fires, so state here would re-render the editor
+   * continuously for no visible benefit.
+   */
+  pointer: React.MutableRefObject<{ x: number; y: number } | null>;
+  /**
    * The shape created by the most recent add, or null. The inspector focuses
    * its name field for this one, so a new shape can be named straight away
    * without clicking into the panel.
@@ -126,6 +135,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
    */
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>('select');
+  const pointer = useRef<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [identity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
   const visibleDoc = useMemo(() => ({ ...doc, view }), [doc, view]);
@@ -230,7 +240,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     [room],
   );
 
-  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
+  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
     setTool,
     setSelection: (id) => { setSelection(id); setJustCreated(null); },
     setViewport,
@@ -431,6 +441,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     directPeers,
     loaded,
     selection,
+    pointer,
     viewport,
     tool,
     ydoc: room.ydoc,

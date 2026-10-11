@@ -85,7 +85,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
   });
 
   // Independent of dragging: moving the mouse is enough to be seen.
-usePeerCursor(toWorld, state.awareness);
+usePeerCursor(toWorld, state.awareness, state.pointer);
 
   // Node under the pointer, topmost first so later-drawn wins.
   const nodeAt = useCallback(

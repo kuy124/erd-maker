@@ -39,6 +39,15 @@ const CURSOR_INTERVAL_MS = 50;
 export function usePeerCursor(
   toWorld: (clientX: number, clientY: number) => { x: number; y: number },
   awareness: Awareness,
+  /**
+   * Optional ref recording the raw client position on every move.
+   *
+   * Unthrottled on purpose, and deliberately not state: this drives where a new
+   * shape appears, so it has to be exact, but it is read only when a key is
+   * pressed. Putting it in React state would re-render the whole editor on
+   * every pointer move.
+   */
+  pointer?: React.MutableRefObject<{ x: number; y: number } | null>,
 ): void {
   const latest = useRef({ toWorld, awareness });
   latest.current = { toWorld, awareness };
@@ -66,6 +75,7 @@ export function usePeerCursor(
      * final position correct.
      */
     const move = (event: PointerEvent) => {
+      if (pointer) pointer.current = { x: event.clientX, y: event.clientY };
       pending = event;
       if (timer !== null) return; // A send is already queued; it will pick this up.
       timer = window.setTimeout(() => {
@@ -77,6 +87,7 @@ export function usePeerCursor(
     const clear = () => {
       if (timer !== null) { window.clearTimeout(timer); timer = null; }
       pending = null;
+      if (pointer) pointer.current = null;
       if (!sent) return;
       sent = false;
       lastSent = 0;
@@ -94,7 +105,7 @@ export function usePeerCursor(
       window.removeEventListener('blur', clear);
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, []);
+  }, [pointer]);
 }
 
 export interface DragState {

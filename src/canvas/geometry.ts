@@ -190,6 +190,79 @@ export function offsetToward(point: Point, toward: Point, distance: number): Poi
   return { x: point.x + (dx / len) * distance, y: point.y + (dy / len) * distance };
 }
 
+/**
+ * Where a newly created shape should land, in world coordinates.
+ *
+ * Under the pointer, because that is where the person is looking. Creating in
+ * the middle of the screen instead means every shape lands in the same spot no
+ * matter where you were working, and then walks away from your cursor.
+ *
+ * Two guard rails, both of which matter more than they look:
+ *
+ *   - The pointer is only trusted while it is over the canvas. Wandering into
+ *     the side panel and pressing E must not drop a shape behind the panel,
+ *     where it looks like the keyboard did nothing.
+ *   - The result is clamped to the visible area, so a pointer sitting just off
+ *     the edge still produces a shape you can see.
+ *
+ * With no pointer, or no measured canvas, it falls back to the middle — which
+ * is what happened unconditionally before.
+ */
+export function cursorOrigin(
+  size: Size,
+  pointer: { x: number; y: number } | null,
+  rect: { left: number; top: number; width: number; height: number } | null,
+  viewport: { x: number; y: number; zoom: number },
+): Point {
+  const width = rect?.width ?? 800;
+  const height = rect?.height ?? 600;
+  const inside = pointer && rect
+    ? { x: pointer.x - rect.left, y: pointer.y - rect.top }
+    : { x: width / 2, y: height / 2 };
+
+  const { zoom } = viewport;
+  const world = {
+    x: (inside.x - viewport.x) / zoom,
+    y: (inside.y - viewport.y) / zoom,
+  };
+
+  // The world rectangle currently on screen, with a little breathing room.
+  const margin = 16;
+  const minX = -viewport.x / zoom + margin;
+  const minY = -viewport.y / zoom + margin;
+  const maxX = (width - viewport.x) / zoom - margin;
+  const maxY = (height - viewport.y) / zoom - margin;
+
+  // A shape wider than the viewport cannot be kept inside it, so centre it
+  // rather than fighting the clamp.
+  const cx = maxX - minX < size.w
+    ? (minX + maxX) / 2
+    : Math.min(Math.max(world.x, minX + size.w / 2), maxX - size.w / 2);
+  const cy = maxY - minY < size.h
+    ? (minY + maxY) / 2
+    : Math.min(Math.max(world.y, minY + size.h / 2), maxY - size.h / 2);
+
+  return { x: cx - size.w / 2, y: cy - size.h / 2 };
+}
+
+/** True when a node's top-left corner and size fall inside the visible area. */
+export function isVisibleIn(
+  x: number,
+  y: number,
+  size: Size,
+  viewportWidth: number,
+  viewportHeight: number,
+  viewport: { x: number; y: number; zoom: number },
+): boolean {
+  const { zoom } = viewport;
+  return (
+    x >= -viewport.x / zoom &&
+    y >= -viewport.y / zoom &&
+    x + size.w <= (viewportWidth - viewport.x) / zoom &&
+    y + size.h <= (viewportHeight - viewport.y) / zoom
+  );
+}
+
 /** Combined bounding box of every node, or a default frame when empty. */
 export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
   const nodes = occupiedBoxes(doc);

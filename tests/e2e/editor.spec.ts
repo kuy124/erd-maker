@@ -19,7 +19,7 @@
  * it. The same code path runs either way; only the matchmaker is local.
  */
 
-import { expect, test as base, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test as base, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 
 /** The signalling server started by `playwright.config.ts`. */
@@ -1673,5 +1673,156 @@ test.describe('persistence', () => {
     await page.waitForTimeout(800);
     await page.reload();
     await expect(page.getByLabel('Diagram name')).toHaveValue('Library schema', { timeout: 20_000 });
+  });
+});
+
+/**
+ * Where a new shape appears.
+ *
+ * The shortcut used to drop every shape in the middle of the canvas regardless
+ * of where the pointer was, then re-centre the view on it. Both had to go:
+ * people build a diagram by working along one area of it, and a shape that
+ * appears somewhere else entirely is one they have to go and find.
+ */
+
+/**
+ * Where a new shape appears.
+ *
+ * The shortcut used to drop every shape in the middle of the canvas whatever
+ * the pointer was doing, then re-centre the view on it. Both had to go: people
+ * build a diagram by working along one part of it, and a shape that lands
+ * somewhere else is one they have to go and find.
+ *
+ * Assertions are on screen positions, because that is what the user sees and it
+ * survives the shape being re-laid-out by `findFreeSlot`.
+ */
+test.describe('creating at the pointer', () => {
+  /** Screen centre of a shape, in page coordinates. */
+  async function centreOf(target: Locator): Promise<{ x: number; y: number }> {
+    const box = (await target.boundingBox())!;
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  }
+
+  test('E puts the entity under the pointer, not in the middle', async ({ page }) => {
+    await openApp(page);
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    const target = { x: canvas.x + 180, y: canvas.y + canvas.height - 120 };
+
+    await page.mouse.move(target.x, target.y);
+    await page.waitForTimeout(120);
+    await page.keyboard.press('e');
+
+    const shape = node(page, /Entity New entity/i);
+    await expect(shape).toBeVisible();
+    const placed = await centreOf(shape);
+    // `findFreeSlot` nudges a shape clear of anything already there, so the
+    // allowance is one shape's width rather than pixel-exact.
+    expect(Math.abs(placed.x - target.x)).toBeLessThan(160);
+    expect(Math.abs(placed.y - target.y)).toBeLessThan(80);
+    // And emphatically not the middle of the canvas.
+    expect(Math.abs(placed.x - (canvas.x + canvas.width / 2))).toBeGreaterThan(150);
+  });
+
+  test('the view does not jump away from the pointer that just created a shape', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'First');
+    await addNamedEntity(page, 'Second');
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(200);
+
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    await page.mouse.move(canvas.x + 200, canvas.y + canvas.height - 140);
+    await page.waitForTimeout(120);
+
+    const before = await page.locator('[data-viewport]').getAttribute('transform');
+    await page.keyboard.press('e');
+    await expect(node(page, /Entity New entity/i)).toBeVisible();
+    await page.waitForTimeout(300);
+
+    // Re-centring the diagram on every creation is exactly what this guards.
+    expect(await page.locator('[data-viewport]').getAttribute('transform')).toBe(before);
+  });
+
+  test('R and S each follow the pointer to wherever it is', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Anchor');
+    // Naming leaves the caret in the name field, where single-key shortcuts are
+    // deliberately inert. Escape returns to the canvas without changing the
+    // selection, so the pointer is now what decides placement.
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(200);
+    const anchor = await centreOf(node(page, /Entity Anchor/i));
+
+    const first = { x: anchor.x - 260, y: anchor.y - 160 };
+    await page.mouse.move(first.x, first.y);
+    await page.waitForTimeout(120);
+    await page.keyboard.press('r');
+    const relationship = node(page, /Relationship relationship/i);
+    await expect(relationship).toBeVisible();
+    const relationshipAt = await centreOf(relationship);
+    expect(Math.abs(relationshipAt.x - first.x)).toBeLessThan(160);
+    expect(Math.abs(relationshipAt.y - first.y)).toBeLessThan(80);
+
+    await page.keyboard.press('Escape');
+    const second = { x: anchor.x + 260, y: anchor.y + 160 };
+    await page.mouse.move(second.x, second.y);
+    await page.waitForTimeout(120);
+    await page.keyboard.press('s');
+    const isa = node(page, 'Specialization');
+    await expect(isa).toBeVisible();
+    const isaAt = await centreOf(isa);
+    expect(Math.abs(isaAt.x - second.x)).toBeLessThan(80);
+    expect(Math.abs(isaAt.y - second.y)).toBeLessThan(80);
+  });
+
+  test('A still lands beside its owner rather than under the pointer', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Anchor');
+    await page.keyboard.press('Escape');
+    const anchor = await centreOf(node(page, /Entity Anchor/i));
+
+    // Far away on purpose: an attribute describing a shape belongs next to it.
+    // Chen draws the connector as the thing that says which shape it describes,
+    // so a stray attribute across the canvas turns a readable diagram into a
+    // hairball.
+    await page.mouse.move(anchor.x + 420, anchor.y + 280);
+    await page.waitForTimeout(120);
+    await page.keyboard.press('a');
+
+    // Owned by the selected entity, so it is numbered.
+    const attribute = node(page, /Attribute 1/i);
+    await expect(attribute).toBeVisible();
+    const placed = await centreOf(attribute);
+    const owner = await centreOf(node(page, /Entity Anchor/i));
+    expect(Math.abs(placed.x - owner.x)).toBeLessThan(220);
+  });
+
+  test('a shape stays on screen when the shortcut is used from a side panel', async ({ page }) => {
+    await openApp(page);
+    // The pointer ends up over the shape rail, outside the canvas.
+    await page.getByRole('complementary', { name: 'Shapes' }).hover();
+    await page.waitForTimeout(120);
+    await page.keyboard.press('e');
+
+    const shape = node(page, /Entity New entity/i);
+    await expect(shape).toBeVisible();
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    const box = (await shape.boundingBox())!;
+    expect(box.x).toBeGreaterThan(canvas.x - 10);
+    expect(box.y).toBeGreaterThan(canvas.y - 10);
+  });
+
+  test('creating before the pointer has ever moved still lands in view', async ({ page }) => {
+    await openApp(page);
+    // No pointermove has fired, so there is no recorded position at all.
+    await page.keyboard.press('e');
+
+    const shape = node(page, /Entity New entity/i);
+    await expect(shape).toBeVisible();
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    const box = (await shape.boundingBox())!;
+    expect(box.x).toBeGreaterThan(canvas.x);
+    expect(box.y).toBeGreaterThan(canvas.y);
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
-import { documentBounds } from './canvas/geometry';
+import { cursorOrigin, documentBounds, isVisibleIn } from './canvas/geometry';
 import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
@@ -116,10 +116,19 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       const drawer = window.matchMedia('(max-width: 1099px)').matches;
       const width = rect.width - (drawer && !phone ? panel?.width ?? 0 : 0);
       const height = rect.height - (phone ? panel?.height ?? 0 : 0);
-      state.setViewport((current) => ({ ...current,
-        x: width / 2 - (x + dimensions.w / 2) * current.zoom,
-        y: height / 2 - (y + dimensions.h / 2) * current.zoom,
-      }));
+      state.setViewport((current) => {
+        // A shape created under the pointer is already on screen, and
+        // re-centring on it yanked the canvas out from under the pointer that
+        // had just placed it. Only move the view when the shape would otherwise
+        // be off it — which is the case when it was created from the shape rail
+        // with the pointer parked in a side panel.
+        if (isVisibleIn(x, y, dimensions, width, height, current)) return current;
+        return {
+          ...current,
+          x: width / 2 - (x + dimensions.w / 2) * current.zoom,
+          y: height / 2 - (y + dimensions.h / 2) * current.zoom,
+        };
+      });
     });
     return () => cancelAnimationFrame(frame);
   }, [state.justCreated, showPanel]);
@@ -170,10 +179,8 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     const rect = svgRef.current?.getBoundingClientRect();
     const size = view === 'crowfoot' && kind === 'entity' ? { w: CROW_WIDTH, h: 88 } :
       kind === 'attribute' ? { w: 130, h: 42 } : { w: 150, h: 72 };
-    const origin = {
-      x: ((rect?.width ?? 800) / 2 - state.viewport.x) / state.viewport.zoom - size.w / 2,
-      y: ((rect?.height ?? 600) / 2 - state.viewport.y) / state.viewport.zoom - size.h / 2,
-    };
+    // Under the pointer when it is over the canvas, not always in the middle.
+    const origin = cursorOrigin(size, state.pointer.current, rect ?? null, state.viewport);
     const slot = findFreeSlot(occupiedBoxes({ ...state.doc, view }), origin, size);
     if (kind === 'attribute') state.addAttribute(slot.x, slot.y, ownerId);
     else if (kind === 'entity') state.addEntity(slot.x, slot.y);
