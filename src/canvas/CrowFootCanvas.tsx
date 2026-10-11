@@ -27,6 +27,7 @@ import {
   type CrowTable,
 } from '../model/crowfoot';
 import type { EditorState } from '../state/useEditor';
+import { nodesInRect, type Point } from './geometry';
 import { useDrag, usePeerCursor } from './useDrag';
 import { CardinalityMarker, PeerCursors } from './NodeShapes';
 
@@ -81,7 +82,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
 
   const drag = useDrag({
     toWorld,
-    onCommit: (id, x, y) => state.updateEntity(id, { x, y }),
+    onCommit: (positions) => state.applyPositions(positions),
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
     viewport,
     panMode: tool === 'pan',
@@ -133,21 +134,68 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
       event.stopPropagation();
       if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
       if (tool === 'connect') return;
-      state.setSelection(id);
+      // Shift extends the selection; a plain click on an already-selected table
+      // carries the whole selection, matching the Chen view.
+      if (event.shiftKey) { state.toggleSelection(id); return; }
+      const ids = selection.includes(id) ? selection : [id];
+      if (!selection.includes(id)) state.setSelection([id]);
+      const start = new Map<string, { x: number; y: number }>();
+      for (const nodeId of ids) {
+        const entity = doc.entities.find((item) => item.id === nodeId);
+        if (entity) start.set(nodeId, { x: entity.x, y: entity.y });
+      }
+      if (!start.has(id)) return;
       const world = toWorld(event.clientX, event.clientY);
-      const table = doc.entities.find((e) => e.id === id);
-      if (table) drag.beginNodeDrag(id, world.x, world.y, table.x, table.y);
+      drag.beginNodeDrag(start, world.x, world.y);
     },
-    [tool, state, toWorld, doc.entities, drag],
+    [tool, state, toWorld, doc.entities, drag, selection],
   );
+
+  /** Tracks the marquee in a ref so the window listener sees the live value. */
+  const marquee = useRef<{ from: Point; to: Point } | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{ from: Point; to: Point } | null>(null);
+
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const box = marquee.current;
+      if (!box) return;
+      box.to = toWorld(event.clientX, event.clientY);
+      setMarqueeBox({ from: box.from, to: box.to });
+    };
+    const up = () => {
+      const box = marquee.current;
+      marquee.current = null;
+      setMarqueeBox(null);
+      if (!box) return;
+      state.setSelection(nodesInRect(doc, {
+        minX: Math.min(box.from.x, box.to.x), minY: Math.min(box.from.y, box.to.y),
+        maxX: Math.max(box.from.x, box.to.x), maxY: Math.max(box.from.y, box.to.y),
+      }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, [doc, state, toWorld]);
 
   const handleBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (tool === 'connect') { setConnectFrom(null); setPointer(null); }
-      if (tool !== 'pan' && event.button === 0) state.setSelection(null);
+      // Shift-drag on empty paper draws a marquee; a plain drag still pans.
+      if (tool !== 'pan' && !event.shiftKey && event.button === 0) state.setSelection([]);
+      if (tool !== 'pan' && event.shiftKey && event.button === 0) {
+        const world = toWorld(event.clientX, event.clientY);
+        marquee.current = { from: world, to: world };
+        setMarqueeBox({ from: world, to: world });
+        return;
+      }
       drag.beginPan(event.clientX, event.clientY);
     },
-    [tool, state, drag],
+    [tool, state, drag, toWorld],
   );
 
   const handleWheel = useCallback(
@@ -171,14 +219,14 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
     [state],
   );
 
-  // Render the dragged table at its in-flight position.
+  // Render every dragged table at its in-flight position.
   const positioned = useMemo(() => {
     const active = drag.drag;
-    return tables.map((table) =>
-      active && active.moved && active.id === table.entityId
-        ? { ...table, x: active.x, y: active.y }
-        : table,
-    );
+    return tables.map((table) => {
+      if (!active?.moved) return table;
+      const start = active.start.get(table.entityId);
+      return start ? { ...table, x: start.x + active.dx, y: start.y + active.dy } : table;
+    });
   }, [tables, drag.drag]);
 
   const byId = useMemo(() => new Map(positioned.map((t) => [t.entityId, t])), [positioned]);
@@ -220,9 +268,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                   from={from}
                   to={to}
                   lane={link.lane}
-                  selected={selection === link.relId}
-                  onSelect={(event) => tool === 'pan' ? drag.beginPan(event.clientX, event.clientY) : state.setSelection(link.relId)}
-                  onKeyboardSelect={() => state.setSelection(link.relId)}
+                  selected={selection.includes(link.relId)}
+                  onSelect={(event) => tool === 'pan' ? drag.beginPan(event.clientX, event.clientY) : state.setSelection([link.relId])}
+                  onKeyboardSelect={() => state.setSelection([link.relId])}
                 />
               );
             })}
@@ -231,7 +279,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
           <g className="layer-tables">
             {positioned.map((table) => {
               const height = tableHeight(table);
-              const isSelected = selection === table.entityId;
+              const isSelected = selection.includes(table.entityId);
               return (
                 <g
                   key={table.entityId}
@@ -280,7 +328,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                           if (event.key !== 'Enter' && event.key !== ' ') return;
                           event.preventDefault(); event.stopPropagation();
                           if (tool === 'connect') chooseColumn({ entityId: table.entityId, columnId: row.id });
-                          else state.setSelection(row.attributeId ?? table.entityId);
+                          else state.setSelection([row.attributeId ?? table.entityId]);
                         }}
                         onPointerUp={(event) => { if (tool === 'connect') event.preventDefault(); }}
                         onPointerDown={(event) => {
@@ -295,7 +343,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                             if (!connectFrom) chooseColumn(end);
                             return;
                           }
-                          state.setSelection(row.attributeId ?? table.entityId);
+                          state.setSelection([row.attributeId ?? table.entityId]);
                         }}>
                         <title>{row.name + (row.attributeId ? ' — editable attribute' : ' — generated ' + (row.fk ? 'foreign key' : 'primary key')) +
                           (row.generatedKey ? '. Primary key generated; mark this attribute as Key to make it explicit' : '') +
@@ -328,7 +376,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                             y2={CROW_HEADER_HEIGHT + (index + 1) * CROW_ROW_HEIGHT}
                           />
                         ) : null}
-                        {selection === row.attributeId && row.attributeId ? <rect className="selection-ring"
+                        {row.attributeId && selection.includes(row.attributeId) ? <rect className="selection-ring"
                           x={2} y={y - CROW_ROW_HEIGHT / 2 + 2} width={CROW_WIDTH - 4} height={CROW_ROW_HEIGHT - 4} /> : null}
                       </g>
                     );
@@ -350,6 +398,16 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
             const y = rowCenter(table, connectFrom.columnId);
             return <path className="connect-preview" d={`M${x} ${y} H${x + (x > table.x ? 36 : -36)} V${pointer.y} H${pointer.x}`} />;
           })() : null}
+
+          {marqueeBox ? (
+            <path
+              className="marquee"
+              d={`M${Math.min(marqueeBox.from.x, marqueeBox.to.x)} ${Math.min(marqueeBox.from.y, marqueeBox.to.y)}
+                  H${Math.max(marqueeBox.from.x, marqueeBox.to.x)}
+                  V${Math.max(marqueeBox.from.y, marqueeBox.to.y)}
+                  H${Math.min(marqueeBox.from.x, marqueeBox.to.x)} Z`}
+            />
+          ) : null}
 
           <PeerCursors peers={peers} />
         </g>

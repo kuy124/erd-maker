@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
+import type { Point } from './geometry';
 
 /**
  * Milliseconds between cursor broadcasts.
@@ -109,13 +110,19 @@ export function usePeerCursor(
 }
 
 export interface DragState {
-  id: string;
-  /** Grab offset from the node's top-left, in world units. */
-  offsetX: number;
-  offsetY: number;
-  /** Current local position while the drag is in flight. */
-  x: number;
-  y: number;
+  /**
+   * Every node taking part and where it started.
+   *
+   * A map rather than one id, because a drag can carry a whole selection. Each
+   * member is then offset by the same `dx`/`dy`, so the set keeps its shape and
+   * the drop is one `applyPositions` call — one undo step, not one per shape.
+   */
+  start: Map<string, Point>;
+  /** Pointer position in world coordinates when the drag began. */
+  origin: Point;
+  /** Pointer movement since then, in world units. */
+  dx: number;
+  dy: number;
   moved: boolean;
 }
 
@@ -128,9 +135,9 @@ export interface PanState {
 
 interface Options {
   /** Converts a client point to world coordinates. */
-  toWorld: (clientX: number, clientY: number) => { x: number; y: number };
-  /** Called once, on drop, with the final position. */
-  onCommit: (id: string, x: number, y: number) => void;
+  toWorld: (clientX: number, clientY: number) => Point;
+  /** Called once, on drop, with every member's final position. */
+  onCommit: (positions: Map<string, Point>) => void;
   onPan: (x: number, y: number) => void;
   viewport: { x: number; y: number; zoom: number };
   /** True when the current tool pans instead of selecting. */
@@ -139,7 +146,7 @@ interface Options {
 
 export interface DragApi {
   drag: DragState | null;
-  beginNodeDrag: (id: string, worldX: number, worldY: number, nodeX: number, nodeY: number) => void;
+  beginNodeDrag: (start: Map<string, Point>, worldX: number, worldY: number) => void;
   beginPan: (clientX: number, clientY: number) => void;
 }
 
@@ -153,21 +160,12 @@ export function useDrag(options: Options): DragApi {
   const latest = useRef(options);
   latest.current = options;
 
-  const beginNodeDrag = useCallback(
-    (id: string, worldX: number, worldY: number, nodeX: number, nodeY: number) => {
-      const next: DragState = {
-        id,
-        offsetX: worldX - nodeX,
-        offsetY: worldY - nodeY,
-        x: nodeX,
-        y: nodeY,
-        moved: false,
-      };
-      dragRef.current = next;
-      setDrag(next);
-    },
-    [],
-  );
+  const beginNodeDrag = useCallback((start: Map<string, Point>, worldX: number, worldY: number) => {
+    if (start.size === 0) return;
+    const next: DragState = { start, origin: { x: worldX, y: worldY }, dx: 0, dy: 0, moved: false };
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
 
   const beginPan = useCallback((clientX: number, clientY: number) => {
     const next: PanState = {
@@ -189,8 +187,8 @@ export function useDrag(options: Options): DragApi {
         const world = latest.current.toWorld(event.clientX, event.clientY);
         const next: DragState = {
           ...currentDrag,
-          x: world.x - currentDrag.offsetX,
-          y: world.y - currentDrag.offsetY,
+          dx: world.x - currentDrag.origin.x,
+          dy: world.y - currentDrag.origin.y,
           moved: true,
         };
         dragRef.current = next;
@@ -211,7 +209,12 @@ export function useDrag(options: Options): DragApi {
       const finished = dragRef.current;
       if (finished) {
         if (finished.moved) {
-          latest.current.onCommit(finished.id, finished.x, finished.y);
+          // Offsets, not absolute positions: a collaborator who moved one of
+          // these while it was being dragged keeps their change, because this
+          // only adjusts where the drag started from.
+          latest.current.onCommit(new Map(
+            [...finished.start].map(([id, p]) => [id, { x: p.x + finished.dx, y: p.y + finished.dy }]),
+          ));
         }
         dragRef.current = null;
         setDrag(null);

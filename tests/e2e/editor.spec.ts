@@ -79,20 +79,51 @@ async function addShape(page: Page, kind: 'entity' | 'attribute' | 'relationship
 }
 
 /**
- * Connects a relationship to two entities.
+ * Joins shapes with the Connect tool.
  *
- * Adding a relationship starts the connection gesture from it and each
- * completed leg stays on the diamond, so two shift-clicks finish the chain.
+ * This used to be shift-click, which is now multi-select. Connecting lives on
+ * the tool because the drag shows the line being drawn, and because a hidden
+ * modifier means people only find it by accident.
+ *
+ * The gesture is a drag, not two clicks: the connection is committed when the
+ * pointer is released, so a press and release on the same shape cancels rather
+ * than arming anything. Consecutive repeats in `labels` collapse, because a
+ * chain reads entity, relationship, entity.
  */
-async function connectBothSides(
-  page: Page,
-  rel: RegExp,
-  first: RegExp,
-  second: RegExp,
-): Promise<void> {
-  await node(page, first).click({ modifiers: ['Shift'] });
-  await node(page, second).click({ modifiers: ['Shift'] });
-  await expect(node(page, rel)).toBeVisible();
+async function connectWithTool(page: Page, ...labels: Array<string | RegExp>): Promise<void> {
+  const chain = labels.filter((label, index) => index === 0 || label !== labels[index - 1]);
+  if (chain.length < 2) return;
+  await page.getByRole('button', { name: 'Connect tool' }).click();
+  for (let i = 0; i + 1 < chain.length; i += 1) {
+    await dragBetween(page, chain[i]!, chain[i + 1]!);
+  }
+  // Back to selecting, the way anyone finishes a connection: the editing
+  // affordances on the lines are hidden while the Connect tool is active.
+  await page.getByRole('button', { name: 'Select tool' }).click();
+}
+
+/** Presses on one shape, releases on another: the Connect tool's own gesture. */
+async function dragBetween(page: Page, from: string | RegExp, to: string | RegExp): Promise<void> {
+  await pressOn(page, from);
+  await page.mouse.move(...(await centreOf(page, to)), { steps: 8 });
+  await page.mouse.up();
+}
+
+/**
+ * Presses on a shape and leaves the pointer down.
+ *
+ * A connection is committed on release, so the press alone only arms the
+ * gesture. Anything that wants to cancel it first has to release.
+ */
+async function pressOn(page: Page, label: string | RegExp): Promise<void> {
+  await page.mouse.move(...(await centreOf(page, label)));
+  await page.mouse.down();
+}
+
+/** Page coordinates of a shape's centre. */
+async function centreOf(page: Page, label: string | RegExp): Promise<[number, number]> {
+  const box = (await node(page, label).boundingBox())!;
+  return [box.x + box.width / 2, box.y + box.height / 2];
 }
 
 /** The inspector's name field for whatever is selected. */
@@ -397,7 +428,7 @@ test.describe('keyboard shortcuts', () => {
 });
 
 test.describe('connections', () => {
-  test('Shift-clicking shapes draws relationship lines', async ({ page }) => {
+  test('the Connect tool draws relationship lines between shapes', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
@@ -408,12 +439,7 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await connectBothSides(
-      page,
-      /Relationship places/i,
-      /Entity Customer/i,
-      /Entity Order/i,
-    );
+    await connectWithTool(page, /Entity Customer/i, /Relationship places/i, /Relationship places/i, /Entity Order/i);
 
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(2);
   });
@@ -551,12 +577,13 @@ test.describe('connections', () => {
     await node(page, /Entity Customer/i).hover();
     await expect(page.locator('.node--connectable')).toHaveCount(1);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await dragBetween(page, /Relationship places/i, /Entity Customer/i);
     // One leg drawn, and the gesture stays on the diamond for the second.
     await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(1);
     await expect(page.locator('.node--connecting')).toHaveCount(1);
 
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await dragBetween(page, /Relationship places/i, /Entity Order/i);
     await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
     // The gesture is finished.
     await expect(page.locator('.node--connecting')).toHaveCount(0);
@@ -604,8 +631,7 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await connectWithTool(page, /Entity Customer/i, /Relationship places/i, /Relationship places/i, /Entity Order/i);
 
     await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
   });
@@ -620,18 +646,22 @@ test.describe('connections', () => {
     // Nothing is pending before the gesture starts.
     await expect(page.getByTestId('connect-preview')).toHaveCount(0);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
 
-    // The source shape is marked, and moving the pointer draws a preview.
+    // Pressing on a shape arms the gesture; the pointer is still down, so the
+    // connection has not been committed yet.
+    await pressOn(page, /Entity Customer/i);
     await expect(page.locator('.node--connecting')).toHaveCount(1);
-    await node(page, /Entity Order/i).hover();
+
+    // Dragging towards the other shape draws the preview line.
+    await page.mouse.move(...(await centreOf(page, /Entity Order/i)), { steps: 8 });
     await expect(page.getByTestId('connect-preview')).toHaveCount(1);
 
     // The shape under the pointer is marked as the target.
     await expect(page.locator('.node--connectable')).toHaveCount(1);
 
-    // Completing the gesture draws a real line and clears the preview.
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    // Releasing draws a real line and clears the preview.
+    await page.mouse.up();
     await expect(page.getByTestId('connect-preview')).toHaveCount(0);
     await expect(page.locator('.node--connecting')).toHaveCount(0);
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(2);
@@ -645,8 +675,9 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).hover();
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await pressOn(page, /Entity Customer/i);
+    await page.mouse.move(...(await centreOf(page, /Entity Order/i)), { steps: 8 });
     await expect(page.getByTestId('connect-preview')).toHaveCount(1);
 
     const downloadPromise = page.waitForEvent('download');
@@ -669,18 +700,22 @@ test.describe('connections', () => {
 
     // Focus must be off the name field for Escape to mean "cancel the
     // connection" rather than "stop typing", which is what this test is about.
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await pressOn(page, /Entity Customer/i);
     await expect(nameField(page)).not.toBeFocused();
-    await node(page, /Entity Order/i).hover();
+    await page.mouse.move(...(await centreOf(page, /Entity Order/i)), { steps: 8 });
     await expect(page.getByTestId('connect-preview')).toHaveCount(1);
     await page.keyboard.press('Escape');
+    await page.mouse.up();
     await expect(page.getByTestId('connect-preview')).toHaveCount(0);
     await expect(page.locator('.node--connecting')).toHaveCount(0);
 
-    // The second shift-click must start a fresh gesture rather than completing
-    // the cancelled one.
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    // A fresh press must start a new gesture rather than completing the
+    // cancelled one.
+    await pressOn(page, /Entity Order/i);
     await expect(page.locator('.node--connecting')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(0);
   });
 
@@ -728,12 +763,14 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await pressOn(page, /Entity Customer/i);
     await expect(page.locator('.node--connecting')).toHaveCount(1);
 
-    // Click a far corner of the canvas, well away from any shape.
+    // Released over a far corner of the canvas, well away from any shape.
     const box = (await canvas(page).boundingBox())!;
-    await page.mouse.click(box.x + 30, box.y + box.height - 30);
+    await page.mouse.move(box.x + 30, box.y + box.height - 30, { steps: 8 });
+    await page.mouse.up();
 
     await expect(page.locator('.node--connecting')).toHaveCount(0);
   });
@@ -745,8 +782,7 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await connectWithTool(page, /Entity Customer/i, /Entity Order/i);
 
     const endpoints = page.getByTestId('leg-cardinality');
     await expect(endpoints).toHaveCount(2);
@@ -871,10 +907,7 @@ test.describe('export', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
-    await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await connectWithTool(page, /Entity Customer/i, /Relationship places/i, /Relationship places/i, /Entity Order/i);
 
     // Both legs start at cardinality 1, so this is currently one-to-one and
     // produces no foreign key. Change the Order-side leg to N to make it
@@ -1006,8 +1039,7 @@ test.describe('export', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await connectWithTool(page, /Entity Customer/i, /Entity Order/i);
 
     const endpoint = page.getByTestId('leg-cardinality').first();
     await expect(endpoint).toHaveAttribute('data-cardinality', '1');
@@ -1627,10 +1659,7 @@ test.describe('layout tools', () => {
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
-    await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await connectWithTool(page, /Entity Customer/i, /Relationship places/i, /Relationship places/i, /Entity Order/i);
 
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);

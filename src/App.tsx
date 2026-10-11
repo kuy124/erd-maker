@@ -91,14 +91,20 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     if (panelTrigger.current?.getClientRects().length) panelTrigger.current.focus();
     else svgRef.current?.focus();
   }, []);
-  const select = useCallback((id: string | null) => {
-    state.setSelection(id);
-    if (id) showPanel('properties');
+  /**
+   * Selecting anything opens the properties panel, because a selection with no
+   * visible consequence reads as a dead click. Clearing it does not close the
+   * panel — Escape leaving the panel open on an empty canvas is less jarring
+   * than it snapping shut.
+   */
+  const select = useCallback((ids: string[]) => {
+    state.setSelection(ids);
+    if (ids.length > 0) showPanel('properties');
   }, [state.setSelection, showPanel]);
   const editor = useMemo(() => ({ ...state, setSelection: select }), [state, select]);
 
   useEffect(() => {
-    if (!state.justCreated || state.selection !== state.justCreated) return;
+    if (!state.justCreated || !state.selection.includes(state.justCreated)) return;
     showPanel('properties');
     const frame = requestAnimationFrame(() => {
       const rect = svgRef.current?.getBoundingClientRect();
@@ -169,9 +175,13 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     let view = state.view;
     let ownerId: string | null = null;
     if (kind === 'attribute') {
-      const attribute = state.doc.attributes.find((item) => item.id === state.selection);
-      ownerId = [...state.doc.entities, ...state.doc.relationships, ...state.doc.isas]
-        .some((item) => item.id === state.selection) ? state.selection : attribute?.ownerId ?? null;
+      // The first selected shape owns the attribute. With several selected,
+      // the earliest in document order wins, so it does not depend on the order
+      // the person happened to shift-click them in.
+      const owner = state.selection[0];
+      const attribute = state.doc.attributes.find((item) => item.id === owner);
+      ownerId = owner && [...state.doc.entities, ...state.doc.relationships, ...state.doc.isas]
+        .some((item) => item.id === owner) ? owner : attribute?.ownerId ?? null;
       if (view === 'crowfoot' && !state.doc.entities.some((entity) => entity.id === ownerId)) view = 'chen';
     }
     if (kind === 'isa') view = 'chen';
@@ -211,7 +221,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     const link = deriveLinks(state.doc).find((item) => item.relId === id);
     if (view === 'crowfoot' && !table && !link) view = 'chen';
     if (view !== state.view) state.setView(view);
-    select(id);
+    select([id]);
     let node = allNodes(state.doc).find((item) => item.id === id);
     if (!node) {
       const leg = state.doc.legs.find((item) => item.id === id);
@@ -304,9 +314,9 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         case 'h': state.setTool('pan'); break;
         case 'f': event.preventDefault(); fitToView(); break;
         case 'delete': case 'backspace':
-          if (state.selection) { event.preventDefault(); state.remove(state.selection); }
+          if (state.selection.length > 0) { event.preventDefault(); state.remove(state.selection); }
           break;
-        case 'escape': setConnectFrom(null); state.setSelection(null); closePanel(); break;
+        case 'escape': setConnectFrom(null); state.setSelection([]); closePanel(); break;
         case '?': showPanel('help'); break;
       }
     };

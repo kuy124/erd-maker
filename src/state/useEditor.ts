@@ -56,7 +56,15 @@ export interface EditorState {
   /** Peers reachable over a direct WebRTC connection (not just same-browser). */
   directPeers: number;
   loaded: boolean;
-  selection: string | null;
+  /**
+   * Ids of every selected node. Empty means nothing is selected.
+   *
+   * An array rather than a single id because selection is a set in every other
+   * editor people already use, and because almost everything worth doing with a
+   * selection — drag it, delete it, group it — only makes sense for more than
+   * one. Order is document order, so the inspector reads the same way every time.
+   */
+  selection: string[];
   /**
    * Latest pointer position in client coordinates, or null when the pointer is
    * not over the window.
@@ -75,7 +83,9 @@ export interface EditorState {
   viewport: Viewport;
   tool: Tool;
   setTool: (tool: Tool) => void;
-  setSelection: (id: string | null) => void;
+  setSelection: (ids: string[]) => void;
+  /** Adds or removes one id, for shift-click. */
+  toggleSelection: (id: string) => void;
   setViewport: (updater: (v: Viewport) => Viewport) => void;
   setDocName: (name: string) => void;
   setView: (view: 'chen' | 'crowfoot') => void;
@@ -92,7 +102,7 @@ export interface EditorState {
   addIsa: (x: number, y: number) => string;
   connect: (fromId: string, toId: string) => string | null;
   connectColumns: (from: ColumnEndpoint, to: ColumnEndpoint) => string | null;
-  remove: (id: string) => void;
+  remove: (ids: string[]) => void;
   replaceDocument: (doc: ErdDocument) => void;
   applyPositions: (positions: Map<string, { x: number; y: number }>) => void;
   ydoc: Y.Doc;
@@ -125,7 +135,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [connected, setConnected] = useState(false);
   const [directPeers, setDirectPeers] = useState(0);
-  const [selection, setSelection] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
   /**
    * The id of the shape created by the most recent add, or null.
    *
@@ -206,8 +216,11 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     room.awareness.setLocalStateField('color', identity.color);
   }, [room, identity]);
 
+  // Publish our own selection into awareness. Joining on a key rather than
+  // replacing the value means an unrelated awareness change (a peer moving)
+  // does not re-send the same selection.
   useEffect(() => {
-    room.awareness.setLocalStateField('selectedId', selection);
+    room.awareness.setLocalStateField('selectedIds', selection);
   }, [room, selection]);
 
   // Track whether the WebRTC transport actually has peers. This is a second
@@ -226,9 +239,16 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     };
   }, [room]);
 
+  // Drop ids that a collaborator deleted, rather than leaving the selection
+  // pointing at shapes that are no longer there.
   useEffect(() => {
-    if (selection && ![...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas, ...doc.legs]
-      .some((node) => node.id === selection)) setSelection(null);
+    if (selection.length === 0) return;
+    const present = new Set(
+      [...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas, ...doc.legs]
+        .map((node) => node.id),
+    );
+    const kept = selection.filter((id) => present.has(id));
+    if (kept.length !== selection.length) setSelection(kept);
   }, [doc, selection]);
 
   const mutate = useCallback(
@@ -242,7 +262,9 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
 
   const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
     setTool,
-    setSelection: (id) => { setSelection(id); setJustCreated(null); },
+    setSelection: (ids) => { setSelection(ids); setJustCreated(null); },
+    toggleSelection: (id) => setSelection((current) =>
+      current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
     setViewport,
     setDocName: (name: string) => setMeta(room.ydoc, { name }),
     setView: (next) => {
@@ -321,7 +343,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     addEntity: (x, y) => {
       const id = makeId('ent');
       mutate(() => upsertEntity(room.ydoc, { id, name: 'New entity', x, y, kind: 'strong' }), true);
-      setSelection(id);
+      setSelection([id]);
       setJustCreated(id);
       return id;
     },
@@ -350,7 +372,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       const index = live.attributes.filter((a) => a.ownerId === ownerId).length + 1;
       const name = ownerId ? String(index) : 'attribute';
       mutate(() => upsertAttribute(room.ydoc, { id, name, x: nextX, y: nextY, kind: 'simple', ownerId }), true);
-      setSelection(id);
+      setSelection([id]);
       setJustCreated(id);
       return id;
     },
@@ -358,7 +380,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     addRelationship: (x, y) => {
       const id = makeId('rel');
       mutate(() => upsertRelationship(room.ydoc, { id, name: 'relationship', x, y, kind: 'strong' }), true);
-      setSelection(id);
+      setSelection([id]);
       setJustCreated(id);
       return id;
     },
@@ -366,7 +388,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     addIsa: (x, y) => {
       const id = makeId('isa');
       mutate(() => upsertIsa(room.ydoc, { id, x, y, parentId: null, childIds: [] }), true);
-      setSelection(id);
+      setSelection([id]);
       setJustCreated(id);
       return id;
     },
@@ -375,7 +397,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       let id: string | null = null;
       mutate(() => { id = connectNodes(room.ydoc, fromId, toId, makeId); }, true);
       if (id && room.ydoc.getMap('relationships').has(id)) {
-        setSelection(id);
+        setSelection([id]);
         setJustCreated(id);
         setTool('select');
       }
@@ -386,20 +408,35 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       let id: string | null = null;
       mutate(() => { id = connectColumns(room.ydoc, from, to, makeId); }, true);
       if (id) {
-        setSelection(id);
+        setSelection([id]);
         setJustCreated(id);
         setTool('select');
       } else setNotice('That connection could not be made. Choose two different, available attributes.');
       return id;
     },
 
-    remove: (id) => {
+    /**
+     * Deletes everything selected, as a single undo step.
+     *
+     * One transaction for the whole set, so Undo brings the whole selection back
+     * rather than needing one press per shape. Naming the count in the notice
+     * matters because deleting five things at once is otherwise alarming.
+     */
+    remove: (ids) => {
+      if (ids.length === 0) return;
       const live = snapshotFromYdoc(room.ydoc);
-      const removed = [...live.entities, ...live.attributes, ...live.relationships, ...live.isas, ...live.legs].find((node) => node.id === id);
-      if (!removed) return;
-      mutate(() => deleteNodeFromYdoc(room.ydoc, id), true);
-      setNotice(('name' in removed ? removed.name || 'Shape' : 'Line') + ' deleted.');
-      setSelection((current) => (current === id ? null : current));
+      const everything = [...live.entities, ...live.attributes, ...live.relationships, ...live.isas, ...live.legs];
+      const removed = ids.map((id) => everything.find((node) => node.id === id)).filter(Boolean);
+      if (removed.length === 0) return;
+      mutate(() => {
+        for (const id of ids) deleteNodeFromYdoc(room.ydoc, id);
+      }, true);
+      const label = (node: NonNullable<typeof removed[number]>) =>
+        ('name' in node ? node.name || 'Shape' : 'Line');
+      setNotice(removed.length === 1
+        ? label(removed[0]!) + ' deleted.'
+        : removed.length + ' shapes deleted.');
+      setSelection((current) => current.filter((id) => !ids.includes(id)));
     },
 
     replaceDocument: (next: ErdDocument) => {

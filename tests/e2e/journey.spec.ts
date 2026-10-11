@@ -62,6 +62,19 @@ async function countInteractions(page: Page): Promise<() => Promise<number>> {
     page.evaluate(() => (window as unknown as { __interactions?: number }).__interactions ?? 0);
 }
 
+/**
+ * Presses on one shape, releases on another: the Connect tool's own gesture.
+ * The connection is committed on pointer release.
+ */
+async function dragOnto(page: Page, from: RegExp, to: RegExp): Promise<void> {
+  const a = (await node(page, from).boundingBox())!;
+  const b = (await node(page, to).boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
 test.describe('new user journey', () => {
   test('builds a two-table schema without hunting', async ({ page }) => {
     const count = await countInteractions(page);
@@ -112,11 +125,12 @@ test.describe('new user journey', () => {
     await mark('relationship: add + name');
 
     // 5. Connect. Adding a relationship already started the gesture from it, and
-    // each completed leg stays on the diamond, so two clicks finish the chain.
+    // each completed leg stays on the diamond, so two drags finish the chain.
     await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await dragOnto(page, /Relationship places/i, /Entity Customer/i);
+    await dragOnto(page, /Relationship places/i, /Entity Order/i);
     await mark('tidy + connect two entities');
 
     const total = await count();
@@ -131,6 +145,12 @@ test.describe('new user journey', () => {
 
     // The budget. Every step should be one intent — add, name, mark key,
     // connect — with no hunting and no re-selecting.
-    expect(total, `journey took ${total} interactions`).toBeLessThanOrEqual(11);
+    //
+    // Twelve, not eleven: Shift-click used to connect, and Shift now extends the
+    // selection, so connecting costs one tool switch. That switch is paid once
+    // per editing session, not once per relationship, and it is what puts the
+    // line on screen before it is committed. Everything else is unchanged, and
+    // the count is still well under what the same diagram costs in most tools.
+    expect(total, `journey took ${total} interactions`).toBeLessThanOrEqual(12);
   });
 });

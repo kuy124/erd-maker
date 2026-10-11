@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { EditorState } from '../state/useEditor';
-import type { AttributeKind } from '../model/types';
+import type { AttributeKind, ErdDocument } from '../model/types';
 import { ParticipationFields, RelationshipParticipants } from './RelationshipParticipants';
 
 interface Props {
@@ -27,6 +27,17 @@ const ATTRIBUTE_KINDS: { value: AttributeKind; label: string }[] = [
   { value: 'derived', label: 'Derived' },
   { value: 'composite', label: 'Composite' },
 ];
+
+/** A short human label for a selected id, used by the multi-selection list. */
+function describe(doc: ErdDocument, id: string): string | null {
+  const node =
+    doc.entities.find((e) => e.id === id) ??
+    doc.attributes.find((a) => a.id === id) ??
+    doc.relationships.find((r) => r.id === id) ??
+    doc.isas.find((i) => i.id === id);
+  if (!node) return null;
+  return 'name' in node ? node.name || 'Unnamed shape' : 'Specialization';
+}
 
 export function Inspector({ state, nameFocusReady = true }: Props) {
   const { doc, selection } = state;
@@ -45,7 +56,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
   const nameRef = useRef<HTMLInputElement | null>(null);
   const superclassRef = useRef<HTMLSelectElement | null>(null);
   useEffect(() => {
-    if (!nameFocusReady || !selection || selection !== state.justCreated) return;
+    if (!nameFocusReady || selection.length !== 1 || selection[0] !== state.justCreated) return;
     const focus = () => {
       const field = nameRef.current ?? superclassRef.current;
       if (!field || document.activeElement === field) return;
@@ -57,18 +68,49 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
     return () => cancelAnimationFrame(frame);
   }, [selection, state.justCreated, nameFocusReady]);
 
-  const entity = doc.entities.find((e) => e.id === selection);
-  const attribute = doc.attributes.find((a) => a.id === selection);
-  const relationship = doc.relationships.find((r) => r.id === selection);
-  const isa = doc.isas.find((i) => i.id === selection);
-  const leg = doc.legs.find((l) => l.id === selection);
+  // Everything below the multi-selection panel edits exactly one shape, so the
+  // rest of the file reads a single `selection` id.
+  const selected = selection.length === 1 ? selection[0] : undefined;
+  const entity = doc.entities.find((e) => e.id === selected);
+  const attribute = doc.attributes.find((a) => a.id === selected);
+  const relationship = doc.relationships.find((r) => r.id === selected);
+  const isa = doc.isas.find((i) => i.id === selected);
+  const leg = doc.legs.find((l) => l.id === selected);
 
-  if (!selection) {
+  if (selection.length > 1) {
+    return (
+      <aside className="inspector" aria-label="Properties">
+        <h2 className="panel__title">{selection.length} shapes selected</h2>
+        <p className="inspector__empty">
+          Drag any of them to move the whole selection at once. Shift-click a shape to add it, or
+          shift-drag empty paper to draw a box around several.
+        </p>
+        <ul className="inspector__list">
+          {selection.map((id) => (
+            <li key={id}>
+              <button type="button" className="btn btn--ghost" onClick={() => state.setSelection([id])}>
+                {describe(doc, id) ?? 'Line'}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => state.remove(selection)}
+        >
+          Delete {selection.length} shapes
+        </button>
+      </aside>
+    );
+  }
+
+  if (!selection.length) {
     return (
       <aside className="inspector" aria-label="Properties">
         <h2 className="panel__title">Select a shape</h2>
         <p className="inspector__empty">
-          Choose one on the canvas or in Diagram. Edit its name, attributes, and connections here.
+          Choose one on the canvas or in Diagram. Shift-click for several.
         </p>
       </aside>
     );
@@ -134,7 +176,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
                   <button
                     type="button"
                     className="btn btn--ghost"
-                    onClick={() => state.setSelection(attr.id)}
+                    onClick={() => state.setSelection([attr.id])}
                   >
                     {attr.name || 'Unnamed attribute'}
                   </button>
@@ -153,7 +195,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
           {doc.view === 'crowfoot' ? <p className="field__help">Rows marked “gen” are generated keys or foreign keys. SQL types are inferred from attribute names; edit the original attribute here.</p> : null}
         </div>
 
-        <button type="button" className="btn btn--danger" onClick={() => state.remove(entity.id)}>
+        <button type="button" className="btn btn--danger" onClick={() => state.remove([entity.id])}>
           Delete entity
         </button>      </aside>
     );
@@ -221,7 +263,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             An attribute with no owner floats free. Attaching it draws a line to the shape it describes.
           </p>
         </div>
-        <button type="button" className="btn btn--danger" onClick={() => state.remove(attribute.id)}>
+        <button type="button" className="btn btn--danger" onClick={() => state.remove([attribute.id])}>
           Delete attribute
         </button>
       </aside>
@@ -274,7 +316,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
           </p>
         </div>
         <RelationshipParticipants key={relationship.id} state={state} relationshipId={relationship.id} />
-        <button type="button" className="btn btn--danger" onClick={() => state.remove(relationship.id)}>
+        <button type="button" className="btn btn--danger" onClick={() => state.remove([relationship.id])}>
           Delete relationship
         </button>
       </aside>
@@ -326,7 +368,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             </ul>
           )}
         </div>
-        <button type="button" className="btn btn--danger" onClick={() => state.remove(isa.id)}>
+        <button type="button" className="btn btn--danger" onClick={() => state.remove([isa.id])}>
           Delete specialization
         </button>
       </aside>
@@ -368,7 +410,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             A circle means optional; a bar means required. A fork means many. Exact numeric ranges also appear beside the line.
           </p>
         </div>
-        <button type="button" className="btn btn--danger" onClick={() => state.remove(leg.id)}>
+        <button type="button" className="btn btn--danger" onClick={() => state.remove([leg.id])}>
           Delete line
         </button>
       </aside>

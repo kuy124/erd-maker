@@ -12,10 +12,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
-import { documentBounds, edgePoint, legLabelPoints, offsetToward, segmentBetween } from './geometry';
+import { documentBounds, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentBetween, type Point } from './geometry';
 import { AttributeShape, CardinalityMarker, EntityShape, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
 import { useDrag, usePeerCursor } from './useDrag';
-import type { ErdDocument } from '../model/types';
+import { findNode, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
 
 interface Props {
@@ -72,13 +72,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
 
   const drag = useDrag({
     toWorld,
-    onCommit: (id, x, y) => {
-      // Commit once, on drop, so the network is not flooded mid-drag.
-      if (doc.entities.some((e) => e.id === id)) state.updateEntity(id, { x, y });
-      else if (doc.attributes.some((a) => a.id === id)) state.updateAttribute(id, { x, y });
-      else if (doc.relationships.some((r) => r.id === id)) state.updateRelationship(id, { x, y });
-      else state.applyPositions(new Map([[id, { x, y }]]));
-    },
+    onCommit: (positions) => state.applyPositions(positions),
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
     viewport,
     panMode: tool === 'pan',
@@ -163,24 +157,26 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
   );
 
   /**
-   * Begins a connection from `id`, refusing endpoints that cannot be one.
+   * Starts a drag carrying every selected node, or just `id` when it is not
+   * already part of the selection.
    *
-   * An attribute cannot be an endpoint: its link to its owner is stored as
-   * `ownerId`, so a leg from an attribute is a line the SQL generator and the
-   * crow's-foot view both ignore. Refusing here means the user is never shown a
-   * connection that quietly does nothing.
+   * Positions are captured at the start of the gesture so a collaborator's edit
+   * landing mid-drag is not overwritten: the drop applies an offset rather than
+   * an absolute position.
    */
-  const beginConnectFrom = useCallback(
-    (id: string): void => {
-      if (connectFrom === null) {
-        if (!isAttribute(doc, id)) setConnectFrom(id);
-        return;
+  const beginSelectionDrag = useCallback(
+    (id: string, event: React.PointerEvent) => {
+      const ids = selection.includes(id) ? selection : [id];
+      const start = new Map<string, { x: number; y: number }>();
+      for (const nodeId of ids) {
+        const node = findNode(doc, nodeId);
+        if (node) start.set(nodeId, { x: node.x, y: node.y });
       }
-      connectTo(id);
-      setConnectPointer(null);
-      setConnectTarget(null);
+      if (!start.has(id)) return;
+      const world = toWorld(event.clientX, event.clientY);
+      drag.beginNodeDrag(start, world.x, world.y);
     },
-    [connectFrom, doc, connectTo, setConnectFrom],
+    [doc, selection, toWorld, drag],
   );
 
   const handleNodePointerDown = useCallback(
@@ -206,37 +202,75 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
         return;
       }
 
-      // Shift-click is the same gesture in two clicks, for people who would
-      // rather not switch tools.
+      // Shift extends the selection rather than starting a drag. Connecting
+      // used to live here; it is on the Connect tool now, where a modifier is
+      // not needed and the gesture can be seen before it starts.
       if (event.shiftKey) {
-        beginConnectFrom(id);
+        state.toggleSelection(id);
         return;
       }
 
-      state.setSelection(id);
-      const world = toWorld(event.clientX, event.clientY);
-      const node = nodeAt(world.x, world.y);
-      if (node) drag.beginNodeDrag(node.id, world.x, world.y, node.x, node.y);
+      if (!selection.includes(id)) state.setSelection([id]);
+      beginSelectionDrag(id, event);
     },
     [
       tool,
       connectFrom,
       doc,
       connectTo,
-      beginConnectFrom,
+      selection,
+      beginSelectionDrag,
       state,
-      toWorld,
-      nodeAt,
       drag,
       focusCanvas,
     ],
   );
+
+  /** Tracks the marquee in a ref so the window listener sees the live value. */
+  const marquee = useRef<{ from: Point; to: Point } | null>(null);
+  const [marqueeBox, setMarqueeBox] = useState<{ from: Point; to: Point } | null>(null);
+
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const box = marquee.current;
+      if (!box) return;
+      box.to = toWorld(event.clientX, event.clientY);
+      setMarqueeBox({ from: box.from, to: box.to });
+    };
+    const up = () => {
+      const box = marquee.current;
+      marquee.current = null;
+      setMarqueeBox(null);
+      if (!box) return;
+      state.setSelection(nodesInRect(doc, {
+        minX: Math.min(box.from.x, box.to.x), minY: Math.min(box.from.y, box.to.y),
+        maxX: Math.max(box.from.x, box.to.x), maxY: Math.max(box.from.y, box.to.y),
+      }));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, [doc, state, toWorld]);
 
   const handleBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
       // Middle-click, the pan tool, or space-drag all pan the canvas.
       if (tool === 'pan' || event.button === 1) {
         drag.beginPan(event.clientX, event.clientY);
+        return;
+      }
+      // Shift-drag on empty paper draws a marquee. It needs a modifier because
+      // plain drag on empty paper pans, and that is deliberate: a canvas that
+      // cannot be panned by dragging feels stuck.
+      if (tool === 'select' && event.button === 0 && event.shiftKey) {
+        const world = toWorld(event.clientX, event.clientY);
+        marquee.current = { from: world, to: world };
+        setMarqueeBox({ from: world, to: world });
         return;
       }
       // Empty paper always pans, in every tool, so the canvas can never feel
@@ -249,13 +283,13 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
         setConnectFrom(null);
         setConnectPointer(null);
         setConnectTarget(null);
-        state.setSelection(null);
+        state.setSelection([]);
         drag.beginPan(event.clientX, event.clientY);
       } else if (tool === 'connect' && event.button === 0) {
         drag.beginPan(event.clientX, event.clientY);
       }
     },
-    [tool, drag, setConnectFrom, state, focusCanvas],
+    [tool, drag, setConnectFrom, state, focusCanvas, toWorld],
   );
 
   /**
@@ -359,20 +393,27 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
   // While a node is being dragged, render it at its in-flight position.
   const displayDoc = useMemo<ErdDocument>(() => {
     const active = drag.drag;
-    if (!active || !active.moved) return doc;
+    if (!active?.moved) return doc;
+    // Every member of the drag moves by the same offset, so the selection keeps
+    // its shape while it is being carried.
+    const move = <T extends Positioned>(list: T[]): T[] =>
+      list.map((node) => {
+        const start = active.start.get(node.id);
+        return start ? { ...node, x: start.x + active.dx, y: start.y + active.dy } : node;
+      });
     return {
       ...doc,
-      entities: doc.entities.map((e) => (e.id === active.id ? { ...e, x: active.x, y: active.y } : e)),
-      attributes: doc.attributes.map((a) => (a.id === active.id ? { ...a, x: active.x, y: active.y } : a)),
-      relationships: doc.relationships.map((r) => (r.id === active.id ? { ...r, x: active.x, y: active.y } : r)),
-      isas: doc.isas.map((i) => (i.id === active.id ? { ...i, x: active.x, y: active.y } : i)),
+      entities: move(doc.entities),
+      attributes: move(doc.attributes),
+      relationships: move(doc.relationships),
+      isas: move(doc.isas),
     };
   }, [doc, drag.drag]);
 
   const peerBySelection = useMemo(() => {
     const map = new Map<string, string>();
     for (const peer of peers) {
-      if (peer.selectedId) map.set(peer.selectedId, peer.color);
+      for (const id of peer.selectedIds) map.set(id, peer.color);
     }
     return map;
   }, [peers]);
@@ -416,7 +457,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
             {displayDoc.legs.map((leg) => {
               const seg = segmentBetween(displayDoc, leg.fromId, leg.toId);
               if (!seg) return null;
-              const isSelected = selection === leg.id;
+              const isSelected = selection.includes(leg.id);
               const entity = displayDoc.entities.find((node) => node.id === leg.fromId || node.id === leg.toId);
               const relationship = displayDoc.relationships.find((node) => node.id === leg.fromId || node.id === leg.toId);
               const endpoint = entity?.id === leg.fromId ? seg.from : seg.to;
@@ -443,7 +484,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     y2={seg.to.y}
                     onPointerDown={(event) => {
                       event.stopPropagation();
-                      state.setSelection(leg.id);
+                      state.setSelection([leg.id]);
                     }}
                   />
                   <line
@@ -462,7 +503,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                         event.stopPropagation();
                         if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
                         focusCanvas(event);
-                        state.setSelection(leg.id);
+                        state.setSelection([leg.id]);
                       }}>
                       <title>{`${entity.name}: ${required ? 'required' : 'optional'} ${many ? 'many' : 'one'} ${formatParticipation(leg.participation.min, leg.participation.max)}. Click to edit.`}</title>
                       <rect className="leg-endpoint__hit" x={markerCenter.x - 22 / viewport.zoom}
@@ -472,7 +513,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     </g>
                     {advanced ? <text className="leg__participation" data-testid="leg-participation"
                       x={participationLabel.x} y={participationLabel.y}
-                      onPointerDown={(event) => { event.stopPropagation(); state.setSelection(leg.id); }}>
+                      onPointerDown={(event) => { event.stopPropagation(); state.setSelection([leg.id]); }}>
                       {formatParticipation(leg.participation.min, leg.participation.max)}
                     </text> : null}
                   </> : <>
@@ -484,7 +525,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     y={labels[0].y}
                     onPointerDown={(event) => {
                       event.stopPropagation();
-                      state.setSelection(leg.id);
+                      state.setSelection([leg.id]);
                     }}
                   >
                     {leg.cardinality}
@@ -496,7 +537,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     y={participationLabel.y}
                     onPointerDown={(event) => {
                       event.stopPropagation();
-                      state.setSelection(leg.id);
+                      state.setSelection([leg.id]);
                     }}
                   >
                     {formatParticipation(leg.participation.min, leg.participation.max)}
@@ -597,7 +638,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
               <IsaShape
                 key={isa.id}
                 isa={isa}
-                selected={selection === isa.id}
+                selected={selection.includes(isa.id)}
                 peerColor={peerBySelection.get(isa.id)}
                 connecting={connectFrom === isa.id}
                 connectable={connectFrom !== null && connectTarget === isa.id}
@@ -608,7 +649,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
               <RelationshipShape
                 key={rel.id}
                 relationship={rel}
-                selected={selection === rel.id}
+                selected={selection.includes(rel.id)}
                 peerColor={peerBySelection.get(rel.id)}
                 connecting={connectFrom === rel.id}
                 connectable={connectFrom !== null && connectTarget === rel.id}
@@ -619,7 +660,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
               <AttributeShape
                 key={attr.id}
                 attribute={attr}
-                selected={selection === attr.id}
+                selected={selection.includes(attr.id)}
                 peerColor={peerBySelection.get(attr.id)}
                 connecting={connectFrom === attr.id}
                 connectable={connectFrom !== null && connectTarget === attr.id}
@@ -630,7 +671,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
               <EntityShape
                 key={entity.id}
                 entity={entity}
-                selected={selection === entity.id}
+                selected={selection.includes(entity.id)}
                 peerColor={peerBySelection.get(entity.id)}
                 connecting={connectFrom === entity.id}
                 connectable={connectFrom !== null && connectTarget === entity.id}
@@ -638,6 +679,17 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
               />
             ))}
           </g>
+
+          {/* The marquee. Screen-space rectangle inside the world transform. */}
+          {marqueeBox ? (
+            <path
+              className="marquee"
+              d={`M${Math.min(marqueeBox.from.x, marqueeBox.to.x)} ${Math.min(marqueeBox.from.y, marqueeBox.to.y)}
+                  H${Math.max(marqueeBox.from.x, marqueeBox.to.x)}
+                  V${Math.max(marqueeBox.from.y, marqueeBox.to.y)}
+                  H${Math.min(marqueeBox.from.x, marqueeBox.to.x)} Z`}
+            />
+          ) : null}
 
           {/* Peer cursors. The name always travels with the colour. */}
           <PeerCursors peers={peers} />

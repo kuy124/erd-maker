@@ -27,7 +27,7 @@ export function DiagramOutline({ state, onSelect }: { state: EditorState; onSele
       <ul className="outline__list">
         {items.map((item) => (
           <li key={item.id}>
-            <button type="button" className="outline__item" aria-pressed={state.selection === item.id}
+            <button type="button" className="outline__item" aria-pressed={state.selection.includes(item.id)}
               onClick={() => onSelect(item.id)}>
               <span>{item.label || 'Unnamed shape'}</span><span className="outline__kind">{item.kind}</span>
             </button>
@@ -102,8 +102,10 @@ export function HelpPanel() {
       <dl className="shortcut-list">
         {[['E / A / R / S', 'Add entity, attribute, relationship, specialization'],
           ['V / C / H', 'Select, connect, pan'], ['F', 'Fit diagram'],
-          ['Shift + click', 'Connect two shapes in Chen'], ['Escape', 'Finish typing or cancel'],
-          ['Delete', 'Delete selection'], ['Ctrl / ⌘ + Z', 'Undo'], ['Ctrl / ⌘ + Shift + Z', 'Redo'],
+          ['Shift + click', 'Add to or remove from the selection'],
+          ['Shift + drag', 'Draw a box around several shapes'],
+          ['Escape', 'Finish typing, cancel, or clear the selection'],
+          ['Delete', 'Delete everything selected'], ['Ctrl / ⌘ + Z', 'Undo'], ['Ctrl / ⌘ + Shift + Z', 'Redo'],
           ['Ctrl / ⌘ + S', 'Download a diagram file']].map(([key, action]) => (
           <div key={key}><dt><kbd>{key}</kbd></dt><dd>{action}</dd></div>
         ))}

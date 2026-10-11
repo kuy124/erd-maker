@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 /**
  * Visual capture. Not an assertion suite — this writes screenshots so the
@@ -6,6 +6,7 @@ import { expect, test } from '@playwright/test';
  */
 
 const shot = (name: string) => `test-results/shots/${name}.png`;
+const canvas = (page: Page) => page.getByTestId('canvas');
 
 async function name(page: import('@playwright/test').Page, text: string): Promise<void> {
   await page.getByTestId('inspector-name').fill(text);
@@ -18,6 +19,16 @@ async function name(page: import('@playwright/test').Page, text: string): Promis
  * whether it *looks* right. Rendering the downloaded file is the only way to see
  * what a reader will actually get.
  */
+/** Presses on one shape, releases on another: the Connect tool's own gesture. */
+async function dragOnto(page: Page, from: RegExp, to: RegExp): Promise<void> {
+  const a = (await canvas(page).getByRole('button', { name: from }).boundingBox())!;
+  const b = (await canvas(page).getByRole('button', { name: to }).boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
 test('capture the exported SVG', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
@@ -43,12 +54,9 @@ test('capture the exported SVG', async ({ page }) => {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Auto-arrange' }).click();
   await page.waitForTimeout(250);
-
-  const canvas = page.getByTestId('canvas');
-  await canvas.getByRole('button', { name: /Entity Customer/i }).click({ modifiers: ['Shift'] });
-  await canvas.getByRole('button', { name: /Relationship places/i }).click({ modifiers: ['Shift'] });
-  await canvas.getByRole('button', { name: /Relationship places/i }).click({ modifiers: ['Shift'] });
-  await canvas.getByRole('button', { name: /Entity Order/i }).click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Connect tool' }).click();
+  await dragOnto(page, /Relationship places/i, /Entity Customer/i);
+  await dragOnto(page, /Relationship places/i, /Entity Order/i);
   await page.waitForTimeout(150);
 
   // Zoom and pan hard first: the export must ignore both.
@@ -109,12 +117,9 @@ test('capture the interface', async ({ page }) => {
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Auto-arrange' }).click();
   await page.waitForTimeout(300);
-
-  const canvas = page.getByTestId('canvas');
-  await canvas.getByRole('button', { name: /Entity Customer/i }).click({ modifiers: ['Shift'] });
-  await canvas.getByRole('button', { name: /Relationship places/i }).click({ modifiers: ['Shift'] });
-  await canvas.getByRole('button', { name: /Relationship places/i }).click({ modifiers: ['Shift'] });
-  await canvas.getByRole('button', { name: /Entity Order/i }).click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Connect tool' }).click();
+  await dragOnto(page, /Relationship places/i, /Entity Customer/i);
+  await dragOnto(page, /Relationship places/i, /Entity Order/i);
   await page.waitForTimeout(200);
   await page.screenshot({ path: shot('02-chen-diagram') });
 

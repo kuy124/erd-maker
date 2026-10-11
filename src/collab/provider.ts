@@ -27,7 +27,8 @@ export interface PeerState {
   name: string;
   color: string;
   cursor: { x: number; y: number } | null;
-  selectedId: string | null;
+  /** Every shape this peer has selected; may be empty. */
+  selectedIds: string[];
 }
 
 export interface RoomHandle {
@@ -122,7 +123,7 @@ export interface LocalPresence {
   name: string;
   color: string;
   cursor: { x: number; y: number } | null;
-  selectedId: string | null;
+  selectedIds: string[];
 }
 
 export function createRoom(room: string, options: RoomOptions = {}): RoomHandle {
@@ -164,6 +165,13 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   };
 }
 
+/** Reads a peer's selection, tolerating the single-id shape used before multi-select. */
+function readSelectedIds(raw: Partial<LocalPresence> & { selectedId?: unknown }): string[] {
+  if (Array.isArray(raw.selectedIds)) return raw.selectedIds.filter((id): id is string => typeof id === 'string');
+  if (typeof raw.selectedId === 'string') return [raw.selectedId];
+  return [];
+}
+
 /** Reads every remote peer's presence, excluding our own client. */
 export function readPeers(awareness: Awareness, localClientId: number): PeerState[] {
   const peers: PeerState[] = [];
@@ -178,7 +186,9 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
         raw.cursor && typeof raw.cursor.x === 'number' && typeof raw.cursor.y === 'number'
           ? { x: raw.cursor.x, y: raw.cursor.y }
           : null,
-      selectedId: typeof raw.selectedId === 'string' ? raw.selectedId : null,
+      // Accepts the older single `selectedId` so a peer on a previous build
+      // still shows its selection rather than nothing.
+      selectedIds: readSelectedIds(raw),
     });
   });
   return peers.sort((a, b) => a.clientId - b.clientId);

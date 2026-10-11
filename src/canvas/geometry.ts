@@ -10,7 +10,7 @@
  * Convention: a node's `x`/`y` is the top-left of its bounding box.
  */
 
-import { sizeOf, type ErdDocument, type NodeId, type Positioned } from '../model/types';
+import { sizeOf, allNodes, type ErdDocument, type NodeId, type Positioned } from '../model/types';
 import { deriveLinks, deriveTables, routeColumns } from '../model/crowfoot';
 import { occupiedBoxes } from '../model/placement';
 
@@ -191,7 +191,24 @@ export function offsetToward(point: Point, toward: Point, distance: number): Poi
 }
 
 /**
- * Where a newly created shape should land, in world coordinates.
+ * Every node whose box overlaps a world rectangle, in document order.
+ *
+ * Used by the marquee. The test is deliberately loose — the rectangle only has
+ * to touch a shape for it to count, because dragging a selection around four
+ * scattered entities and missing one because a corner clipped it is far worse
+ * than catching a shape you brushed past.
+ */
+export function nodesInRect(doc: ErdDocument, rect: Bounds): string[] {
+  return allNodes(doc)
+    .filter((node) => {
+      const size = sizeOf(doc, node.id);
+      return node.x < rect.maxX && node.x + size.w > rect.minX &&
+             node.y < rect.maxY && node.y + size.h > rect.minY;
+    })
+    .map((node) => node.id);
+}
+
+/** Where a new shape should land, in world coordinates.
  *
  * Under the pointer, because that is where the person is looking. Creating in
  * the middle of the screen instead means every shape lands in the same spot no

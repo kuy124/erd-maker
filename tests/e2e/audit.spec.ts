@@ -24,6 +24,21 @@ const nameField = (page: Page) => page.getByTestId('inspector-name');
 const relationshipLines = (page: Page) =>
   page.locator('.layer-legs line.leg:not(.leg--attribute)');
 
+/**
+ * Presses on one shape, releases on another: the Connect tool's own gesture.
+ *
+ * The connection is committed on pointer release, so press-and-release on the
+ * same shape cancels instead of arming anything.
+ */
+async function dragBetween(page: Page, from: RegExp, to: RegExp): Promise<void> {
+  const a = (await node(page, from).boundingBox())!;
+  const b = (await node(page, to).boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
 async function openApp(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.getByTestId('canvas')).toBeVisible();
@@ -50,9 +65,13 @@ async function buildTwoEntities(page: Page): Promise<void> {
   await page.waitForTimeout(150);
 
   // Adding a relationship starts the connection gesture from it, and each
-  // completed leg stays on the diamond, so two clicks finish the chain.
-  await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
-  await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+  // completed leg stays on the diamond, so two drags finish the chain.
+  await page.getByRole('button', { name: 'Connect tool' }).click();
+  await dragBetween(page, /Relationship places/i, /Entity Customer/i);
+  await dragBetween(page, /Relationship places/i, /Entity Order/i);
+  // Back to selecting, the way anyone finishes a connection: the editing
+  // affordances on the lines are hidden while the Connect tool is active.
+  await page.getByRole('button', { name: 'Select tool' }).click();
 }
 
 async function readSvg(page: Page): Promise<string> {
@@ -227,10 +246,12 @@ test.describe('exports', () => {
     // Starting from an attribute would produce a line that the SQL generator
     // and the crow's-foot view both ignore: a connection that quietly does
     // nothing, which is worse than a refusal.
-    await attribute.click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await attribute.click();
     await expect(page.locator('.node--connecting')).toHaveCount(0);
 
-    await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await node(page, /Entity Order/i).click();
     await expect(relationshipLines(page)).toHaveCount(before);
   });
 
@@ -238,7 +259,8 @@ test.describe('exports', () => {
     await openApp(page);
     await buildTwoEntities(page);
 
-    await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await node(page, /Entity Customer/i).click();
     await page.getByTestId('canvas').locator('[data-node-id^="attr_"]').first().hover();
     await expect(page.locator('.node--connectable')).toHaveCount(0);
   });
