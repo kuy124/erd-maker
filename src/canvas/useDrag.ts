@@ -139,6 +139,14 @@ interface Options {
   /** Called once, on drop, with every member's final position. */
   onCommit: (positions: Map<string, Point>) => void;
   onPan: (x: number, y: number) => void;
+  /**
+   * Called once on pointer up, with whether anything actually moved.
+   *
+   * A press and a drag have to be told apart: a press on an already-selected
+   * shape should narrow the selection to that shape, while a drag should carry
+   * the whole selection and leave it intact.
+   */
+  onSettled?: (moved: boolean) => void;
   viewport: { x: number; y: number; zoom: number };
   /** True when the current tool pans instead of selecting. */
   panMode: boolean;
@@ -218,6 +226,7 @@ export function useDrag(options: Options): DragApi {
         }
         dragRef.current = null;
         setDrag(null);
+        latest.current.onSettled?.(finished.moved);
       }
       if (panRef.current) {
         panRef.current = null;

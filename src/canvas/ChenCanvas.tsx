@@ -74,9 +74,18 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
     toWorld,
     onCommit: (positions) => state.applyPositions(positions),
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
+    onSettled: (moved) => {
+      // A press that never moved was a click, not a drag: narrow the selection
+      // to that one shape. Leaving it alone would mean clicking a selected shape
+      // never does anything, which reads as a broken click.
+      const pressed = pressedShape.current;
+      pressedShape.current = null;
+      if (!moved && pressed && selection.length > 1) state.setSelection([pressed]);
+    },
     viewport,
     panMode: tool === 'pan',
   });
+  const pressedShape = useRef<string | null>(null);
 
   // Independent of dragging: moving the mouse is enough to be seen.
 usePeerCursor(toWorld, state.awareness, state.pointer);
@@ -211,6 +220,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       }
 
       if (!selection.includes(id)) state.setSelection([id]);
+      pressedShape.current = id;
       beginSelectionDrag(id, event);
     },
     [

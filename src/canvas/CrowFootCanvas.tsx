@@ -84,9 +84,16 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
     toWorld,
     onCommit: (positions) => state.applyPositions(positions),
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
+    onSettled: (moved) => {
+      // A press that never moved was a click: narrow to that one table.
+      const pressed = pressedTable.current;
+      pressedTable.current = null;
+      if (!moved && pressed && selection.length > 1) state.setSelection([pressed]);
+    },
     viewport,
     panMode: tool === 'pan',
   });
+  const pressedTable = useRef<string | null>(null);
 
   // The table view had no presence at all; moving the mouse is now enough to be seen.
   usePeerCursor(toWorld, state.awareness, state.pointer);
@@ -145,6 +152,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
         if (entity) start.set(nodeId, { x: entity.x, y: entity.y });
       }
       if (!start.has(id)) return;
+      pressedTable.current = id;
       const world = toWorld(event.clientX, event.clientY);
       drag.beginNodeDrag(start, world.x, world.y);
     },

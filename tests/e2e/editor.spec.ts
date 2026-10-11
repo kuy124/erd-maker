@@ -1855,3 +1855,175 @@ test.describe('creating at the pointer', () => {
     expect(box.y).toBeGreaterThan(canvas.y);
   });
 });
+
+/**
+ * Selecting more than one shape.
+ *
+ * Shift-click, dragging a selection, deleting it, and the marquee. These are
+ * the paths that only exist because selection became a set, so nothing else in
+ * the suite reaches them.
+ */
+test.describe('multi-select', () => {
+  /** Two entities side by side, arranged so neither sits under a panel. */
+  async function twoShapes(page: Page): Promise<{ page: Page }> {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await addNamedEntity(page, 'Beta');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(250);
+    return { page };
+  }
+
+  test('shift-click adds a shape and shift-click again removes it', async ({ page }) => {
+    await twoShapes(page);
+    const alpha = node(page, /Entity Alpha/i);
+    const beta = node(page, /Entity Beta/i);
+
+    await alpha.click();
+    await beta.click({ modifiers: ['Shift'] });
+    await expect(page.getByRole('heading', { name: /2 shapes selected/i })).toBeVisible();
+
+    await beta.click({ modifiers: ['Shift'] });
+    await expect(page.getByRole('heading', { name: /Entity/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /2 shapes selected/i })).toHaveCount(0);
+  });
+
+  test('a plain click collapses the selection back to one', async ({ page }) => {
+    await twoShapes(page);
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
+    await expect(page.getByRole('heading', { name: /2 shapes selected/i })).toBeVisible();
+
+    await node(page, /Entity Beta/i).click();
+    await expect(page.getByRole('heading', { name: /2 shapes selected/i })).toHaveCount(0);
+  });
+
+  test('dragging one selected shape moves the whole selection as one undo step', async ({ page }) => {
+    await twoShapes(page);
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
+
+    const from = (await node(page, /Entity Alpha/i).boundingBox())!;
+    const betaBefore = (await node(page, /Entity Beta/i).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 180, from.y + from.height / 2, { steps: 10 });
+    await page.mouse.up();
+
+    // Both moved, by the same offset.
+    const alphaAfter = (await node(page, /Entity Alpha/i).boundingBox())!;
+    const betaAfter = (await node(page, /Entity Beta/i).boundingBox())!;
+    const alphaDelta = { x: alphaAfter.x - from.x, y: alphaAfter.y - from.y };
+    expect(Math.abs(alphaDelta.x)).toBeGreaterThan(100);
+    expect(Math.abs(betaAfter.x - betaBefore.x - alphaDelta.x)).toBeLessThan(2);
+    expect(Math.abs(betaAfter.y - betaBefore.y - alphaDelta.y)).toBeLessThan(2);
+
+    // One Undo puts both back.
+    await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
+    const alphaRestored = (await node(page, /Entity Alpha/i).boundingBox())!;
+    expect(Math.abs(alphaRestored.x - from.x)).toBeLessThan(2);
+  });
+
+  test('Delete removes every selected shape in one undo step', async ({ page }) => {
+    await twoShapes(page);
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
+    await page.keyboard.press('Delete');
+
+    await expect(node(page, /Entity Alpha/i)).toHaveCount(0);
+    await expect(node(page, /Entity Beta/i)).toHaveCount(0);
+    // The notice names the count, so a five-shape delete is not alarming.
+    await expect(page.locator('.feedback')).toContainText('2 shapes deleted');
+
+    await page.locator('.feedback').getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(node(page, /Entity Alpha/i)).toBeVisible();
+    await expect(node(page, /Entity Beta/i)).toBeVisible();
+  });
+
+  test('Escape clears the selection without deleting anything', async ({ page }) => {
+    await twoShapes(page);
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: /Select a shape/i })).toBeVisible();
+    await expect(node(page, /Entity Alpha/i)).toBeVisible();
+    await expect(node(page, /Entity Beta/i)).toBeVisible();
+  });
+
+  test('shift-drag on empty paper draws a marquee and selects what it touches', async ({ page }) => {
+    await twoShapes(page);
+    const alpha = (await node(page, /Entity Alpha/i).boundingBox())!;
+    const beta = (await node(page, /Entity Beta/i).boundingBox())!;
+    const left = Math.min(alpha.x, beta.x) - 40;
+    const right = Math.max(alpha.x + alpha.width, beta.x + beta.width) + 40;
+    const top = Math.min(alpha.y, beta.y) - 40;
+    const bottom = Math.max(alpha.y + alpha.height, beta.y + beta.height) + 40;
+
+    await page.keyboard.down('Shift');
+    await page.mouse.move(left, top);
+    await page.mouse.down();
+    // The box is visible while the gesture is in flight.
+    await expect(page.locator('.marquee')).toHaveCount(1);
+    await page.mouse.move(right, bottom, { steps: 10 });
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+
+    await expect(page.getByRole('heading', { name: /2 shapes selected/i })).toBeVisible();
+  });
+
+  test('a marquee that touches nothing clears the selection', async ({ page }) => {
+    await twoShapes(page);
+    await node(page, /Entity Alpha/i).click();
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+
+    await page.keyboard.down('Shift');
+    await page.mouse.move(canvas.x + 8, canvas.y + 8);
+    await page.mouse.down();
+    await page.mouse.move(canvas.x + 40, canvas.y + 40, { steps: 5 });
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+
+    await expect(page.getByRole('heading', { name: /Select a shape/i })).toBeVisible();
+  });
+
+  test('a plain drag on empty paper still pans', async ({ page }) => {
+    await twoShapes(page);
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    const before = await page.locator('[data-viewport]').getAttribute('transform');
+
+    // No modifier: this must pan, not marquee. "Empty paper always pans" is
+    // what stops the canvas feeling stuck.
+    await page.mouse.move(canvas.x + 30, canvas.y + 30);
+    await page.mouse.down();
+    await page.mouse.move(canvas.x + 130, canvas.y + 90, { steps: 6 });
+    await page.mouse.up();
+
+    expect(await page.locator('[data-viewport]').getAttribute('transform')).not.toBe(before);
+    await expect(page.locator('.marquee')).toHaveCount(0);
+  });
+
+  test("a collaborator's multi-selection is visible in their colour", async ({ context }) => {
+    const alice = await context.newPage();
+    await openApp(alice);
+    await addNamedEntity(alice, 'Shared');
+    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    const link = await alice.getByLabel('Share link').inputValue();
+    await alice.getByRole('button', { name: 'Done', exact: true }).click();
+    const bob = await context.newPage();
+    await openApp(bob);
+    await bob.goto(link);
+    await expect(node(bob, /Entity Shared/i)).toBeVisible({ timeout: 20_000 });
+    await waitForLink([alice, bob]);
+
+    await addNamedEntity(bob, 'Second');
+    await node(bob, /Entity Shared/i).click();
+    await node(bob, /Entity Second/i).click({ modifiers: ['Shift'] });
+    await expect(bob.getByRole('heading', { name: /2 shapes selected/i })).toBeVisible();
+
+    // Both of Bob's selections carry his colour on Alice's canvas.
+    await expect
+      .poll(async () => alice.locator('.selection-ring[style*="stroke"]').count(), { timeout: 20_000 })
+      .toBeGreaterThanOrEqual(2);
+  });
+});
