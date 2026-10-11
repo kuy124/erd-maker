@@ -75,6 +75,26 @@ export interface Leg {
   columnId?: string;
 }
 
+/**
+ * A named set of shapes that move together.
+ *
+ * Deliberately visual. A group carries no meaning the SQL generator, the
+ * crow's-foot inference, or the relationship logic can see: it is a way of
+ * keeping a part of a diagram together while working on it, and it never
+ * reaches an export. Making it semantic would mean deciding how a group of
+ * entities becomes tables, which is a modelling question this editor should not
+ * answer on the user's behalf.
+ *
+ * Only the membership is stored. The frame is derived from the members' bounds
+ * on every render, so it cannot drift away from what it contains.
+ */
+export interface Group {
+  id: string;
+  name: string;
+  /** Shapes carried by this group. Empty groups are pruned on write. */
+  memberIds: string[];
+}
+
 export type NodeId = string;
 
 export interface ErdDocument {
@@ -85,6 +105,7 @@ export interface ErdDocument {
   relationships: Relationship[];
   isas: Isa[];
   legs: Leg[];
+  groups: Group[];
 }
 
 export function emptyDocument(name = 'Untitled diagram'): ErdDocument {
@@ -96,6 +117,7 @@ export function emptyDocument(name = 'Untitled diagram'): ErdDocument {
     relationships: [],
     isas: [],
     legs: [],
+    groups: [],
   };
 }
 
@@ -161,6 +183,43 @@ export function attributesOf(doc: ErdDocument, ownerId: NodeId): Attribute[] {
 }
 
 /**
+ * The frame a group occupies, derived from its members.
+ *
+ * Nothing is stored, so the frame cannot disagree with what it contains: move a
+ * member and the frame follows on the next render. Returns null when the group
+ * has no live members, which is what a pruned group looks like.
+ */
+export function groupFrame(doc: ErdDocument, group: Group): Bounds | null {
+  const members = group.memberIds
+    .map((id) => ({ node: findNode(doc, id), size: sizeOf(doc, id) }))
+    .filter((entry) => entry.node && entry.size.w > 0);
+  if (members.length < 2) return null;
+  const padding = 18;
+  return {
+    minX: Math.min(...members.map((m) => m.node!.x - padding)),
+    minY: Math.min(...members.map((m) => m.node!.y - padding)),
+    maxX: Math.max(...members.map((m) => m.node!.x + m.size.w + padding)),
+    maxY: Math.max(...members.map((m) => m.node!.y + m.size.h + padding)),
+  };
+}
+
+/**
+ * Drops members that no longer exist, and groups left with fewer than two.
+ *
+ * A group of one is not a group: the frame would sit around a single shape
+ * saying nothing, and it would survive a reload as a mystery box. Called after
+ * every removal so deleting a shape cannot leave an empty frame behind.
+ */
+export function pruneGroups(doc: ErdDocument): ErdDocument {
+  if (doc.groups.length === 0) return doc;
+  const live = new Set(allNodes(doc).map((n) => n.id));
+  const groups = doc.groups
+    .map((group) => ({ ...group, memberIds: group.memberIds.filter((id) => live.has(id)) }))
+    .filter((group) => group.memberIds.length > 1);
+  return groups.length === doc.groups.length ? doc : { ...doc, groups };
+}
+
+/**
  * Removes a node and everything that only existed because of it: its legs, its
  * attributes, and any ISA links pointing at it. Returns a new document; the
  * input is not mutated.
@@ -169,7 +228,7 @@ export function removeNode(doc: ErdDocument, id: NodeId): ErdDocument {
   const orphanedAttributes = new Set(
     doc.attributes.filter((a) => a.ownerId === id).map((a) => a.id),
   );
-  return {
+  return pruneGroups({
     ...doc,
     entities: doc.entities.filter((e) => e.id !== id),
     attributes: doc.attributes.filter((a) => a.id !== id && !orphanedAttributes.has(a.id)),
@@ -182,5 +241,12 @@ export function removeNode(doc: ErdDocument, id: NodeId): ErdDocument {
         childIds: i.childIds.filter((c) => c !== id),
       })),
     legs: doc.legs.filter((l) => l.fromId !== id && l.toId !== id),
-  };
+  });
+}
+
+export interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
 }

@@ -26,6 +26,7 @@ import type {
   Attribute,
   Entity,
   ErdDocument,
+  Group,
   Isa,
   Leg,
   Relationship,
@@ -40,6 +41,7 @@ export const ATTRIBUTES = 'attributes';
 export const RELATIONSHIPS = 'relationships';
 export const ISAS = 'isas';
 export const LEGS = 'legs';
+export const GROUPS = 'groups';
 
 type Primitive = string | number | boolean | null;
 
@@ -80,6 +82,59 @@ export function seedDocument(ydoc: Y.Doc, source: ErdDocument): void {
     for (const relationship of source.relationships) upsertRelationship(ydoc, relationship);
     for (const isa of source.isas) upsertIsa(ydoc, isa);
     for (const leg of source.legs) upsertLeg(ydoc, leg);
+    for (const group of source.groups) upsertGroup(ydoc, group);
+  });
+}
+
+/**
+ * Writes a group, or deletes it when it is empty.
+ *
+ * An empty group has no frame to draw and nothing to carry, so it is removed
+ * rather than stored: a group that cannot be seen should not survive a reload.
+ */
+export function upsertGroup(ydoc: Y.Doc, group: Group): void {
+  const map = ydoc.getMap(GROUPS);
+  if (group.memberIds.length < 2) {
+    map.delete(group.id);
+    return;
+  }
+  const existing = map.get(group.id) as Y.Map<unknown> | undefined;
+  if (existing) {
+    setFields(existing, { id: group.id, name: group.name, memberIds: group.memberIds });
+    return;
+  }
+  const next = new Y.Map<unknown>();
+  setFields(next, { id: group.id, name: group.name, memberIds: group.memberIds });
+  map.set(group.id, next);
+}
+
+/** Removes a group, leaving its members exactly where they are. */
+export function deleteGroupFromYdoc(ydoc: Y.Doc, id: string): void {
+  ydoc.getMap(GROUPS).delete(id);
+}
+
+/**
+ * Puts every id in memberIds into one group, and takes them out of any other.
+ *
+ * A shape belongs to a single group. Selecting something already grouped moves
+ * it rather than silently listing it in two frames, which would make dragging
+ * one of them ambiguous.
+ */
+export function setGroupMembers(ydoc: Y.Doc, id: string, name: string, memberIds: string[]): void {
+  const groups = ydoc.getMap(GROUPS);
+  ydoc.transact(() => {
+    groups.forEach((value) => {
+      const group = value as Y.Map<unknown>;
+      const before = readStringArray(group, 'memberIds');
+      const after = before.filter((m) => !memberIds.includes(m));
+      if (after.length !== before.length) group.set('memberIds', after);
+    });
+    groups.forEach((value, key) => {
+      if (readStringArray(value as Y.Map<unknown>, 'memberIds').length < 2) groups.delete(key);
+    });
+    const next = new Y.Map<unknown>();
+    setFields(next, { id, name, memberIds });
+    groups.set(id, next);
   });
 }
 
@@ -229,6 +284,18 @@ export function deleteNodeFromYdoc(ydoc: Y.Doc, id: string): void {
       const after = before.filter((c) => c !== id);
       if (after.length !== before.length) isa.set('childIds', after);
     });
+    // A group must not keep a shape that no longer exists, because the frame is
+    // derived from its members.
+    const groups = ydoc.getMap(GROUPS);
+    groups.forEach((value) => {
+      const group = value as Y.Map<unknown>;
+      const before = readStringArray(group, 'memberIds');
+      const after = before.filter((m) => m !== id);
+      if (after.length !== before.length) group.set('memberIds', after);
+    });
+    groups.forEach((value, key) => {
+      if (readStringArray(value as Y.Map<unknown>, 'memberIds').length < 2) groups.delete(key);
+    });
   });
 }
 
@@ -316,6 +383,13 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
     });
   });
 
+  ydoc.getMap(GROUPS).forEach((value, key) => {
+    const m = value as Y.Map<unknown>;
+    const memberIds = readStringArray(m, 'memberIds');
+    if (memberIds.length < 2) return;
+    doc.groups.push({ id: key, name: readString(m, 'name', 'Group'), memberIds });
+  });
+
   // Drop references to nodes that no longer exist, so a mid-merge state can
   // never render a connector to nowhere.
   const ids = new Set([
@@ -328,6 +402,13 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
     a.ownerId && !ids.has(a.ownerId) ? { ...a, ownerId: null } : a,
   );
 
+  // Group members can be any positioned shape, including attributes, so they are
+  // checked against the full set and emptied groups are dropped.
+  const nodeIds = new Set([...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas].map((n) => n.id));
+  doc.groups = doc.groups
+    .map((g) => ({ ...g, memberIds: g.memberIds.filter((id) => nodeIds.has(id)) }))
+    .filter((g) => g.memberIds.length > 1);
+
   // Yjs maps are unordered, so two peers can iterate the same state in
   // different orders. Sorting by id makes the materialised document
   // byte-identical across peers, which keeps render order stable (no flicker)
@@ -338,6 +419,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
   doc.relationships.sort(byId);
   doc.isas.sort(byId);
   doc.legs.sort(byId);
+  doc.groups.sort(byId);
 
   return doc;
 }

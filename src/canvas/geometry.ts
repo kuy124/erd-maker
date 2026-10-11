@@ -191,6 +191,19 @@ export function offsetToward(point: Point, toward: Point, distance: number): Poi
 }
 
 /**
+ * The ids a drag starting on `id` should carry.
+ *
+ * A group moves as one thing, so dragging any member carries the rest of its
+ * group. Explicit selections still win over membership: if the person selected
+ * something by hand, that is what they meant to move.
+ */
+export function dragSet(doc: ErdDocument, id: string, selected: string[]): string[] {
+  if (selected.length > 1) return selected;
+  const group = doc.groups.find((g) => g.memberIds.includes(id));
+  return group ? group.memberIds : [id];
+}
+
+/**
  * Every node whose box overlaps a world rectangle, in document order.
  *
  * Used by the marquee. The test is deliberately loose — the rectangle only has

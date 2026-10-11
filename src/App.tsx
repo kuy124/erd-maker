@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
-import { cursorOrigin, documentBounds, isVisibleIn } from './canvas/geometry';
+import { cursorOrigin, documentBounds, hitTestNode, isVisibleIn } from './canvas/geometry';
 import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
@@ -13,6 +13,7 @@ import { parseJsonImport, downloadText, serializeJson, fileStem } from './export
 import { useEditor } from './state/useEditor';
 import { ExportDialog } from './ui/ExportDialog';
 import { Inspector } from './ui/Inspector';
+import { ContextMenu, type MenuItem } from './ui/ContextMenu';
 import { ShareDialog } from './ui/Modals';
 import { ShapeRail, type ShapeKind } from './ui/ShapeRail';
 import { DiagramOutline, ExamplesDialog, HelpPanel } from './ui/WorkspacePanels';
@@ -20,6 +21,16 @@ import { DiagramOutline, ExamplesDialog, HelpPanel } from './ui/WorkspacePanels'
 type Dialog = 'share' | 'export' | 'examples' | null;
 type Panel = 'build' | 'diagram' | 'properties' | 'help';
 interface Session { room: string; seed: ErdDocument | null }
+
+/**
+ * Where the right-click menu was opened.
+ *
+ * `shape` is true when the pointer was over something, which is what separates
+ * the grouping actions from the creating ones. The world point is kept so a new
+ * shape appears exactly where the pointer is rather than wherever the last one
+ * happened to land.
+ */
+interface MenuRequest { at: { x: number; y: number }; world: { x: number; y: number }; shape: boolean }
 
 function readSession(): Session {
   const parsed = parseShareHash(window.location.hash);
@@ -75,6 +86,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   const [error, setError] = useState<string | null>(null);
   const panelTrigger = useRef<HTMLElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [menu, setMenu] = useState<MenuRequest | null>(null);
   const framed = useRef(false);
   const isCrowFoot = state.view === 'crowfoot';
   const isEmpty = allNodes(state.doc).length === 0;
@@ -170,7 +182,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     });
   };
 
-  const addShape = useCallback((kind: ShapeKind) => {
+  const addShape = useCallback((kind: ShapeKind, at?: { x: number; y: number }) => {
     if (!state.loaded) return;
     let view = state.view;
     let ownerId: string | null = null;
@@ -190,7 +202,10 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     const size = view === 'crowfoot' && kind === 'entity' ? { w: CROW_WIDTH, h: 88 } :
       kind === 'attribute' ? { w: 130, h: 42 } : { w: 150, h: 72 };
     // Under the pointer when it is over the canvas, not always in the middle.
-    const origin = cursorOrigin(size, state.pointer.current, rect ?? null, state.viewport);
+    // The context menu passes the exact point it was opened at.
+    const origin = at
+      ? { x: at.x - size.w / 2, y: at.y - size.h / 2 }
+      : cursorOrigin(size, state.pointer.current, rect ?? null, state.viewport);
     const slot = findFreeSlot(occupiedBoxes({ ...state.doc, view }), origin, size);
     if (kind === 'attribute') state.addAttribute(slot.x, slot.y, ownerId);
     else if (kind === 'entity') state.addEntity(slot.x, slot.y);
@@ -343,6 +358,59 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   const peerSummary = state.peers.length === 0 ? 'Editing alone' :
     'Editing with ' + state.peers.map((peer) => peer.name).join(', ');
   const closeDialog = useCallback(() => setDialog(null), []);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
+  /**
+   * Opens the right-click menu over whatever is under the pointer.
+   *
+   * Empty paper creates a shape there; a shape offers grouping. Which one it is
+   * comes from a hit test rather than from the current selection, because the
+   * selection often outlives what was last clicked: right-clicking clear paper
+   * while two shapes are selected has to offer creation, not offer to delete
+   * something the pointer is nowhere near.
+   */
+  const openMenu = useCallback((event: React.MouseEvent) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    const world = {
+      x: (event.clientX - (rect?.left ?? 0) - state.viewport.x) / state.viewport.zoom,
+      y: (event.clientY - (rect?.top ?? 0) - state.viewport.y) / state.viewport.zoom,
+    };
+    const hit = allNodes(state.doc).find((node) => hitTestNode(state.doc, node.id, world));
+    // Right-clicking a shape you had not selected selects it, so the menu acts
+    // on the thing under the pointer rather than on a stale selection.
+    if (hit && !state.selection.includes(hit.id)) state.setSelection([hit.id]);
+    setMenu({ at: { x: event.clientX, y: event.clientY }, world, shape: Boolean(hit) });
+  }, [state.doc, state.viewport, state.selection, state.setSelection]);
+
+  const menuItems: MenuItem[] | null = useMemo(() => {
+    if (!menu) return null;
+    if (menu.shape) {
+      const selection = state.selection;
+      const grouped = state.doc.groups.find((g) => selection.length > 0 && selection.every((id) => g.memberIds.includes(id)));
+      return [
+        { label: selection.length > 1 ? `Group ${selection.length} shapes` : 'Group selected shapes',
+          disabled: selection.length < 2,
+          onSelect: () => { state.group(selection); closeMenu(); } },
+        ...(grouped ? [{ label: 'Remove group', separated: true, onSelect: () => { state.ungroup(grouped.id); closeMenu(); } }] : []),
+        { label: selection.length > 1 ? `Delete ${selection.length} shapes` : 'Delete selection',
+          tone: 'danger' as const, separated: !grouped,
+          onSelect: () => { state.remove(selection); closeMenu(); } },
+      ];
+    }
+    const create = (kind: ShapeKind, label: string): MenuItem => ({
+      label,
+      onSelect: () => {
+        closeMenu();
+        addShape(kind, menu.world);
+      },
+    });
+    return [
+      create('entity', 'New entity'),
+      create('attribute', 'New attribute'),
+      create('relationship', 'New relationship'),
+      create('isa', 'New specialization'),
+    ];
+  }, [menu, state.selection, state.doc.groups, state.group, state.ungroup, state.remove, addShape, closeMenu]);
   const emptyActions = isEmpty ? <div className="starter-actions">
     <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
     <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
@@ -412,8 +480,8 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         </div>
 
         <div className="canvas-stage">
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} /> :
-            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} />}
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} onContextMenu={openMenu} /> :
+            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} onContextMenu={openMenu} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>
@@ -451,6 +519,9 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       {dialog === 'share' ? <ShareDialog state={editor} onClose={closeDialog} /> : null}
       {dialog === 'export' ? <ExportDialog state={editor} svgRef={svgRef} onClose={closeDialog} /> : null}
       {dialog === 'examples' ? <ExamplesDialog onOpen={openDocument} onClose={closeDialog} /> : null}
+      {menu && menuItems ? (
+        <ContextMenu at={menu.at} items={menuItems} label={menu.shape ? 'Shape actions' : 'Add a shape'} onClose={closeMenu} />
+      ) : null}
     </div>
   );
 }

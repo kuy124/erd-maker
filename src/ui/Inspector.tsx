@@ -94,13 +94,22 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             </li>
           ))}
         </ul>
-        <button
-          type="button"
-          className="btn btn--primary"
-          onClick={() => state.remove(selection)}
-        >
-          Delete {selection.length} shapes
-        </button>
+        <div className="inspector__actions">
+          <button
+            type="button"
+            className="btn"
+            onClick={() => state.group(selection)}
+          >
+            Group {selection.length} shapes
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger"
+            onClick={() => state.remove(selection)}
+          >
+            Delete {selection.length} shapes
+          </button>
+        </div>
       </aside>
     );
   }

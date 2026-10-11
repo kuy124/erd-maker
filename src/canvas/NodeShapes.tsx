@@ -14,6 +14,7 @@
 import { memo } from 'react';
 import { NODE_SIZE, type Attribute, type Entity, type Isa, type Relationship } from '../model/types';
 import type { PeerState } from '../collab/provider';
+import { groupFrame, type ErdDocument, type Group } from '../model/types';
 import type { Point } from './geometry';
 
 interface BaseProps {
@@ -268,6 +269,36 @@ export function PeerCursors({ peers }: { peers: PeerState[] }) {
           </g>
         ) : null,
       )}
+    </g>
+  );
+}
+
+/**
+ * The frame around a group.
+ *
+ * Drawn from the members' bounds rather than stored, so it cannot drift away
+ * from what it contains. Purely a working aid: it never reaches an export, and
+ * the SQL generator never sees it.
+ */
+export function GroupFrames({ doc }: { doc: ErdDocument }) {
+  return (
+    <g className="layer-groups">
+      {doc.groups.map((group: Group) => {
+        const frame = groupFrame(doc, group);
+        if (!frame) return null;
+        return (
+          <g key={group.id} className="group-frame" data-group-id={group.id}>
+            <rect
+              x={frame.minX} y={frame.minY}
+              width={frame.maxX - frame.minX} height={frame.maxY - frame.minY}
+              rx={10}
+            />
+            <text className="group-frame__name" x={frame.minX + 10} y={frame.minY + 15}>
+              {group.name}
+            </text>
+          </g>
+        );
+      })}
     </g>
   );
 }

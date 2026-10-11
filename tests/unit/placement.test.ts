@@ -36,6 +36,7 @@ function docWith(entities: { x: number; y: number }[], attributes: { x: number; 
     relationships: [],
     isas: [],
     legs: [],
+    groups: [],
   };
 }
 

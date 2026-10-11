@@ -191,6 +191,16 @@ export function normalizeDocument(input: unknown): ErdDocument {
         },
       ];
     }),
+    // Absent from older links, which is why the schema version did not move:
+    // `asArray` turns a missing field into an empty list, so old links load
+    // with no groups rather than failing.
+    groups: asArray(raw.groups).flatMap((g) => {
+      const o = asObject(g);
+      if (!o || typeof o.id !== 'string') return [];
+      const memberIds = asArray(o.memberIds).filter((m): m is string => typeof m === 'string');
+      if (memberIds.length < 2) return [];
+      return [{ id: o.id, name: asString(o.name, 'Group'), memberIds }];
+    }),
   };
 
   // Drop legs and attribute owners that reference nodes the link did not carry.
@@ -203,6 +213,13 @@ export function normalizeDocument(input: unknown): ErdDocument {
   doc.attributes = doc.attributes.map((a) =>
     a.ownerId && !ids.has(a.ownerId) ? { ...a, ownerId: null } : a,
   );
+
+  // Group members may be attributes too, so they are matched against every
+  // positioned shape and empty groups are discarded.
+  const nodeIds = new Set([...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas].map((n) => n.id));
+  doc.groups = doc.groups
+    .map((g) => ({ ...g, memberIds: g.memberIds.filter((id) => nodeIds.has(id)) }))
+    .filter((g) => g.memberIds.length > 1);
 
   return doc;
 }

@@ -12,8 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
-import { documentBounds, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentBetween, type Point } from './geometry';
-import { AttributeShape, CardinalityMarker, EntityShape, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
+import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentBetween, type Point } from './geometry';
+import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
 import { useDrag, usePeerCursor } from './useDrag';
 import { findNode, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
@@ -25,12 +25,13 @@ interface Props {
   connectFrom: string | null;
   setConnectFrom: (id: string | null) => void;
   emptyActions?: React.ReactNode;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, onContextMenu }: Props) {
   const { doc, viewport, selection, tool, peers, identity } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -175,7 +176,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
    */
   const beginSelectionDrag = useCallback(
     (id: string, event: React.PointerEvent) => {
-      const ids = selection.includes(id) ? selection : [id];
+      const ids = dragSet(doc, id, selection);
       const start = new Map<string, { x: number; y: number }>();
       for (const nodeId of ids) {
         const node = findNode(doc, nodeId);
@@ -190,6 +191,10 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
 
   const handleNodePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
+      // Right and middle buttons belong to the context menu and to panning, not
+      // to selection. Letting them through would clear the selection the menu is
+      // about to act on.
+      if (event.button !== 0) return;
       event.stopPropagation();
       if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
       focusCanvas(event);
@@ -440,6 +445,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       data-tool={tool}
       ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
+      onContextMenu={onContextMenu}
       onPointerMove={handlePointerMove}
       onWheel={handleWheel}
     >
@@ -463,6 +469,8 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
           transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}
         >
           {/* Legs first, so shapes sit on top of their connectors. */}
+          <GroupFrames doc={doc} />
+
           <g className="layer-legs">
             {displayDoc.legs.map((leg) => {
               const seg = segmentBetween(displayDoc, leg.fromId, leg.toId);

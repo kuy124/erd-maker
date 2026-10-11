@@ -15,8 +15,10 @@ import { createLocalIdentity, type Identity } from '../collab/identity';
 import {
   connectColumns,
   connectNodes,
+  deleteGroupFromYdoc,
   deleteNodeFromYdoc,
   seedDocument,
+  setGroupMembers,
   setMeta,
   snapshotFromYdoc,
   upsertAttribute,
@@ -103,6 +105,13 @@ export interface EditorState {
   connect: (fromId: string, toId: string) => string | null;
   connectColumns: (from: ColumnEndpoint, to: ColumnEndpoint) => string | null;
   remove: (ids: string[]) => void;
+  /**
+   * Puts every selected shape into one group, or dissolves it when `ids` is
+   * empty. Returns the group id, or null when there was nothing to group.
+   */
+  group: (ids: string[], name?: string) => string | null;
+  /** Removes a group, leaving its members exactly where they are. */
+  ungroup: (id: string) => void;
   replaceDocument: (doc: ErdDocument) => void;
   applyPositions: (positions: Map<string, { x: number; y: number }>) => void;
   ydoc: Y.Doc;
@@ -170,7 +179,8 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
 
   useEffect(() => {
     const manager = new Y.UndoManager(
-      ['entities', 'attributes', 'relationships', 'isas', 'legs', 'meta'].map((key) => room.ydoc.getMap(key)),
+      ['entities', 'attributes', 'relationships', 'isas', 'legs', 'groups', 'meta']
+        .map((key) => room.ydoc.getMap(key)),
       { captureTimeout: 400 },
     );
     undoRef.current = manager;
@@ -261,8 +271,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   );
 
   const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
-    setTool,
-    setSelection: (ids) => { setSelection(ids); setJustCreated(null); },
+    setTool,    setSelection: (ids) => { setSelection(ids); setJustCreated(null); },
     toggleSelection: (id) => setSelection((current) =>
       current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
     setViewport,
@@ -439,8 +448,38 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       setSelection((current) => current.filter((id) => !ids.includes(id)));
     },
 
-    replaceDocument: (next: ErdDocument) => {
-      mutate(() => {
+    /**
+     * Groups the given shapes, or dissolves the group they form.
+     *
+     * Creating and dissolving are both single transactions, so Undo reverses
+     * either in one press. A shape belongs to one group at a time: grouping
+     * something already grouped moves it rather than listing it in two frames,
+     * which would make dragging one of them ambiguous.
+     */
+    group: (ids, name) => {
+      if (ids.length < 2) return null;
+      const live = snapshotFromYdoc(room.ydoc);
+      const existing = live.groups.find((g) => ids.every((id) => g.memberIds.includes(id)));
+      if (existing) {
+        mutate(() => deleteGroupFromYdoc(room.ydoc, existing.id), true);
+        setNotice('Group removed.');
+        return null;
+      }
+      const id = makeId('grp');
+      mutate(() => setGroupMembers(room.ydoc, id, name || 'Group', ids), true);
+      setNotice('Grouped ' + ids.length + ' shapes.');
+      return id;
+    },
+
+    ungroup: (id) => {
+      const live = snapshotFromYdoc(room.ydoc);
+      const group = live.groups.find((g) => g.id === id);
+      if (!group) return;
+      mutate(() => deleteGroupFromYdoc(room.ydoc, id), true);
+      setNotice('Group removed.');
+    },
+
+    replaceDocument: (next: ErdDocument) => {      mutate(() => {
         const { ydoc } = room;
         for (const key of ['entities', 'attributes', 'relationships', 'isas', 'legs'] as const) {
           ydoc.getMap(key).clear();

@@ -27,17 +27,18 @@ import {
   type CrowTable,
 } from '../model/crowfoot';
 import type { EditorState } from '../state/useEditor';
-import { nodesInRect, type Point } from './geometry';
+import { dragSet, nodesInRect, type Point } from './geometry';
 import { useDrag, usePeerCursor } from './useDrag';
-import { CardinalityMarker, PeerCursors } from './NodeShapes';
+import { CardinalityMarker, GroupFrames, PeerCursors } from './NodeShapes';
 
 interface Props {
   state: EditorState;
   svgRef: React.MutableRefObject<SVGSVGElement | null>;
   emptyActions?: React.ReactNode;
+  onContextMenu?: (event: React.MouseEvent) => void;
 }
 
-export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions, onContextMenu }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -138,13 +139,14 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
 
   const handleTablePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
+      if (event.button !== 0) return;
       event.stopPropagation();
       if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
       if (tool === 'connect') return;
       // Shift extends the selection; a plain click on an already-selected table
       // carries the whole selection, matching the Chen view.
       if (event.shiftKey) { state.toggleSelection(id); return; }
-      const ids = selection.includes(id) ? selection : [id];
+      const ids = dragSet(doc, id, selection);
       if (!selection.includes(id)) state.setSelection([id]);
       const start = new Map<string, { x: number; y: number }>();
       for (const nodeId of ids) {
@@ -247,6 +249,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
       data-tool={tool}
       ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
+      onContextMenu={onContextMenu}
       onWheel={handleWheel}
     >
       <svg
@@ -264,6 +267,8 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
           data-viewport="true"
           transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}
         >
+          <GroupFrames doc={doc} />
+
           <g className="layer-links">
             {links.map((link) => {
               const from = byId.get(link.fromEntityId);

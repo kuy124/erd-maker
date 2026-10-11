@@ -2027,3 +2027,320 @@ test.describe('multi-select', () => {
       .toBeGreaterThanOrEqual(2);
   });
 });
+
+/**
+ * The right-click menu.
+ *
+ * One component serves two cases, and the cases differ only in what they offer,
+ * so both are asserted here: empty paper creates, a shape groups.
+ */
+test.describe('right-click menu', () => {
+  test('empty paper offers the four shapes and creates one where it was opened', async ({ page }) => {
+    await openApp(page);
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    const at = { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height - 90 };
+
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Add a shape' })).toBeVisible();
+    await expect(page.getByRole('menuitem')).toHaveText([
+      'New entity', 'New attribute', 'New relationship', 'New specialization',
+    ]);
+
+    await page.getByRole('menuitem', { name: 'New entity' }).click();
+    const shape = node(page, /Entity New entity/i);
+    await expect(shape).toBeVisible();
+    // Created at the pointer, and ready to be named without another click.
+    const box = (await shape.boundingBox())!;
+    expect(Math.abs((box.x + box.width / 2) - at.x)).toBeLessThan(160);
+    await expect(nameField(page)).toBeFocused();
+  });
+
+  test('empty paper offers creation even while shapes are selected', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(250);
+
+    // The selection is live; the pointer is on clear paper a long way from it.
+    await node(page, /Entity Alpha/i).click();
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    await page.mouse.click(canvas.x + 24, canvas.y + canvas.height - 24, { button: 'right' });
+
+    // Offering to delete something the pointer is nowhere near is the bug this
+    // guards against.
+    await expect(page.getByRole('menu', { name: 'Add a shape' })).toBeVisible();
+    await expect(page.getByRole('menuitem')).toHaveText([
+      'New entity', 'New attribute', 'New relationship', 'New specialization',
+    ]);
+  });
+
+  test('a shape offers grouping and deleting', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    const shape = node(page, /Entity Alpha/i);
+    const box = (await shape.boundingBox())!;
+
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
+    // One shape cannot be a group, so the action says why instead of failing.
+    await expect(page.getByRole('menuitem', { name: 'Group selected shapes' })).toBeDisabled();
+    await expect(page.getByRole('menuitem', { name: 'Delete selection' })).toBeEnabled();
+  });
+
+  test('right-clicking an unselected shape selects it first', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await addNamedEntity(page, 'Beta');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(250);
+
+    await node(page, /Entity Alpha/i).click();
+    await expect(nameField(page)).toHaveValue('Alpha');
+
+    const beta = (await node(page, /Entity Beta/i).boundingBox())!;
+    await page.mouse.click(beta.x + beta.width / 2, beta.y + beta.height / 2, { button: 'right' });
+    await expect(nameField(page)).toHaveValue('Beta');
+  });
+
+  test('the menu is fully keyboard operable and restores focus on close', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    const shape = node(page, /Entity Alpha/i);
+    const box = (await shape.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+
+    // Focus lands inside the menu, not back on the canvas behind it.
+    await expect(page.locator('[role=menu] :focus')).toHaveCount(1);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('[role=menu] :focus')).toHaveCount(1);
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    // Focus goes back where it came from, so the keyboard is not stranded.
+    await expect(shape).toBeFocused();
+  });
+
+  test('clicking anywhere else dismisses the menu', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    const shape = node(page, /Entity Alpha/i);
+    const box = (await shape.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await expect(page.getByRole('menu')).toBeVisible();
+
+    const canvas = (await page.getByTestId('canvas').boundingBox())!;
+    await page.mouse.click(canvas.x + 20, canvas.y + 20);
+    await expect(page.getByRole('menu')).toHaveCount(0);
+  });
+});
+
+/**
+ * Groups.
+ *
+ * Visual only, by design: a group keeps shapes together while they are worked
+ * on and never reaches SQL or an export. Every test below pins one of those.
+ */
+test.describe('groups', () => {
+  async function twoSelected(page: Page): Promise<void> {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await addNamedEntity(page, 'Beta');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(250);
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
+  }
+
+  async function groupViaMenu(page: Page): Promise<void> {
+    const box = (await node(page, /Entity Beta/i).boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: /Group 2 shapes/ }).click();
+  }
+
+  test('grouping draws a frame and is one undo step', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+
+    await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(page.locator('.group-frame')).toHaveCount(0);
+  });
+
+  test('dragging any member carries the whole group', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+
+    const alphaBefore = (await node(page, /Entity Alpha/i).boundingBox())!;
+    const betaBefore = (await node(page, /Entity Beta/i).boundingBox())!;
+    const box = (await node(page, /Entity Alpha/i).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 160, box.y + box.height / 2 + 40, { steps: 10 });
+    await page.mouse.up();
+
+    const alphaAfter = (await node(page, /Entity Alpha/i).boundingBox())!;
+    const betaAfter = (await node(page, /Entity Beta/i).boundingBox())!;
+    const dx = alphaAfter.x - alphaBefore.x;
+    expect(Math.abs(dx)).toBeGreaterThan(100);
+    // Beta was never touched and still came along.
+    expect(Math.abs(betaAfter.x - betaBefore.x - dx)).toBeLessThan(2);
+  });
+
+  test('the frame is derived from its members, never stored', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+
+    // The frame must contain both members, on screen, wherever they are.
+    const containsBoth = async (): Promise<boolean> => {
+      const frame = (await page.locator('.group-frame rect').boundingBox())!;
+      for (const label of [/Entity Alpha/i, /Entity Beta/i]) {
+        const box = (await node(page, label).boundingBox())!;
+        const inside = box.x >= frame.x - 1 && box.y >= frame.y - 1 &&
+          box.x + box.width <= frame.x + frame.width + 1 &&
+          box.y + box.height <= frame.y + frame.height + 1;
+        if (!inside) return false;
+      }
+      return true;
+    };
+    expect(await containsBoth()).toBe(true);
+
+    // Auto-arrange moves the shapes on its own; the group never hears about it.
+    // Nothing about the frame is written to the document, so it has to follow.
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.waitForTimeout(350);
+    expect(await page.locator('.group-frame')).toHaveCount(1);
+    expect(await containsBoth()).toBe(true);
+
+    // Dropping to a single member dissolves the group: a frame around one
+    // shape says nothing, and would come back after a reload as a mystery box.
+    await node(page, /Entity Alpha/i).click();
+    await page.keyboard.press('Delete');
+    await expect(page.locator('.group-frame')).toHaveCount(0);
+    await expect(node(page, /Entity Beta/i)).toBeVisible();
+  });
+
+  test('removing the group leaves the shapes exactly where they were', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+    const before = (await node(page, /Entity Alpha/i).boundingBox())!;
+
+    const box = (await node(page, /Entity Beta/i).boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Remove group' }).click();
+
+    await expect(page.locator('.group-frame')).toHaveCount(0);
+    const after = (await node(page, /Entity Alpha/i).boundingBox())!;
+    expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+    expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  });
+
+  test('a group survives a reload and a share link', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+
+    await page.reload();
+    await expect(page.getByTestId('canvas')).toBeVisible();
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+
+    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    const link = await page.getByLabel('Share link').inputValue();
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.goto(link);
+    await expect(page.getByTestId('canvas')).toBeVisible();
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+  });
+
+  test('a group is stripped from an export but its shapes are not', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('tab', { name: 'SVG', exact: true }).click();
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download SVG' }).click();
+    const stream = await (await pending).createReadStream();
+    let markup = '';
+    for await (const chunk of stream) markup += String(chunk);
+
+    // A frame is a working aid, not part of the drawing.
+    expect(markup).not.toContain('group-frame');
+    expect(markup).toContain('Alpha');
+    expect(markup).toContain('Beta');
+  });
+
+  test('grouping changes nothing about the generated SQL', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await addShape(page, 'attribute');
+    await nameField(page).fill('alpha_id');
+    await page.getByRole('button', { name: 'Key', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await addNamedEntity(page, 'Beta');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(250);
+
+    const readSql = async (): Promise<string> => {
+      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await page.getByRole('tab', { name: 'SQL', exact: true }).click();
+      const text = (await page.getByLabel('Generated SQL').textContent()) ?? '';
+      await page.getByRole('button', { name: 'Done', exact: true }).click();
+      return text;
+    };
+    const before = await readSql();
+
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
+    const box = (await node(page, /Entity Beta/i).boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: /Group 2 shapes/ }).click();
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+
+    // Identical. A group is not a modelling concept, so it must not invent one.
+    expect(await readSql()).toBe(before);
+  });
+
+  test('a shape belongs to one group at a time', async ({ page }) => {
+    await twoSelected(page);
+    await groupViaMenu(page);
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+
+    // Group Alpha with a third shape: it leaves the first group rather than
+    // appearing in two frames at once.
+    await page.keyboard.press('Escape');
+    await addNamedEntity(page, 'Gamma');
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
+    await page.waitForTimeout(350);
+    await node(page, /Entity Alpha/i).click();
+    await node(page, /Entity Gamma/i).click({ modifiers: ['Shift'] });
+    await expect(page.getByRole('heading', { name: /2 shapes selected/i })).toBeVisible();
+    const box = (await node(page, /Entity Gamma/i).boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: /Group 2 shapes/ }).click();
+
+    // One frame. Alpha was in the first group and is not in this one, so it was
+    // moved rather than listed twice; the first group held Alpha and Beta, so
+    // losing Alpha leaves it with a single member and it goes.
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+
+    // Membership, asserted by behaviour rather than by geometry: a bounding box
+    // is not a clip, so Beta may well sit inside the frame without being in it.
+    // Dragging Beta must leave the group alone.
+    await page.keyboard.press('Escape');
+    const alphaBefore = (await node(page, /Entity Alpha/i).boundingBox())!;
+    const beta = (await node(page, /Entity Beta/i).boundingBox())!;
+    await page.mouse.move(beta.x + beta.width / 2, beta.y + beta.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(beta.x + beta.width / 2 + 170, beta.y + beta.height / 2, { steps: 10 });
+    await page.mouse.up();
+
+    const alphaAfter = (await node(page, /Entity Alpha/i).boundingBox())!;
+    expect(Math.abs(alphaAfter.x - alphaBefore.x)).toBeLessThan(2);
+    expect(Math.abs(alphaAfter.y - alphaBefore.y)).toBeLessThan(2);
+  });
+});
