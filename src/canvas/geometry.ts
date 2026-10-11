@@ -11,6 +11,7 @@
  */
 
 import { sizeOf, type ErdDocument, type NodeId, type Positioned } from '../model/types';
+import { deriveLinks, deriveTables, routeColumns } from '../model/crowfoot';
 import { occupiedBoxes } from '../model/placement';
 
 export interface Point {
@@ -206,6 +207,19 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
     minY = Math.min(minY, b.minY);
     maxX = Math.max(maxX, b.maxX);
     maxY = Math.max(maxY, b.maxY);
+  }
+  if (doc.view === 'crowfoot') {
+    const tables = deriveTables(doc);
+    for (const link of deriveLinks(doc).filter((link, index, all) => all.findIndex((l) => l.relId === link.relId) === index)) {
+      const from = tables.find((t) => t.entityId === link.fromEntityId)!;
+      const to = tables.find((t) => t.entityId === link.toEntityId)!;
+      const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane);
+      const textWidth = Math.min(link.label.length, 24) * 8;
+      minX = Math.min(minX, route.bounds.minX, route.label.x - (route.labelAnchor === 'start' ? 0 : textWidth));
+      maxX = Math.max(maxX, route.bounds.maxX, route.label.x + (route.labelAnchor === 'end' ? 0 : textWidth));
+      minY = Math.min(minY, route.bounds.minY, route.label.y - 25);
+      maxY = Math.max(maxY, route.bounds.maxY, route.label.y + 10);
+    }
   }
   return {
     minX: minX - padding,

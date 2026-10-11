@@ -17,6 +17,7 @@ import { ParticipationFields, RelationshipParticipants } from './RelationshipPar
 
 interface Props {
   state: EditorState;
+  nameFocusReady?: boolean;
 }
 
 const ATTRIBUTE_KINDS: { value: AttributeKind; label: string }[] = [
@@ -27,7 +28,7 @@ const ATTRIBUTE_KINDS: { value: AttributeKind; label: string }[] = [
   { value: 'composite', label: 'Composite' },
 ];
 
-export function Inspector({ state }: Props) {
+export function Inspector({ state, nameFocusReady = true }: Props) {
   const { doc, selection } = state;
 
   /**
@@ -44,7 +45,7 @@ export function Inspector({ state }: Props) {
   const nameRef = useRef<HTMLInputElement | null>(null);
   const superclassRef = useRef<HTMLSelectElement | null>(null);
   useEffect(() => {
-    if (!selection || selection !== state.justCreated) return;
+    if (!nameFocusReady || !selection || selection !== state.justCreated) return;
     const focus = () => {
       const field = nameRef.current ?? superclassRef.current;
       if (!field || document.activeElement === field) return;
@@ -54,7 +55,7 @@ export function Inspector({ state }: Props) {
     focus();
     const frame = requestAnimationFrame(focus);
     return () => cancelAnimationFrame(frame);
-  }, [selection, state.justCreated]);
+  }, [selection, state.justCreated, nameFocusReady]);
 
   const entity = doc.entities.find((e) => e.id === selection);
   const attribute = doc.attributes.find((a) => a.id === selection);

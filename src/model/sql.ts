@@ -33,6 +33,9 @@ import {
   type Leg,
   type Relationship,
 } from './types';
+import { toSqlName } from './columnNames';
+import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, type RelationshipEnd } from './crowfoot';
+export { foreignKeyColumnName, toSqlName } from './columnNames';
 
 export interface SqlOptions {
   /** Emit `DROP TABLE IF EXISTS` before each `CREATE TABLE`. */
@@ -45,37 +48,6 @@ export class SqlError extends Error {}
 
 function quote(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
-}
-
-/**
- * Names the foreign key column that points at `table.keyName`.
- *
- * Prefixing is the default, but a key already named after its own table should
- * not be doubled up: a `customer_id` key in `customer` gives `customer_id`, not
- * `customer_customer_id`. The repetition is noise that a reader has to unpick,
- * and it is the common case because `<entity>_id` is the usual name for a key.
- */
-export function foreignKeyColumnName(table: string, keyName: string): string {
-  if (keyName === table) return keyName;
-  if (!keyName.startsWith(`${table}_`)) return `${table}_${keyName}`;
-
-  // The key already begins with the table name. Whether that prefix is
-  // redundant depends on what follows it: `customer_id` restates the table, so
-  // qualifying it says nothing. `order_line_id` does not — it names the line
-  // entity, so qualifying it is exactly the information the column needs.
-  const rest = keyName.slice(table.length + 1);
-  const restatesTable = rest === 'id' || rest === 'key' || rest === 'pk';
-  return restatesTable ? keyName : `${table}_${keyName}`;
-}
-
-/** snake_case, stripped to characters SQL tolerates unquoted. */
-export function toSqlName(name: string): string {
-  const cleaned = name
-    .trim()
-    .replace(/[\s-]+/g, '_')
-    .replace(/[^A-Za-z0-9_]/g, '')
-    .toLowerCase();
-  return cleaned.length > 0 ? cleaned : 'unnamed';
 }
 
 function columnTypeFor(attr: { name: string; kind: string }): string {
@@ -119,6 +91,7 @@ interface Column {
   pk: boolean;
   fk?: { table: string; column: string };
   nullable: boolean;
+  unique?: boolean;
 }
 
 interface Table {
@@ -160,39 +133,35 @@ function weakEntityParent(
     for (const relLeg of legsFor(doc, rel.id)) {
       if (relLeg.id === leg.id) continue;
       const parent = findEntity(doc, otherEnd(relLeg, rel.id));
-      if (parent) return { parent, rel };
+      if (parent && parent.id !== entity.id) return { parent, rel };
     }
   }
   return undefined;
 }
 
-/**
- * Entities this entity must reference: for each relationship where this entity
- * sits on the many side, the entity on the one side owns the referenced key.
- */
-function foreignKeyTargets(doc: ErdDocument, entity: Entity): Entity[] {
-  if (entity.kind === 'weak') return []; // handled by weakEntityParent
-  const targets: Entity[] = [];
-  for (const leg of legsFor(doc, entity.id)) {
-    const rel = findRelationship(doc, otherEnd(leg, entity.id));
-    if (!rel) continue;
-    const relLegs = legsFor(doc, rel.id);
-    if (relLegs.length !== 2) continue;
-    const sibling = relLegs.find((l) => l.id !== leg.id);
-    if (!sibling) continue;
-    const otherEntity = findEntity(doc, otherEnd(sibling, rel.id));
-    if (!otherEntity) continue;
-    // This entity's own label is leg.cardinality; the far entity's is the sibling's.
-    if (leg.cardinality !== '1' && sibling.cardinality === '1') {
-      targets.push(otherEntity);
-    }
-  }
-  return targets;
-}
-
+/** Generate DDL from the same columns and bindings displayed in the table view. */
 export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string {
   const dialect = options.dialect ?? 'standard';
   const tables: Table[] = [];
+  const crowTables = deriveTables(doc);
+  for (const leg of doc.legs.filter((l) => l.columnId)) {
+    const rel = doc.relationships.find((r) => r.id === leg.fromId || r.id === leg.toId);
+    if (!rel) continue;
+    const entityId = otherEnd(leg, rel.id);
+    if (!crowTables.find((t) => t.entityId === entityId)?.rows.some((r) => r.id === leg.columnId)) {
+      throw new SqlError(`Choose an available connection attribute for ${rel.name}.`);
+    }
+  }
+  const selectedKey = (end: RelationshipEnd, relationshipName: string): Column => {
+    const rows = crowTables.find((t) => t.entityId === end.entity.id)!.rows;
+    const keys = rows.filter((r) => r.pk);
+    const row = end.leg.columnId ? rows.find((r) => r.id === end.leg.columnId) : keys[0];
+    if (!row?.pk || keys.length !== 1) {
+      throw new SqlError(`${relationshipName}: choose a single-column primary key at ${end.entity.name} for SQL export. A non-key field or one part of a composite key cannot be referenced alone.`);
+    }
+    return { name: toSqlName(row.name), type: row.type === 'INT' ? 'INTEGER' : row.type === 'BOOL' ? 'BOOLEAN' : row.type,
+      pk: true, nullable: false };
+  };
 
   for (const entity of doc.entities) {
     const columns: Column[] = [];
@@ -202,13 +171,21 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
 
     if (weakParent) {
       // A weak entity's primary key is its partial key plus the parent's key.
-      for (const pk of parentKeyColumns(doc, weakParent.parent)) {
+      const ends = binaryEnds(doc, weakParent.rel.id);
+      const source = ends?.find((end) => end.entity.id === entity.id);
+      const target = ends?.find((end) => end.entity.id === weakParent.parent.id);
+      const bound = source?.leg.columnId || target?.leg.columnId;
+      const keys = bound && target ? [selectedKey(target, weakParent.rel.name)] : parentKeyColumns(doc, weakParent.parent);
+      if (bound && keys.length !== 1) throw new SqlError(`${weakParent.rel.name}: a single connection attribute cannot reference a composite key.`);
+      const sourceRow = bound && ends && source ? endpointRows(doc, crowTables, ends)[ends[0].leg.id === source.leg.id ? 0 : 1] : null;
+      for (const pk of keys) {
         columns.push({
-          name: pk.name,
+          name: sourceRow ? toSqlName(sourceRow.name) : pk.name,
           type: pk.type,
           pk: true,
           fk: { table: entityTableName(weakParent.parent), column: pk.name },
           nullable: false,
+          unique: source?.leg.cardinality === '1',
         });
       }
     }
@@ -228,20 +205,32 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
       });
     }
 
-    // Foreign keys for one-to-many relationships where this entity is the many side.
-    for (const target of foreignKeyTargets(doc, entity)) {
-      const targetCols = parentKeyColumns(doc, target);
-      if (targetCols.length !== 1) continue; // composite targets are out of scope
-      const targetCol = targetCols[0]!;
-      const fkName = foreignKeyColumnName(toSqlName(target.name), targetCol.name);
-      if (columns.some((c) => c.name === fkName)) continue;
-      columns.push({
-        name: fkName,
-        type: targetCol.type,
-        pk: false,
-        fk: { table: entityTableName(target), column: targetCol.name },
-        nullable: true,
-      });
+    for (const rel of doc.relationships) {
+      const ends = binaryEnds(doc, rel.id);
+      const direction = ends && foreignKeyDirection(doc, ends);
+      if (!ends || !direction || direction[0].entity.id !== entity.id || weakParent?.rel.id === rel.id) continue;
+      const [source, target] = direction;
+      if (!target.leg.columnId && parentKeyColumns(doc, target.entity).length !== 1) {
+        if (source.leg.columnId) throw new SqlError(`${rel.name}: a single connection attribute cannot reference a composite key. Choose a single-column primary key or use Automatic.`);
+        continue;
+      }
+      const targetCol = selectedKey(target, rel.name);
+      const rows = endpointRows(doc, crowTables, ends);
+      const sourceRow = rows[ends[0].leg.id === source.leg.id ? 0 : 1];
+      const fkName = toSqlName(sourceRow.name);
+      const fk = { table: entityTableName(target.entity), column: targetCol.name };
+      let column = columns.find((c) => c.name === fkName);
+      if (!column) {
+        column = { name: fkName, type: targetCol.type, pk: false, nullable: true };
+        columns.push(column);
+      }
+      if (column.fk && (column.fk.table !== fk.table || column.fk.column !== fk.column)) {
+        throw new SqlError(`${entity.name}.${sourceRow.name} references different keys. Use a separate attribute for each foreign key.`);
+      }
+      column.fk = fk;
+      column.type = targetCol.type;
+      if (target.leg.participation.min >= 1) column.nullable = false;
+      if (source.leg.cardinality === '1') column.unique = true;
     }
 
     if (columns.length === 0) {
@@ -254,16 +243,10 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
   // Junction tables for many-to-many relationships.
   for (const rel of doc.relationships) {
     if (!isManyToMany(doc, rel)) continue;
-    const entityEnds = legsFor(doc, rel.id)
-      .map((l) => findEntity(doc, otherEnd(l, rel.id)))
-      .filter((e): e is Entity => Boolean(e));
-    if (entityEnds.length !== 2) continue;
-
-    const a = entityEnds[0]!;
-    const b = entityEnds[1]!;
-    const aKey = parentKeyColumns(doc, a)[0];
-    const bKey = parentKeyColumns(doc, b)[0];
-    if (!aKey || !bKey) continue;
+    const ends = binaryEnds(doc, rel.id);
+    if (!ends) continue;
+    const a = ends[0].entity, b = ends[1].entity;
+    const aKey = selectedKey(ends[0], rel.name), bKey = selectedKey(ends[1], rel.name);
 
     const columns: Column[] = [
       {
@@ -274,7 +257,7 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
         nullable: false,
       },
       {
-        name: `${toSqlName(b.name)}_${bKey.name}`,
+        name: `${toSqlName(b.name)}_${bKey.name}${a.id === b.id ? '_2' : ''}`,
         type: bKey.type,
         pk: true,
         fk: { table: entityTableName(b), column: bKey.name },
@@ -315,13 +298,14 @@ function renderTable(table: Table, dropFirst: boolean): string {
   if (dropFirst) lines.push(`DROP TABLE IF EXISTS ${quote(table.name)};`);
 
   const body: string[] = [];
+  const pkCols = table.columns.filter((c) => c.pk).map((c) => quote(c.name));
   for (const col of table.columns) {
     let def = `  ${quote(col.name)} ${col.type}`;
     if (!col.nullable) def += ' NOT NULL';
+    if (col.unique && (!col.pk || pkCols.length > 1)) def += ' UNIQUE';
     body.push(def);
   }
 
-  const pkCols = table.columns.filter((c) => c.pk).map((c) => quote(c.name));
   if (pkCols.length > 0) body.push(`  PRIMARY KEY (${pkCols.join(', ')})`);
 
   for (const col of table.columns) {

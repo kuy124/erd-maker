@@ -6,7 +6,7 @@ import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
 import { findFreeSlot, occupiedBoxes } from './model/placement';
-import { deriveTables, deriveLinks, CROW_WIDTH, tableHeight } from './model/crowfoot';
+import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight } from './model/crowfoot';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
@@ -218,7 +218,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     if (view === 'crowfoot' && link) {
       const a = tables.find((item) => item.entityId === link.fromEntityId)!;
       const b = tables.find((item) => item.entityId === link.toEntityId)!;
-      point = { x: (a.x + b.x + CROW_WIDTH) / 2, y: (a.y + b.y) / 2 };
+      point = routeColumns(a, link.fromColumnId, b, link.toColumnId, link.lane).label;
     }
     if (point) requestAnimationFrame(() => {
       const rect = svgRef.current?.getBoundingClientRect();
@@ -292,7 +292,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         case 's': event.preventDefault(); addShape('isa'); break;
         case 'v': state.setTool('select'); break;
         case 'c':
-          if (isCrowFoot) addShape('relationship'); else state.setTool('connect');
+          state.setTool('connect'); closePanel();
           break;
         case 'h': state.setTool('pan'); break;
         case 'f': event.preventDefault(); fitToView(); break;
@@ -372,9 +372,10 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         </div>
         <div className="drawing-tools">
           <button type="button" className="btn btn--ghost tool-btn" aria-label="Select tool" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}>Select</button>
-          {isCrowFoot ?
-            <button type="button" className="btn btn--ghost" aria-label="Add relationship" onClick={() => addShape('relationship')}><span className="wide-label">Add </span>Relationship</button> :
-            <button type="button" className="btn btn--ghost tool-btn" aria-label="Connect tool" title="Connect two entities to create a relationship (C)" aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}>Connect</button>}
+          <button type="button" className="btn btn--ghost tool-btn" aria-label="Connect tool"
+            title={isCrowFoot ? 'Connect two attribute rows (C)' : 'Connect two entities to create a relationship (C)'}
+            aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}>Connect</button>
+          {isCrowFoot ? <button type="button" className="btn btn--ghost" aria-label="Add relationship" onClick={() => addShape('relationship')}><span className="wide-label">Add </span>Relationship</button> : null}
           <button type="button" className="btn btn--ghost tool-btn" aria-label="Pan tool" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}>Pan</button>
         </div>
         <button type="button" className="btn btn--ghost arrange-btn" onClick={tidy} title="Arrange the diagram automatically">Auto-arrange</button>
@@ -409,7 +410,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
             <span>{rightTab === 'help' ? 'Help' : 'Properties'}</span>
             <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}>×</button>
           </div>
-          {rightTab === 'help' ? <HelpPanel /> : <Inspector state={editor} />}
+          {rightTab === 'help' ? <HelpPanel /> : <Inspector state={editor} nameFocusReady={openPanel === 'properties'} />}
         </div>
       </div>
 

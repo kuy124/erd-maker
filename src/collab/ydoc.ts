@@ -32,6 +32,7 @@ import type {
 } from '../model/types';
 import { emptyDocument } from '../model/types';
 import { canConnect, findRelationshipSlot } from '../model/placement';
+import { deriveTables, type ColumnEndpoint } from '../model/crowfoot';
 
 export const META = 'meta';
 export const ENTITIES = 'entities';
@@ -142,11 +143,17 @@ export function upsertLeg(ydoc: Y.Doc, leg: Leg): void {
     max: leg.participation.max,
   };
   if (existing) {
-    setFields(existing, fields);
+    for (const [key, value] of Object.entries(fields)) {
+      if (existing.get(key) !== value) existing.set(key, value);
+    }
+    if (leg.columnId) {
+      if (existing.get('columnId') !== leg.columnId) existing.set('columnId', leg.columnId);
+    } else existing.delete('columnId');
     return;
   }
   const next = new Y.Map<unknown>();
   setFields(next, fields);
+  if (leg.columnId) next.set('columnId', leg.columnId);
   map.set(leg.id, next);
 }
 
@@ -168,6 +175,26 @@ export function connectNodes(
       }
     } else {
       upsertLeg(ydoc, { id, fromId, toId, cardinality: '1', participation: { min: 0, max: 1 } });
+    }
+  });
+  return id;
+}
+
+/** Column connections share the Chen relationship model and undo as one change. */
+export function connectColumns(
+  ydoc: Y.Doc, from: ColumnEndpoint, to: ColumnEndpoint, makeId: (kind: string) => string,
+): string | null {
+  const doc = snapshotFromYdoc(ydoc);
+  const tables = deriveTables(doc);
+  const rowAt = (end: ColumnEndpoint) => tables.find((t) => t.entityId === end.entityId)?.rows.find((r) => r.id === end.columnId);
+  const a = rowAt(from), b = rowAt(to);
+  if (!a || !b || (from.entityId === to.entityId && from.columnId === to.columnId)) return null;
+  const id = makeId('rel');
+  ydoc.transact(() => {
+    upsertRelationship(ydoc, { id, name: 'relationship', kind: 'strong', ...findRelationshipSlot(doc, from.entityId, to.entityId) });
+    for (const [end, row] of [[from, a], [to, b]] as const) {
+      upsertLeg(ydoc, { id: makeId('leg'), fromId: id, toId: end.entityId, columnId: end.columnId,
+        cardinality: row.pk ? '1' : 'N', participation: { min: 0, max: row.pk ? 1 : 'N' } });
     }
   });
   return id;
@@ -285,6 +312,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
         min: Math.max(0, Math.floor(readNumber(m, 'min', 0))),
         max: maxRaw === 'N' ? 'N' : Math.max(1, Math.floor(readNumber(m, 'max', 1))),
       },
+      ...(typeof m.get('columnId') === 'string' && m.get('columnId') ? { columnId: m.get('columnId') as string } : {}),
     });
   });
 

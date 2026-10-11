@@ -29,7 +29,7 @@ export function ShapeRail({ state, onAdd, onExamples }: {
       <div className="rail__group rail__lesson">
         <h3 className="panel__title">Make a relationship</h3>
         <p className="rail__hint">Add a relationship and choose its participants in Properties.
-          {state.view === 'chen' ? ' Connect two entities to create their diamond automatically, or connect to an existing diamond to add a participant.' : ' Specialization opens in Chen.'}</p>
+          {state.view === 'chen' ? ' Connect two entities to create their diamond automatically, or connect to an existing diamond to add a participant.' : ' Or choose Connect (C) and join two attribute rows. Specialization opens in Chen.'}</p>
       </div>
       <button type="button" className="btn" onClick={onExamples}>Open an example</button>
       <p className="rail__hint">Try one-to-many, many-to-many, or a weak entity.</p>

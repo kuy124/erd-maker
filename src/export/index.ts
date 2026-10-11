@@ -119,7 +119,7 @@ export function serializeSvg(
   const vars = resolveVars(svg);
   // Computed styles also contain selection and connection highlights. Restore
   // drawing ink after copying them, so a hovered/selected shape exports normally.
-  clone.querySelectorAll<SVGElement>('.leg--selected, .crow-link--selected .leg').forEach((node) => {
+  clone.querySelectorAll<SVGElement>('.leg--selected, .crow-link .leg').forEach((node) => {
     node.style.stroke = vars['--ink'] ?? '#16181a';
     node.style.strokeWidth = '1.5';
   });
@@ -132,7 +132,7 @@ export function serializeSvg(
     node.style.fill = node.closest('.node--weak') ? 'none' : vars['--paper-raised'] ?? '#fbfcfb';
   });
   clone.querySelectorAll('[class]').forEach((node) => {
-    node.classList.remove('leg--selected', 'crow-link--selected', 'node--connecting', 'node--connectable');
+    node.classList.remove('leg--selected', 'crow-link--selected', 'node--connecting', 'node--connectable', 'crow-row--connecting', 'crow-row--connectable');
   });
 
   clone.querySelectorAll('.leg-endpoint__hit').forEach((node) => node.remove());
@@ -146,6 +146,7 @@ export function serializeSvg(
     '.leg-hit',
     '.connect-preview',
     '.crow-link__hit',
+    '.connection-ports',
   ]) {
     clone.querySelectorAll(selector).forEach((n) => n.remove());
   }

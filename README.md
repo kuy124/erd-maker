@@ -24,6 +24,8 @@ Relationship properties list participants. Choose an entity for each row, then s
 
 In Chen, choose **Connect** and drag from one entity to another, or Shift-click both. The editor creates a relationship diamond with both participants, opens its name for editing, and lets you undo the whole connection at once. Connect to an existing diamond to add another participant.
 
+In crow’s-foot, choose **Connect** (C) and click or tap two attribute rows, or drag between them. The new relationship joins those exact rows. Change either endpoint with **Connection attribute** in its properties; **Automatic** follows the inferred key and foreign key. Real foreign-key attributes remain editable, and generated rows are labeled **gen**. Connections follow their attributes through renaming and table movement, and are retained in saved files and share links.
+
 Use **Diagram** to search every shape and center a selection. **Check diagram** offers hints for missing names and keys, unattached attributes, incomplete relationships, and invalid participation ranges. Selecting a hint opens the affected properties. Help explains notation and keyboard shortcuts alongside the canvas.
 
 At 1100px and wider, Build/Diagram and Properties sit beside the canvas. Tablets use side drawers. Phones use Build, Diagram, Properties, and Help sheets that scroll above the on-screen keyboard.
@@ -48,7 +50,7 @@ A weak entity’s partial key identifies it within its parent; SQL export combin
 
 Chen relationships use ERDPlus-style symbols at the entity endpoints: two bars for required one, a circle and bar for optional one, a bar and fork for required many, and a circle and fork for optional many. N and M both use the fork. Advanced numeric ranges remain visible beside the line. Click an endpoint symbol to edit its constraints.
 
-Crow’s-foot tables show source attributes as editable rows. Rows marked **gen** are generated keys or foreign keys. Column types are inferred from names. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
+Crow’s-foot tables show source attributes as editable rows. **gen** identifies generated keys or foreign keys; an existing `id` attribute stays editable when its primary-key role is generated. Column types come from attribute names or referenced keys. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
 
 Create relationships through Properties in either view. In Chen, you can also use Connect or Shift-click. Concepts absent from the table view, including specializations and attributes on relationships, remain in Diagram; selecting one switches your view to Chen.
 
@@ -68,14 +70,14 @@ The default signaling server is `wss://signaling.fly.dev`. Override it using `?s
 
 Download SVG, PNG, JSON, or SQL. Image exports use the complete drawing bounds and remove selection, hover, connection, and presence overlays.
 
-SQL follows the existing textbook mapping: entities become tables, weak entities borrow their parent’s key, many-to-many relationships become junction tables, and one-to-many relationships add foreign keys. Types are inferred; custom database types and SQL/DBML import are outside this editor’s current scope.
+SQL follows the existing textbook mapping: entities become tables, weak entities borrow their parent’s key, many-to-many relationships become junction tables, and one-to-many relationships add foreign keys. Selected connection attributes supply the actual foreign-key columns; explicit one-to-one connections also enforce uniqueness. SQL export explains when a chosen reference needs a single-column primary key, or an endpoint is no longer available. Foreign-key types follow the referenced key; other types are inferred from names. Custom database types and SQL/DBML import are outside this editor’s current scope.
 
 ## Keyboard
 
 | Key | Action |
 | --- | --- |
 | E / A / R / S | Add entity / attribute / relationship / specialization |
-| V / C / H | Select / Connect (Chen) or add relationship (tables) / Pan |
+| V / C / H | Select / Connect / Pan |
 | F | Fit diagram |
 | Shift-click two shapes | Connect in Chen |
 | Escape | Finish typing, then cancel selection or connection |

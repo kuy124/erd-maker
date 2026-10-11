@@ -71,6 +71,8 @@ export interface Leg {
   cardinality: Cardinality;
   /** Participation of the connected entity, or the source for a legacy concept line. */
   participation: Participation;
+  /** Stable table-row ID for this entity's endpoint. Absent means automatic. */
+  columnId?: string;
 }
 
 export type NodeId = string;

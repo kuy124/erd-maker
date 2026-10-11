@@ -302,7 +302,7 @@ test.describe("crow's foot", () => {
     await page.getByRole('button', { name: "Crow's-foot" }).click();
     await expect(canvas(page).getByText('Customer', { exact: true })).toBeVisible();
 
-    const lines = await page.locator('.layer-links line.leg').count();
+    const lines = await page.locator('.layer-links .crow-link__path').count();
     const fans = await page.locator('.layer-links path.leg').count();
     expect(lines, 'no connector lines between tables').toBeGreaterThan(0);
     expect(fans, 'no crow foot or one-bar drawn').toBeGreaterThan(0);

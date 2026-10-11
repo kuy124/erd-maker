@@ -13,6 +13,7 @@ import * as Y from 'yjs';
 import { connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
 import { createLocalIdentity, type Identity } from '../collab/identity';
 import {
+  connectColumns,
   connectNodes,
   deleteNodeFromYdoc,
   seedDocument,
@@ -27,6 +28,7 @@ import { writeParticipants, type RelationshipParticipant } from '../collab/parti
 import { validParticipation } from '../model/issues';
 import { findAttributeSlot } from '../model/placement';
 import { emptyDocument, type ErdDocument } from '../model/types';
+import type { ColumnEndpoint } from '../model/crowfoot';
 
 export type Tool = 'select' | 'pan' | 'connect';
 
@@ -80,6 +82,7 @@ export interface EditorState {
   addRelationship: (x: number, y: number) => string;
   addIsa: (x: number, y: number) => string;
   connect: (fromId: string, toId: string) => string | null;
+  connectColumns: (from: ColumnEndpoint, to: ColumnEndpoint) => string | null;
   remove: (id: string) => void;
   replaceDocument: (doc: ErdDocument) => void;
   applyPositions: (positions: Map<string, { x: number; y: number }>) => void;
@@ -366,6 +369,17 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
         setJustCreated(id);
         setTool('select');
       }
+      return id;
+    },
+
+    connectColumns: (from, to) => {
+      let id: string | null = null;
+      mutate(() => { id = connectColumns(room.ydoc, from, to, makeId); }, true);
+      if (id) {
+        setSelection(id);
+        setJustCreated(id);
+        setTool('select');
+      } else setNotice('That connection could not be made. Choose two different, available attributes.');
       return id;
     },
 

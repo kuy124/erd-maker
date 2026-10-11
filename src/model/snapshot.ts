@@ -182,6 +182,7 @@ export function normalizeDocument(input: unknown): ErdDocument {
           id: o.id,
           fromId: o.fromId,
           toId: o.toId,
+          ...(typeof o.columnId === 'string' && o.columnId ? { columnId: o.columnId } : {}),
           cardinality: card,
           participation: {
             min: Math.max(0, Math.floor(asNumber(part?.min, 0))),

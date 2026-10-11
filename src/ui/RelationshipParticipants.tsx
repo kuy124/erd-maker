@@ -3,6 +3,7 @@ import type { EditorState } from '../state/useEditor';
 import type { Cardinality, Participation } from '../model/types';
 import type { RelationshipParticipant } from '../collab/participants';
 import { validParticipation } from '../model/issues';
+import { binaryEnds, deriveTables, endpointRows, type CrowRow } from '../model/crowfoot';
 
 /** Keep unfinished numeric input local. Only a valid pair enters the shared document. */
 export function ParticipationFields({ value, onChange }: {
@@ -51,10 +52,16 @@ export function RelationshipParticipants({ state, relationshipId }: {
 }) {
   const [drafts, setDrafts] = useState<number[]>([]);
   const [nextDraft, setNextDraft] = useState(0);
+  const tables = deriveTables(state.doc);
+  const automaticName = (legId: string | undefined) => {
+    const doc = { ...state.doc, legs: state.doc.legs.map((leg) => leg.id === legId ? { ...leg, columnId: undefined } : leg) };
+    const ends = binaryEnds(doc, relationshipId);
+    return ends ? endpointRows(doc, deriveTables(doc), ends)[ends[0].leg.id === legId ? 0 : 1].name : undefined;
+  };
   const participants: RelationshipParticipant[] = state.doc.legs.flatMap((leg) => {
     const entityId = leg.fromId === relationshipId ? leg.toId : leg.toId === relationshipId ? leg.fromId : null;
     return entityId && state.doc.entities.some((entity) => entity.id === entityId) ?
-      [{ legId: leg.id, entityId, cardinality: leg.cardinality, participation: leg.participation }] : [];
+      [{ legId: leg.id, entityId, cardinality: leg.cardinality, participation: leg.participation, columnId: leg.columnId }] : [];
   });
   const write = (legId: string | undefined, patch: Partial<RelationshipParticipant>) => {
     state.setParticipants(relationshipId, participants.map((row) => row.legId === legId ? { ...row, ...patch } : row));
@@ -62,12 +69,14 @@ export function RelationshipParticipants({ state, relationshipId }: {
   const name = (id: string) => state.doc.entities.find((entity) => entity.id === id)?.name || 'Unnamed entity';
   return <section className="participant-editor" aria-label="Relationship participants">
     <div className="field__heading"><h3>Participants</h3><span>{participants.length}</span></div>
-    <p className="field__help">Choose the entities in this relationship. Keep extra participants for relationships involving three or more entities.</p>
+    <p className="field__help">Choose the entities and the attributes joined in table view. Extra participants are kept for relationships involving three or more entities.</p>
     <div className="ratio-preview" aria-live="polite" data-testid="ratio-preview">
       {participants.length >= 2 ? participants.map((row) => name(row.entityId) + ' (' + row.cardinality + ')').join(' : ') :
         'Add at least two participants to see the ratio.'}
     </div>
     {participants.map((row, index) => <ParticipantRow key={row.legId} state={state} row={row} index={index}
+      columns={tables.find((t) => t.entityId === row.entityId)?.rows ?? []}
+      automaticName={automaticName(row.legId)}
       onChange={(patch) => write(row.legId, patch)}
       onRemove={() => state.setParticipants(relationshipId, participants.filter((item) => item.legId !== row.legId))} />)}
     {drafts.map((draft, index) => <ParticipantRow key={'draft-' + draft} state={state} index={participants.length + index}
@@ -86,8 +95,9 @@ export function RelationshipParticipants({ state, relationshipId }: {
   </section>;
 }
 
-function ParticipantRow({ state, row, index, onChange, onRemove }: {
+function ParticipantRow({ state, row, index, columns = [], automaticName, onChange, onRemove }: {
   state: EditorState; row: RelationshipParticipant; index: number;
+  columns?: CrowRow[]; automaticName?: string;
   onChange: (patch: Partial<RelationshipParticipant>) => void; onRemove: () => void;
 }) {
   const id = useId();
@@ -98,11 +108,22 @@ function ParticipantRow({ state, row, index, onChange, onRemove }: {
       <button type="button" className="btn btn--ghost btn--icon" aria-label={'Remove ' + name} onClick={onRemove}>×</button>
     </div>
     <select id={id + '-entity'} className="field__select" value={row.entityId}
-      onChange={(event) => onChange({ entityId: event.target.value })}>
+      onChange={(event) => onChange({ entityId: event.target.value, columnId: null })}>
       <option value="" disabled>Choose an entity</option>
       {state.doc.entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name || 'Unnamed entity'}</option>)}
     </select>
     {row.entityId ? <>
+      <label className="field__label" htmlFor={id + '-column'}>Connection attribute at {name}</label>
+      <select id={id + '-column'} className="field__select" value={row.columnId ?? ''}
+        onChange={(event) => onChange({ columnId: event.target.value || null })}>
+        <option value="">Automatic{automaticName ? ' — ' + automaticName : ''}</option>
+        {row.columnId && !columns.some((column) => column.id === row.columnId) ?
+          <option value={row.columnId}>Unavailable attribute — choose another</option> : null}
+        {columns.map((column) => <option key={column.id} value={column.id}>
+          {column.name}{column.pk && column.fk ? ' (PK/FK)' : column.pk ? ' (PK)' : column.fk ? ' (FK)' : ''}
+          {column.generatedKey ? ' — generated PK' : column.attributeId ? '' : ' — generated'}
+        </option>)}
+      </select>
       <label className="field__label" htmlFor={id + '-card'}>Cardinality at {name}</label>
       <select id={id + '-card'} className="field__select" value={row.cardinality}
         onChange={(event) => {
