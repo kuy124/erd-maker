@@ -55,6 +55,8 @@ export interface CrowLink {
   /** Whether each end is mandatory, which adds a second bar near the table. */
   fromMandatory: boolean;
   toMandatory: boolean;
+  fromMany: boolean;
+  toMany: boolean;
 }
 
 function typeFor(name: string): string {
@@ -189,6 +191,8 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
       ratio,
       fromMandatory: aMandatory,
       toMandatory: bMandatory,
+      fromMany: aMany,
+      toMany: bMany,
     });
     if (aMany && bMany) {
       links.push({
@@ -203,6 +207,8 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
         ratio: `${b.leg.cardinality}:${a.leg.cardinality}`,
         fromMandatory: bMandatory,
         toMandatory: aMandatory,
+        fromMany: bMany,
+        toMany: aMany,
       });
     }
   }
@@ -210,9 +216,9 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
 }
 
 /** Height of a rendered table, used for connector trimming and layout. */
-export const CROW_ROW_HEIGHT = 22;
-export const CROW_HEADER_HEIGHT = 30;
-export const CROW_WIDTH = 210;
+export const CROW_ROW_HEIGHT = 44;
+export const CROW_HEADER_HEIGHT = 44;
+export const CROW_WIDTH = 280;
 
 export function tableHeight(table: CrowTable): number {
   return CROW_HEADER_HEIGHT + Math.max(table.rows.length, 1) * CROW_ROW_HEIGHT;

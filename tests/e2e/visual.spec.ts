@@ -41,7 +41,7 @@ test('capture the exported SVG', async ({ page }) => {
   await page.getByTestId('add-relationship').click();
   await page.getByTestId('inspector-name').fill('places');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Tidy' }).click();
+  await page.getByRole('button', { name: 'Auto-arrange' }).click();
   await page.waitForTimeout(250);
 
   const canvas = page.getByTestId('canvas');
@@ -107,7 +107,7 @@ test('capture the interface', async ({ page }) => {
   await page.getByTestId('add-relationship').click();
   await name(page, 'places');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Tidy' }).click();
+  await page.getByRole('button', { name: 'Auto-arrange' }).click();
   await page.waitForTimeout(300);
 
   const canvas = page.getByTestId('canvas');

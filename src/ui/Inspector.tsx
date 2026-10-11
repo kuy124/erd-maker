@@ -13,6 +13,7 @@
 import { useEffect, useRef } from 'react';
 import type { EditorState } from '../state/useEditor';
 import type { AttributeKind } from '../model/types';
+import { ParticipationFields, RelationshipParticipants } from './RelationshipParticipants';
 
 interface Props {
   state: EditorState;
@@ -21,7 +22,7 @@ interface Props {
 const ATTRIBUTE_KINDS: { value: AttributeKind; label: string }[] = [
   { value: 'simple', label: 'Simple' },
   { value: 'key', label: 'Key' },
-  { value: 'multivalued', label: 'Multi' },
+  { value: 'multivalued', label: 'Multivalued' },
   { value: 'derived', label: 'Derived' },
   { value: 'composite', label: 'Composite' },
 ];
@@ -41,10 +42,18 @@ export function Inspector({ state }: Props) {
    * as text entry.
    */
   const nameRef = useRef<HTMLInputElement | null>(null);
+  const superclassRef = useRef<HTMLSelectElement | null>(null);
   useEffect(() => {
     if (!selection || selection !== state.justCreated) return;
-    nameRef.current?.focus();
-    nameRef.current?.select();
+    const focus = () => {
+      const field = nameRef.current ?? superclassRef.current;
+      if (!field || document.activeElement === field) return;
+      field.focus();
+      if (field instanceof HTMLInputElement) field.select();
+    };
+    focus();
+    const frame = requestAnimationFrame(focus);
+    return () => cancelAnimationFrame(frame);
   }, [selection, state.justCreated]);
 
   const entity = doc.entities.find((e) => e.id === selection);
@@ -56,10 +65,9 @@ export function Inspector({ state }: Props) {
   if (!selection) {
     return (
       <aside className="inspector" aria-label="Properties">
-        <h2 className="panel__title">Properties</h2>
+        <h2 className="panel__title">Select a shape</h2>
         <p className="inspector__empty">
-          Select a shape to rename it and set what kind it is. Attributes can be marked as a key,
-          multivalued, or derived; entities and relationships can be marked weak.
+          Choose one on the canvas or in Diagram. Edit its name, attributes, and connections here.
         </p>
       </aside>
     );
@@ -115,8 +123,8 @@ export function Inspector({ state }: Props) {
           <span className="field__label">Attributes ({owned.length})</span>
           {owned.length === 0 ? (
             <p className="field__help">
-              No attributes yet. Add one from the shape rail, then select it and set its owner to this
-              entity.
+              {entity.kind === 'weak' ? 'Choose a partial key, such as a name. Combined with the parent’s key, it identifies each dependent record.' :
+                'Add a key to identify each ' + (entity.name || 'entity') + ' uniquely, such as an ID or student number.'}
             </p>
           ) : (
             <ul className="attr-list">
@@ -127,13 +135,21 @@ export function Inspector({ state }: Props) {
                     className="btn btn--ghost"
                     onClick={() => state.setSelection(attr.id)}
                   >
-                    {attr.name}
+                    {attr.name || 'Unnamed attribute'}
                   </button>
-                  <span className="attr-list__tag">{attr.kind}</span>
+                  <button type="button" className="btn btn--ghost key-toggle"
+                    aria-label={'Key attribute: ' + (attr.name || 'Unnamed attribute')}
+                    aria-pressed={attr.kind === 'key'}
+                    title="A key uniquely identifies each entity"
+                    onClick={() => state.updateAttribute(attr.id, { kind: attr.kind === 'key' ? 'simple' : 'key' })}>
+                    Key
+                  </button>
                 </li>
               ))}
             </ul>
           )}
+          <button type="button" className="btn attribute-add" onClick={() => state.addAttribute(entity.x, entity.y, entity.id)}>Add attribute</button>
+          {doc.view === 'crowfoot' ? <p className="field__help">Rows marked “gen” are generated keys or foreign keys. SQL types are inferred from attribute names; edit the original attribute here.</p> : null}
         </div>
 
         <button type="button" className="btn btn--danger" onClick={() => state.remove(entity.id)}>
@@ -165,7 +181,7 @@ export function Inspector({ state }: Props) {
           <span className="field__label" id="attr-kind-label">
             Kind
           </span>
-          <div className="seg" role="group" aria-labelledby="attr-kind-label">
+          <div className="seg attribute-kinds" role="group" aria-labelledby="attr-kind-label">
             {ATTRIBUTE_KINDS.map((kind) => (
               <button
                 key={kind.value}
@@ -178,7 +194,8 @@ export function Inspector({ state }: Props) {
               </button>
             ))}
           </div>
-          <p className="field__help">{describeKind(attribute.kind)}</p>
+          <p className="field__help">{attribute.kind === 'key' && doc.entities.some((owner) => owner.id === attribute.ownerId && owner.kind === 'weak') ?
+            'This partial key identifies a weak entity within its parent. The same value may occur under a different parent.' : describeKind(attribute.kind)}</p>
         </div>
         <div className="field">
           <label className="field__label" htmlFor="attr-owner">
@@ -255,6 +272,7 @@ export function Inspector({ state }: Props) {
             border.
           </p>
         </div>
+        <RelationshipParticipants key={relationship.id} state={state} relationshipId={relationship.id} />
         <button type="button" className="btn btn--danger" onClick={() => state.remove(relationship.id)}>
           Delete relationship
         </button>
@@ -272,6 +290,7 @@ export function Inspector({ state }: Props) {
             Superclass
           </label>          <select
             id="isa-parent"
+            ref={superclassRef}
             className="field__select"
             value={isa.parentId ?? ''}
             onChange={(event) => state.updateIsaParent(isa.id, event.target.value || null)}
@@ -314,12 +333,14 @@ export function Inspector({ state }: Props) {
   }
 
   if (leg) {
+    const entity = doc.entities.find((node) => node.id === leg.fromId || node.id === leg.toId);
+    const relationship = doc.relationships.find((node) => node.id === leg.fromId || node.id === leg.toId);
     return (
       <aside className="inspector" aria-label="Properties">
         <h2 className="panel__title">Relationship line</h2>
         <div className="field">
           <span className="field__label" id="leg-card-label">
-            Cardinality
+            Cardinality at {entity?.name || 'this endpoint'}
           </span>
           <div className="seg" role="group" aria-labelledby="leg-card-label">
             {(['1', 'N', 'M'] as const).map((card) => (
@@ -335,44 +356,13 @@ export function Inspector({ state }: Props) {
             ))}
           </div>
           <p className="field__help">
-            How many of the shape at the other end of this line relate to one of the shape at this end.
+            {entity?.name || 'This endpoint'} contributes {leg.cardinality === '1' ? 'one' : 'many'} to {relationship?.name || 'this connection'}. Use the relationship’s participant list to see the full ratio.
           </p>
         </div>
         <div className="field">
           <span className="field__label">Participation</span>
-          <div className="field__row">
-            <div>
-              <label className="field__label" htmlFor="leg-min">
-                Minimum
-              </label>
-              <input
-                id="leg-min"
-                className="field__input"
-                type="number"
-                min={0}
-                value={leg.participation.min}
-                onChange={(event) =>
-                  state.updateLeg(leg.id, { min: Math.max(0, Number(event.target.value) || 0) })
-                }
-              />
-            </div>
-            <div>
-              <label className="field__label" htmlFor="leg-max">
-                Maximum
-              </label>
-              <input
-                id="leg-max"
-                className="field__input"
-                type="text"
-                value={String(leg.participation.max)}
-                onChange={(event) => {
-                  const raw = event.target.value.trim().toUpperCase();
-                  if (raw === 'N') state.updateLeg(leg.id, { max: 'N' });
-                  else state.updateLeg(leg.id, { max: Math.max(1, Number(raw) || 1) });
-                }}
-              />
-            </div>
-          </div>
+          <ParticipationFields key={leg.id} value={leg.participation}
+            onChange={(value) => state.updateLeg(leg.id, { min: value.min, max: value.max })} />
           <p className="field__help">
             Written as (min,max). A minimum of 1 means every instance must take part.
           </p>

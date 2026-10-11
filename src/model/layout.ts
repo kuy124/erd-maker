@@ -18,6 +18,7 @@
  */
 
 import { NODE_SIZE, type ErdDocument, type Positioned } from './types';
+import { CROW_WIDTH, deriveTables, tableHeight } from './crowfoot';
 
 const V_GAP = 120;
 const LAYER_GAP = 240;
@@ -151,6 +152,11 @@ function orderLayers(
  * the diagram lands around the origin.
  */
 export function autoArrange(doc: ErdDocument): LayoutResult {
+  const tableSizes = new Map(
+    (doc.view === 'crowfoot' ? deriveTables(doc) : []).map((table) =>
+      [table.entityId, { w: CROW_WIDTH, h: tableHeight(table) }] as const),
+  );
+  const renderedSize = (id: string) => tableSizes.get(id) ?? sizeFor(doc, id);
   const graph = buildGraph(doc);
   const positions = new Map<string, { x: number; y: number }>();
   if (graph.size === 0) return { positions };
@@ -192,7 +198,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
   // Column widths from the widest node in each layer keeps shapes from colliding.
   const columnWidth = (bucket: string[]): number =>
     bucket.reduce((max, id) => {
-      const size = sizeFor(doc, id);
+      const size = renderedSize(id);
       return Math.max(max, size.w);
     }, 0);
 
@@ -209,7 +215,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
     const bucket = buckets[layerIndex]!;
     let y = 0;
     for (const id of bucket) {
-      const size = sizeFor(doc, id);
+      const size = renderedSize(id);
       positions.set(id, { x: columnCenters[layerIndex]! - size.w / 2, y });
       y += size.h + V_GAP;
     }
@@ -245,8 +251,8 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
   const movedIsas = doc.isas.map(move);
 
   const entityDelta = new Map<string, { dx: number; dy: number }>();
-  for (const before of doc.entities) {
-    const after = movedEntities.find((e) => e.id === before.id);
+  for (const before of [...doc.entities, ...doc.relationships, ...doc.isas]) {
+    const after = [...movedEntities, ...movedRelationships, ...movedIsas].find((e) => e.id === before.id);
     if (after) entityDelta.set(before.id, { dx: after.x - before.x, dy: after.y - before.y });
   }
 

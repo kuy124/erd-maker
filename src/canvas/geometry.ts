@@ -11,6 +11,7 @@
  */
 
 import { sizeOf, type ErdDocument, type NodeId, type Positioned } from '../model/types';
+import { occupiedBoxes } from '../model/placement';
 
 export interface Point {
   x: number;
@@ -190,7 +191,7 @@ export function offsetToward(point: Point, toward: Point, distance: number): Poi
 
 /** Combined bounding box of every node, or a default frame when empty. */
 export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
-  const nodes = [...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas];
+  const nodes = occupiedBoxes(doc);
   if (nodes.length === 0) {
     return { minX: 0, minY: 0, maxX: 800, maxY: 600 };
   }
@@ -200,8 +201,7 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
   let maxY = Number.NEGATIVE_INFINITY;
 
   for (const node of nodes) {
-    const size = sizeOf(doc, node.id);
-    const b = boundsOf(node, size);
+    const b = { minX: node.x, minY: node.y, maxX: node.x + node.w, maxY: node.y + node.h };
     minX = Math.min(minX, b.minX);
     minY = Math.min(minY, b.minY);
     maxX = Math.max(maxX, b.maxX);

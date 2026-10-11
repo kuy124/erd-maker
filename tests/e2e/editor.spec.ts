@@ -123,7 +123,7 @@ test.describe('editor basics', () => {
   test('loads and shows an empty canvas with guidance', async ({ page }) => {
     await openApp(page);
     await expect(page.getByRole('heading', { name: /start with an entity/i })).toBeVisible();
-    await expect(page.getByText(/Press E to add an entity/i)).toBeVisible();
+    await expect(page.getByText(/E adds an entity/i)).toBeVisible();
     await expect(page.getByRole('heading', { level: 1, name: /ERD Maker/i })).toBeVisible();
   });
 
@@ -209,7 +209,7 @@ test.describe('editor basics', () => {
     await openApp(page);
     // Put the entity well away from the origin, so a free slot would be far off.
     await addNamedEntity(page, 'Customer');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click();
@@ -229,7 +229,7 @@ test.describe('editor basics', () => {
   test('a second attribute stacks below the first', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click();
@@ -248,7 +248,7 @@ test.describe('editor basics', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click();
@@ -364,7 +364,7 @@ test.describe('connections', () => {
     await nameField(page).fill('places');
 
     // Spread the shapes so each is individually clickable.
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await connectBothSides(
@@ -383,7 +383,7 @@ test.describe('connections', () => {
     await addNamedEntity(page, 'Order');
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await page.getByRole('button', { name: 'Connect tool' }).click();
@@ -419,7 +419,7 @@ test.describe('connections', () => {
     await addNamedEntity(page, 'Customer');
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await page.getByRole('button', { name: 'Connect tool' }).click();
@@ -471,7 +471,7 @@ test.describe('connections', () => {
     await addNamedEntity(page, 'Order');
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     // The relationship just added is already the connection source, so there is
@@ -497,7 +497,7 @@ test.describe('connections', () => {
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await expect(page.locator('.node--connecting')).toHaveCount(1);
@@ -530,7 +530,7 @@ test.describe('connections', () => {
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
     await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -543,7 +543,7 @@ test.describe('connections', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     // Nothing is pending before the gesture starts.
@@ -570,7 +570,7 @@ test.describe('connections', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -592,7 +592,7 @@ test.describe('connections', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     // Focus must be off the name field for Escape to mean "cancel the
@@ -618,7 +618,7 @@ test.describe('connections', () => {
     await addNamedEntity(page, 'Order');
     await expect(nameField(page)).toBeFocused();
 
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await node(page, /Entity Customer/i).click();
 
     // The browser restores focus to a field after a canvas click unless the
@@ -653,7 +653,7 @@ test.describe('connections', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -670,7 +670,7 @@ test.describe('connections', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -795,7 +795,7 @@ test.describe('export', () => {
 
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -823,7 +823,7 @@ test.describe('export', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -925,8 +925,8 @@ test.describe('multiplayer', () => {
     await expect(node(alice, /Entity Client/i)).toBeVisible({ timeout: 20_000 });
 
     // Presence should report a peer in each tab.
-    await expect(alice.getByText(/are here|is here/)).toBeVisible({ timeout: 20_000 });
-    await expect(bob.getByText(/are here|is here/)).toBeVisible({ timeout: 20_000 });
+    await expect(alice.locator('.collaboration-status')).toContainText('Editing with', { timeout: 20_000 });
+    await expect(bob.locator('.collaboration-status')).toContainText('Editing with', { timeout: 20_000 });
 
     await alice.close();
     await bob.close();
@@ -1142,7 +1142,7 @@ test.describe('accessibility', () => {
     await addNamedEntity(page, 'Order');
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     const { AxeBuilder } = await import('@axe-core/playwright');
@@ -1180,14 +1180,14 @@ test.describe('accessibility', () => {
 });
 
 test.describe('layout tools', () => {
-  test('Tidy arranges a chain into left-to-right layers', async ({ page }) => {
+  test('Auto-arrange arranges a chain into left-to-right layers', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
     await addShape(page, 'relationship');
     await nameField(page).fill('places');
 
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
@@ -1195,7 +1195,7 @@ test.describe('layout tools', () => {
     await node(page, /Relationship places/i).click({ modifiers: ['Shift'] });
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });
 
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
 
     const customer = await node(page, /Entity Customer/i).boundingBox();

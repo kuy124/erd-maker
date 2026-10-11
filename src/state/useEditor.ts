@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
-import { createRoom, connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
+import { connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
 import { createLocalIdentity, type Identity } from '../collab/identity';
 import {
   deleteNodeFromYdoc,
@@ -23,7 +23,8 @@ import {
   upsertLeg,
   upsertRelationship,
 } from '../collab/ydoc';
-import { newRoomId, parseShareHash } from '../model/snapshot';
+import { writeParticipants, type RelationshipParticipant } from '../collab/participants';
+import { validParticipation } from '../model/issues';
 import { findAttributeSlot } from '../model/placement';
 import { emptyDocument, type ErdDocument } from '../model/types';
 
@@ -41,6 +42,13 @@ export interface EditorState {
   room: string;
   identity: Identity;
   doc: ErdDocument;
+  view: ErdDocument['view'];
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+  notice: string | null;
+  clearNotice: () => void;
   peers: PeerState[];
   connected: boolean;
   /** Peers reachable over a direct WebRTC connection (not just same-browser). */
@@ -64,6 +72,7 @@ export interface EditorState {
   updateAttribute: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: string; ownerId: string | null }>) => void;
   updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
   updateLeg: (id: string, patch: Partial<{ cardinality: '1' | 'N' | 'M'; min: number; max: number | 'N' }>) => void;
+  setParticipants: (relationshipId: string, participants: RelationshipParticipant[]) => void;
   updateIsaParent: (id: string, parentId: string | null) => void;
   updateIsaChildren: (id: string, childId: string, included: boolean) => void;
   addEntity: (x: number, y: number) => string;
@@ -85,24 +94,21 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}`;
 }
 
-export function useEditor(): EditorState {
-  // Read the share hash once, at mount, before the room is created.
-  const initial = useMemo(() => {
-    if (typeof window === 'undefined') return { room: newRoomId(), doc: emptyDocument() };
-    const parsed = parseShareHash(window.location.hash);
-    return {
-      room: parsed.room ?? newRoomId(),
-      doc: parsed.doc ?? null,
-    };
-  }, []);
-
-  const roomRef = useRef<RoomHandle | null>(null);
-  if (roomRef.current === null) {
-    roomRef.current = createRoom(initial.room);
+function savedView(room: string): ErdDocument['view'] | null {
+  try {
+    const value = localStorage.getItem('erd:view:' + room);
+    return value === 'chen' || value === 'crowfoot' ? value : null;
+  } catch {
+    return null;
   }
-  const room = roomRef.current;
+}
 
-  const [doc, setDoc] = useState<ErdDocument>(() => initial.doc ?? emptyDocument());
+export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): EditorState {
+  const [doc, setDoc] = useState<ErdDocument>(() => initialDoc ?? emptyDocument());
+  const [view, setLocalView] = useState<ErdDocument['view']>(() => savedView(room.room) ?? initialDoc?.view ?? 'chen');
+  const [notice, setNotice] = useState<string | null>(null);
+  const undoRef = useRef<Y.UndoManager | null>(null);
+  const [history, setHistory] = useState({ canUndo: false, canRedo: false });
   const [loaded, setLoaded] = useState(false);
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [connected, setConnected] = useState(false);
@@ -119,6 +125,7 @@ export function useEditor(): EditorState {
   const [tool, setTool] = useState<Tool>('select');
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [identity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
+  const visibleDoc = useMemo(() => ({ ...doc, view }), [doc, view]);
 
   // Seed the shared document from the share link, but only if it is empty —
   // otherwise a late joiner would overwrite a room that already has work in it.
@@ -126,13 +133,31 @@ export function useEditor(): EditorState {
     let cancelled = false;
     void room.whenLoaded.then(() => {
       if (cancelled) return;
-      if (initial.doc) seedDocument(room.ydoc, initial.doc);
+      const hasDocument = room.ydoc.getMap('meta').has('name') ||
+        ['entities', 'attributes', 'relationships', 'isas'].some((key) => room.ydoc.getMap(key).size > 0);
+      if (initialDoc && !hasDocument) seedDocument(room.ydoc, initialDoc);
+      if (!initialDoc && !savedView(room.room)) setLocalView(snapshotFromYdoc(room.ydoc).view);
+      undoRef.current?.clear();
       setLoaded(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [room, initial.doc]);
+  }, [room, initialDoc]);
+
+  useEffect(() => {
+    const manager = new Y.UndoManager(
+      ['entities', 'attributes', 'relationships', 'isas', 'legs', 'meta'].map((key) => room.ydoc.getMap(key)),
+      { captureTimeout: 400 },
+    );
+    undoRef.current = manager;
+    const update = () => setHistory({ canUndo: manager.canUndo(), canRedo: manager.canRedo() });
+    manager.on('stack-item-added', update);
+    manager.on('stack-item-popped', update);
+    manager.on('stack-cleared', update);
+    update();
+    return () => { manager.destroy(); undoRef.current = null; };
+  }, [room]);
 
   // Materialise the document whenever Yjs changes, including remote edits.
   useEffect(() => {
@@ -188,29 +213,33 @@ export function useEditor(): EditorState {
     };
   }, [room]);
 
-  // Reflect the room in the URL so a refresh rejoins the same session.
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const url = new URL(window.location.href);
-    url.hash = `room=${room.room}`;
-    window.history.replaceState(null, '', url.toString());
-  }, [room.room]);
-
-  useEffect(() => () => room.destroy(), [room]);
+    if (selection && ![...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas, ...doc.legs]
+      .some((node) => node.id === selection)) setSelection(null);
+  }, [doc, selection]);
 
   const mutate = useCallback(
-    (fn: () => void) => {
+    (fn: () => void, separate = false) => {
+      if (separate) undoRef.current?.stopCapturing();
       room.ydoc.transact(fn);
+      if (separate) undoRef.current?.stopCapturing();
     },
     [room],
   );
 
-  const api = useMemo<Omit<EditorState, 'doc' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
+  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
     setTool,
-    setSelection,
+    setSelection: (id) => { setSelection(id); setJustCreated(null); },
     setViewport,
     setDocName: (name: string) => setMeta(room.ydoc, { name }),
-    setView: (view: 'chen' | 'crowfoot') => setMeta(room.ydoc, { view }),
+    setView: (next) => {
+      setLocalView(next);
+      setTool('select');
+      try { localStorage.setItem('erd:view:' + room.room, next); } catch { /* Editing works without preferences. */ }
+    },
+    undo: () => { undoRef.current?.undo(); setNotice(null); },
+    redo: () => { undoRef.current?.redo(); setNotice(null); },
+    clearNotice: () => setNotice(null),
 
     updateEntity: (id, patch) =>
       mutate(() => {
@@ -237,10 +266,21 @@ export function useEditor(): EditorState {
       mutate(() => {
         const map = room.ydoc.getMap('legs').get(id) as Y.Map<unknown> | undefined;
         if (!map) return;
+        const min = patch.min ?? Number(map.get('min') ?? 0);
+        const max = patch.max ?? (map.get('max') as number | 'N' | undefined) ?? 1;
+        if (!validParticipation(min, max)) return;
         if (patch.cardinality !== undefined) map.set('cardinality', patch.cardinality);
         if (patch.min !== undefined) map.set('min', patch.min);
         if (patch.max !== undefined) map.set('max', patch.max);
       }),
+
+    setParticipants: (relationshipId, participants) => {
+      try {
+        mutate(() => writeParticipants(room.ydoc, relationshipId, participants, () => makeId('leg')), true);
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : 'Could not update the participants.');
+      }
+    },
 
     updateIsaParent: (id, parentId) =>
       mutate(() => {
@@ -264,7 +304,7 @@ export function useEditor(): EditorState {
 
     addEntity: (x, y) => {
       const id = makeId('ent');
-      mutate(() => upsertEntity(room.ydoc, { id, name: 'New entity', x, y, kind: 'strong' }));
+      mutate(() => upsertEntity(room.ydoc, { id, name: 'New entity', x, y, kind: 'strong' }), true);
       setSelection(id);
       setJustCreated(id);
       return id;
@@ -293,7 +333,7 @@ export function useEditor(): EditorState {
       // attributes does not look like a row of identical shapes.
       const index = live.attributes.filter((a) => a.ownerId === ownerId).length + 1;
       const name = ownerId ? String(index) : 'attribute';
-      mutate(() => upsertAttribute(room.ydoc, { id, name, x: nextX, y: nextY, kind: 'simple', ownerId }));
+      mutate(() => upsertAttribute(room.ydoc, { id, name, x: nextX, y: nextY, kind: 'simple', ownerId }), true);
       setSelection(id);
       setJustCreated(id);
       return id;
@@ -301,7 +341,7 @@ export function useEditor(): EditorState {
 
     addRelationship: (x, y) => {
       const id = makeId('rel');
-      mutate(() => upsertRelationship(room.ydoc, { id, name: 'relationship', x, y, kind: 'strong' }));
+      mutate(() => upsertRelationship(room.ydoc, { id, name: 'relationship', x, y, kind: 'strong' }), true);
       setSelection(id);
       setJustCreated(id);
       return id;
@@ -309,7 +349,7 @@ export function useEditor(): EditorState {
 
     addIsa: (x, y) => {
       const id = makeId('isa');
-      mutate(() => upsertIsa(room.ydoc, { id, x, y, parentId: null, childIds: [] }));
+      mutate(() => upsertIsa(room.ydoc, { id, x, y, parentId: null, childIds: [] }), true);
       setSelection(id);
       setJustCreated(id);
       return id;
@@ -326,12 +366,17 @@ export function useEditor(): EditorState {
           cardinality: '1',
           participation: { min: 0, max: 1 },
         }),
+        true,
       );
       return id;
     },
 
     remove: (id) => {
-      mutate(() => deleteNodeFromYdoc(room.ydoc, id));
+      const live = snapshotFromYdoc(room.ydoc);
+      const removed = [...live.entities, ...live.attributes, ...live.relationships, ...live.isas, ...live.legs].find((node) => node.id === id);
+      if (!removed) return;
+      mutate(() => deleteNodeFromYdoc(room.ydoc, id), true);
+      setNotice(('name' in removed ? removed.name || 'Shape' : 'Line') + ' deleted.');
       setSelection((current) => (current === id ? null : current));
     },
 
@@ -358,14 +403,17 @@ export function useEditor(): EditorState {
             }
           }
         }
-      });
+      }, true);
     },
   }), [room, mutate]);
 
   return {
     room: room.room,
     identity,
-    doc,
+    doc: visibleDoc,
+    view,
+    notice,
+    ...history,
     peers,
     connected,
     directPeers,

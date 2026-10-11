@@ -116,6 +116,24 @@ export function serializeSvg(
   // document position, so removing anything beforehand would shift every
   // subsequent pair by one and paint the wrong fill on the wrong shape.
   inlineStyles(svg, clone);
+  const vars = resolveVars(svg);
+  // Computed styles also contain selection and connection highlights. Restore
+  // drawing ink after copying them, so a hovered/selected shape exports normally.
+  clone.querySelectorAll<SVGElement>('.leg--selected, .crow-link--selected .leg').forEach((node) => {
+    node.style.stroke = vars['--ink'] ?? '#16181a';
+    node.style.strokeWidth = '1.5';
+  });
+  clone.querySelectorAll<SVGElement>('.crow-link--selected .crow-link__ratio').forEach((node) => {
+    node.style.fill = vars['--ink'] ?? '#16181a';
+  });
+  clone.querySelectorAll<SVGElement>('.node--connecting .node__body, .node--connectable .node__body').forEach((node) => {
+    node.style.stroke = vars['--ink'] ?? '#16181a';
+    node.style.strokeWidth = '1.5';
+    node.style.fill = node.closest('.node--weak') ? 'none' : vars['--paper-raised'] ?? '#fbfcfb';
+  });
+  clone.querySelectorAll('[class]').forEach((node) => {
+    node.classList.remove('leg--selected', 'crow-link--selected', 'node--connecting', 'node--connectable');
+  });
 
   // Then strip editing-only chrome: selection rings, peer cursors, hit targets.
   // Table row rules are NOT removed: they are part of the drawing.
@@ -143,7 +161,6 @@ export function serializeSvg(
     node.removeAttribute('transform');
   });
 
-  const vars = resolveVars(svg);
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
   clone.setAttribute('viewBox', `${bounds.minX - padding} ${bounds.minY - padding} ${width} ${height}`);
@@ -153,6 +170,12 @@ export function serializeSvg(
   clone.setAttribute('style', `--font-sans:${vars['--font-sans'] ?? 'sans-serif'};--font-mono:${vars['--font-mono'] ?? 'monospace'}`);
 
   const title = options.title ?? 'Entity relationship diagram';
+  clone.setAttribute('role', 'img');
+  clone.setAttribute('aria-label', title);
+  clone.querySelectorAll('[role="button"], [tabindex]').forEach((node) => {
+    node.removeAttribute('role');
+    node.removeAttribute('tabindex');
+  });
   const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
   titleEl.textContent = title;
   clone.insertBefore(titleEl, clone.firstChild);
@@ -223,12 +246,13 @@ export interface ParsedImport {
 export function parseJsonImport(text: string): ParsedImport {
   try {
     const parsed = JSON.parse(text) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
-      return { doc: null, error: 'That file does not contain a diagram.' };
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+        !Array.isArray((parsed as Record<string, unknown>).entities)) {
+      return { doc: null, error: 'That file does not contain a diagram. Choose a JSON export with an entities array.' };
     }
     return { doc: parsed as ErdDocument, error: null };
   } catch {
-    return { doc: null, error: 'That file is not valid JSON.' };
+    return { doc: null, error: 'That file is not valid JSON. Choose a diagram JSON export and try again.' };
   }
 }
 
@@ -269,18 +293,20 @@ export async function copyText(text: string): Promise<boolean> {
   } catch {
     // Fall through to the legacy path.
   }
+  const previouslyFocused = document.activeElement as HTMLElement | null;
+  const textarea = document.createElement('textarea');
   try {
-    const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.setAttribute('readonly', '');
     textarea.style.position = 'fixed';
     textarea.style.opacity = '0';
     document.body.appendChild(textarea);
     textarea.select();
-    const ok = document.execCommand('copy');
-    textarea.remove();
-    return ok;
+    return document.execCommand('copy');
   } catch {
     return false;
+  } finally {
+    textarea.remove();
+    previouslyFocused?.focus();
   }
 }

@@ -12,7 +12,7 @@
  * not.
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CROW_HEADER_HEIGHT,
   CROW_ROW_HEIGHT,
@@ -28,14 +28,16 @@ import { useDrag } from './useDrag';
 interface Props {
   state: EditorState;
   svgRef: React.MutableRefObject<SVGSVGElement | null>;
+  emptyActions?: React.ReactNode;
 }
 
-export function CrowFootCanvas({ state, svgRef }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
   const { doc, viewport, selection, tool } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
 
-  const measuredRef = useCallback((node: HTMLDivElement | null) => {
+  useEffect(() => {
+    const node = containerRef.current;
     if (!node) return;
     const update = () => {
       const next = { width: node.clientWidth, height: node.clientHeight };
@@ -48,7 +50,8 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
   }, []);
 
   const tables = useMemo(() => deriveTables(doc), [doc]);
-  const links = useMemo(() => deriveLinks(doc), [doc]);
+  const links = useMemo(() => deriveLinks(doc).filter((link, index, all) =>
+    all.findIndex((other) => other.relId === link.relId) === index), [doc]);
 
   const toWorld = useCallback(
     (clientX: number, clientY: number) => {
@@ -73,7 +76,7 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
   const handleTablePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
       event.stopPropagation();
-      if (tool === 'pan') return;
+      if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
       state.setSelection(id);
       const world = toWorld(event.clientX, event.clientY);
       const table = doc.entities.find((e) => e.id === id);
@@ -132,10 +135,7 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
     <div
       className="canvas-wrap"
       data-tool={tool}
-      ref={(node) => {
-        containerRef.current = node;
-        measuredRef(node);
-      }}
+      ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
       onWheel={handleWheel}
     >
@@ -147,6 +147,7 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
         role="application"
         aria-label="Crow's-foot table diagram canvas"
         data-testid="canvas"
+        tabIndex={-1}
       >
         {/* `data-viewport` marks the pan and zoom group; the exporter resets it. */}
         <g
@@ -164,9 +165,8 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
                   link={link}
                   from={{ x: from.x, y: from.y, h: tableHeight(from) }}
                   to={{ x: to.x, y: to.y, h: tableHeight(to) }}
-                  manyAtFrom={link.manyEntityId === link.fromEntityId}
                   selected={selection === link.relId}
-                  onSelect={() => state.setSelection(link.relId)}
+                  onSelect={(event) => tool === 'pan' ? drag.beginPan(event.clientX, event.clientY) : state.setSelection(link.relId)}
                 />
               );
             })}
@@ -181,12 +181,12 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
                   key={table.entityId}
                   transform={`translate(${table.x} ${table.y})`}
                   onPointerDown={handleTablePointerDown(table.entityId)}
-                  role="button"
-                  tabIndex={-1}
+                  role="group"
                   aria-label={`Table ${table.name}`}
                   data-node-id={table.entityId}
                   data-testid={`table-${table.name}`}
                 >
+                  <title>{table.name + (table.weak ? ' (weak entity)' : ' entity table')}</title>
                   <rect
                     className="node__body"
                     width={CROW_WIDTH}
@@ -200,24 +200,39 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
                     x2={CROW_WIDTH}
                     y2={CROW_HEADER_HEIGHT}
                   />
+                  <g role="button" tabIndex={-1} aria-label={`Table ${table.name}`}>
+                  <rect className="hit-target crow-row__hit" width={CROW_WIDTH} height={CROW_HEADER_HEIGHT} />
                   <text className="crow-table__name" x={10} y={CROW_HEADER_HEIGHT / 2}>
-                    {table.name}
+                    {shorten(table.name, table.weak ? 26 : 34)}
                     {table.weak ? ' (weak)' : ''}
                   </text>
+                  </g>
 
                   {table.rows.map((row, index) => {
                     const y = CROW_HEADER_HEIGHT + index * CROW_ROW_HEIGHT + CROW_ROW_HEIGHT / 2;
                     return (
-                      <g key={`${row.name}-${index}`}>
-                        <text className="crow-row__key" x={10} y={y}>
+                      <g key={`${row.name}-${index}`} role="button" tabIndex={-1}
+                        className={row.attributeId ? 'crow-row crow-row--editable' : 'crow-row'}
+                        aria-label={row.attributeId ? `Edit attribute ${row.name}` : `Generated ${row.fk ? 'foreign key' : 'key'} ${row.name}`}
+                        data-attribute-id={row.attributeId ?? undefined}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
+                          state.setSelection(row.attributeId ?? table.entityId);
+                        }}>
+                        <title>{row.name + (row.attributeId ? ' — editable attribute' : ' — generated ' + (row.fk ? 'foreign key' : 'primary key')) + '. Type ' + row.type + ' is inferred from the name.'}</title>
+                        <rect className="hit-target crow-row__hit" width={CROW_WIDTH} height={CROW_ROW_HEIGHT}
+                          y={y - CROW_ROW_HEIGHT / 2} />
+                        <text className="crow-row__key" x={10} y={row.attributeId ? y : y - 7}>
                           {row.pk ? 'PK' : row.fk ? 'FK' : ''}
                         </text>
+                        {!row.attributeId ? <text className="crow-row__key" x={10} y={y + 9}>gen</text> : null}
                         <text
                           className={`crow-row__name${row.pk ? ' crow-row__name--pk' : ''}`}
-                          x={40}
+                          x={46}
                           y={y}
                         >
-                          {row.name}
+                          {shorten(row.name, 18)}
                         </text>
                         <text className="crow-row__type" x={CROW_WIDTH - 10} y={y}>
                           {row.type}
@@ -231,6 +246,8 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
                             y2={CROW_HEADER_HEIGHT + (index + 1) * CROW_ROW_HEIGHT}
                           />
                         ) : null}
+                        {selection === row.attributeId && row.attributeId ? <rect className="selection-ring"
+                          x={2} y={y - CROW_ROW_HEIGHT / 2 + 2} width={CROW_WIDTH - 4} height={CROW_ROW_HEIGHT - 4} /> : null}
                       </g>
                     );
                   })}
@@ -253,21 +270,23 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
               This view draws each entity as a table. Add an entity and it appears here with its key
               attributes as the primary key.
             </p>
-            <p className="canvas-empty__hint">
-              Switch to Chen notation to add entities and attributes
-            </p>
+            {emptyActions}
           </div>
         </div>
       ) : null}
 
       <div className="canvas-status" role="status">
-        <span className="canvas-status__dot canvas-status__dot--live" aria-hidden="true" />
         Crow's-foot view
         <span aria-hidden="true">·</span>
         <span>{positioned.length} {positioned.length === 1 ? 'table' : 'tables'}</span>
+        <span className="table-legend">· gen = generated · Types inferred</span>
       </div>
     </div>
   );
+}
+
+function shorten(value: string, length: number): string {
+  return value.length > length ? value.slice(0, length - 1) + '…' : value;
 }
 
 interface End {
@@ -288,16 +307,14 @@ function CrowConnector({
   link,
   from,
   to,
-  manyAtFrom,
   selected,
   onSelect,
 }: {
   link: CrowLink;
   from: End;
   to: End;
-  manyAtFrom: boolean;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (event: React.PointerEvent) => void;
 }) {
   const fromCenter = { x: from.x + CROW_WIDTH / 2, y: from.y + from.h / 2 };
   const toCenter = { x: to.x + CROW_WIDTH / 2, y: to.y + to.h / 2 };
@@ -317,11 +334,7 @@ function CrowConnector({
     ? { x: Math.sign(end.x - start.x) || 1, y: 0 }
     : { x: 0, y: Math.sign(end.y - start.y) || 1 };
 
-  // The many end gets the fan; the one end gets a perpendicular bar.
-  const manyEnd = manyAtFrom ? start : end;
-  const oneEnd = manyAtFrom ? end : start;
-  const manyDir = manyAtFrom ? { x: -direction.x, y: -direction.y } : direction;
-  const oneDir = manyAtFrom ? direction : { x: -direction.x, y: -direction.y };
+  const endDirection = { x: -direction.x, y: -direction.y };
 
   const perpendicular = horizontal ? { x: 0, y: 1 } : { x: 1, y: 0 };
 
@@ -330,11 +343,9 @@ function CrowConnector({
     const spread = 9;
     const back = { x: origin.x + dir.x * 1, y: origin.y + dir.y * 1 };
     return [
-      `M${origin.x} ${origin.y} L${tip.x + perpendicular.x * spread} ${tip.y + perpendicular.y * spread}`,
-      `M${origin.x} ${origin.y} L${tip.x} ${tip.y}`,
-      `M${origin.x} ${origin.y} L${tip.x - perpendicular.x * spread} ${tip.y - perpendicular.y * spread}`,
-      // and back to the line
+      `M${tip.x} ${tip.y} L${back.x + perpendicular.x * spread} ${back.y + perpendicular.y * spread}`,
       `M${tip.x} ${tip.y} L${back.x} ${back.y}`,
+      `M${tip.x} ${tip.y} L${back.x - perpendicular.x * spread} ${back.y - perpendicular.y * spread}`,
     ].join(' ');
   };
 
@@ -344,18 +355,15 @@ function CrowConnector({
     return `M${c.x - perpendicular.x * half} ${c.y - perpendicular.y * half} L${c.x + perpendicular.x * half} ${c.y + perpendicular.y * half}`;
   };
 
-  // Mandatory ends get a second, nearer bar: one bar means "many", two means
-  // "many, and every one of them is required".
-  const mandatoryBars = [
-    link.fromMandatory && manyAtFrom ? bar(start, direction, 18) : null,
-    link.fromMandatory && !manyAtFrom ? bar(start, { x: -direction.x, y: -direction.y }, 18) : null,
-    link.toMandatory && manyAtFrom ? bar(end, { x: -direction.x, y: -direction.y }, 18) : null,
-    link.toMandatory && !manyAtFrom ? bar(end, direction, 18) : null,
-  ].filter(Boolean) as string[];
+  const marker = (point: { x: number; y: number }, dir: { x: number; y: number }, many: boolean, required: boolean) => <>
+    <path className="leg" data-cardinality={many ? 'many' : 'one'} d={many ? fan(point, dir) : bar(point, dir, 10)} fill="none" />
+    {required ? <path className="leg" d={bar(point, dir, 22)} fill="none" /> :
+      <circle className="leg" cx={point.x + dir.x * 22} cy={point.y + dir.y * 22} r={4} />}
+  </>;
 
   // The label sits at the midpoint, nudged off the line so it never sits on it.
   const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-  const labelOffset = horizontal ? 0 : 14;
+  const labelOffset = horizontal ? 20 : 14;
 
   return (
     <g
@@ -366,7 +374,7 @@ function CrowConnector({
       data-testid={`crow-link-${link.relId}`}
       onPointerDown={(event) => {
         event.stopPropagation();
-        onSelect();
+        onSelect(event);
       }}
     >
       {/* A wide transparent band makes the thin line easy to hit, the same as
@@ -379,11 +387,8 @@ function CrowConnector({
         y2={end.y}
       />
       <line className="leg" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
-      <path className="leg" d={fan(manyEnd, manyDir)} fill="none" />
-      <path className="leg" d={bar(oneEnd, oneDir, 12)} fill="none" />
-      {mandatoryBars.map((d, i) => (
-        <path key={i} className="leg" d={d} fill="none" />
-      ))}
+      {marker(start, direction, link.fromMany, link.fromMandatory)}
+      {marker(end, endDirection, link.toMany, link.toMandatory)}
       {/* The ratio, stated rather than implied. */}
       <text
         className="crow-link__ratio"
@@ -408,5 +413,3 @@ function CrowConnector({
     </g>
   );
 }
-
-

@@ -46,7 +46,7 @@ async function buildTwoEntities(page: Page): Promise<void> {
 
   await page.getByTestId('add-relationship').click();
   await nameField(page).fill('places');
-  await page.getByRole('button', { name: 'Tidy' }).click();
+  await page.getByRole('button', { name: 'Auto-arrange' }).click();
   await page.waitForTimeout(150);
 
   // Adding a relationship starts the connection gesture from it, and each

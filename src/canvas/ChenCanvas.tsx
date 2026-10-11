@@ -24,12 +24,13 @@ interface Props {
   svgRef: React.MutableRefObject<SVGSVGElement | null>;
   connectFrom: string | null;
   setConnectFrom: (id: string | null) => void;
+  emptyActions?: React.ReactNode;
 }
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions }: Props) {
   const { doc, viewport, selection, tool, peers, identity } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -44,7 +45,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
 
   // Track the container size so the SVG fills it. The setter is guarded so an
   // unchanged measurement does not produce a new object and re-render forever.
-  const measuredRef = useCallback((node: HTMLDivElement | null) => {
+  useEffect(() => {
+    const node = containerRef.current;
     if (!node) return;
     const update = () => {
       const next = { width: node.clientWidth, height: node.clientHeight };
@@ -185,7 +187,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
   const handleNodePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
       event.stopPropagation();
-      if (tool === 'pan') return;
+      if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
       focusCanvas(event);
 
       // The Connect tool draws a line from this shape to wherever the pointer
@@ -381,10 +383,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
     <div
       className="canvas-wrap"
       data-tool={tool}
-      ref={(node) => {
-        containerRef.current = node;
-        measuredRef(node);
-      }}
+      ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
       onPointerMove={handlePointerMove}
       onWheel={handleWheel}
@@ -415,6 +414,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
               if (!seg) return null;
               const isSelected = selection === leg.id;
               const labels = legLabelPoints(seg.from, seg.to, [0.28, 0.52]);
+              const participationLabel = legLabelPoints(seg.from, seg.to, [0.28, 0.52], -14)[1];
               return (
                 <g key={leg.id} className="leg-group">
                   {/* An invisible wider band under the visible line, so the thin
@@ -460,8 +460,8 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
                   <text
                     className="leg__participation"
                     data-testid="leg-participation"
-                    x={labels[1].x}
-                    y={labels[1].y}
+                    x={participationLabel.x}
+                    y={participationLabel.y}
                     onPointerDown={(event) => {
                       event.stopPropagation();
                       state.setSelection(leg.id);
@@ -628,14 +628,10 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
           <div className="canvas-empty__card">
             <h2 className="canvas-empty__title">Start with an entity</h2>
             <p className="canvas-empty__body">
-              An entity is a thing you keep records about, like a customer or an order. Add one from
-              the shape rail, then hang attributes off it and connect it to another entity with a
-              relationship.
+              An entity is something you keep records about, such as a customer or an order.
             </p>
-            <p className="canvas-empty__hint">
-              Press E to add an entity, or A for an attribute. Press C to join two shapes by dragging
-              between them.
-            </p>
+            {emptyActions}
+            <p className="canvas-empty__hint">E adds an entity · A adds an attribute · R adds a relationship</p>
           </div>
         </div>
       ) : null}

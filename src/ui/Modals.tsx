@@ -108,6 +108,9 @@ export function ShareDialog({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState<'link' | 'room' | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const linkRef = useRef<HTMLInputElement>(null);
+  const roomRef = useRef<HTMLInputElement>(null);
   const linkId = useId();
 
   const link =
@@ -118,8 +121,15 @@ export function ShareDialog({
   const copy = async (value: string, what: 'link' | 'room') => {
     const ok = await copyText(value);
     if (ok) {
+      setCopyError(null);
       setCopied(what);
       window.setTimeout(() => setCopied(null), 2000);
+    } else {
+      setCopied(null);
+      setCopyError('Clipboard access was blocked. Select the ' + (what === 'link' ? 'share link' : 'room code') + ' above and copy it manually.');
+      const input = what === 'link' ? linkRef.current : roomRef.current;
+      input?.focus();
+      input?.select();
     }
   };
 
@@ -145,7 +155,7 @@ export function ShareDialog({
         <label className="field__label" htmlFor={linkId}>
           Share link
         </label>
-        <input id={linkId} className="field__input field__input--mono" readOnly value={link} onFocus={(e) => e.target.select()} />
+        <input id={linkId} ref={linkRef} className="field__input field__input--mono" readOnly value={link} onFocus={(e) => e.target.select()} />
       </div>
 
       <div className="field">
@@ -154,6 +164,7 @@ export function ShareDialog({
           className="field__input field__input--mono"
           readOnly
           value={state.room}
+          ref={roomRef}
           onFocus={(e) => e.target.select()}
           aria-label="Room code"
         />
@@ -176,6 +187,7 @@ export function ShareDialog({
           {copied === 'room' ? 'Code copied' : 'Copy room code'}
         </button>
       </div>
+      {copyError ? <p className="note note--warn" role="alert">{copyError}</p> : null}
     </Modal>
   );
 }

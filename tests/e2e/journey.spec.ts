@@ -113,7 +113,7 @@ test.describe('new user journey', () => {
 
     // 5. Connect. Adding a relationship already started the gesture from it, and
     // each completed leg stays on the diamond, so two clicks finish the chain.
-    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.getByRole('button', { name: 'Auto-arrange' }).click();
     await page.waitForTimeout(150);
     await node(page, /Entity Customer/i).click({ modifiers: ['Shift'] });
     await node(page, /Entity Order/i).click({ modifiers: ['Shift'] });

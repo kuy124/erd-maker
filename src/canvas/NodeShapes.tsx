@@ -7,9 +7,8 @@
  * and weak relationships are drawn as a second inset shape rather than a
  * thicker stroke, which is the actual convention.
  *
- * Labels are single-line and centre-anchored. Long names are not wrapped,
- * because a diagram label that silently changes shape is worse than one that
- * runs a little wide — the node can be resized by dragging its edges.
+ * Long labels use two lines within the fixed shape. Full names remain in
+ * accessible labels, titles, the outline, and properties.
  */
 
 import { memo } from 'react';
@@ -73,9 +72,7 @@ export const EntityShape = memo(function EntityShape({
     >
       <rect className="node__body" width={w} height={h} />
       {weak ? <rect className="node__body" x={5} y={5} width={w - 10} height={h - 10} /> : null}
-      <text className="node__label" x={w / 2} y={h / 2}>
-        {entity.name}
-      </text>
+      <ShapeLabel name={entity.name} x={w / 2} y={h / 2} limit={20} />
       <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />
     </g>
   );
@@ -111,9 +108,7 @@ export const RelationshipShape = memo(function RelationshipShape({
           points={`${hw},6 ${w - 8},${hh} ${hw},${h - 6} 8,${hh}`}
         />
       ) : null}
-      <text className="node__label" x={hw} y={hh}>
-        {relationship.name}
-      </text>
+      <ShapeLabel name={relationship.name} x={hw} y={hh} limit={13} />
       <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />
     </g>
   );
@@ -158,11 +153,10 @@ export const AttributeShape = memo(function AttributeShape({
           style={{ strokeDasharray: '5 4' }}
         />
       ) : null}
-      <text className="node__label" x={rx} y={ry - (key ? 4 : 0)}>
-        {attribute.name}
-      </text>
+      <ShapeLabel name={attribute.name} x={rx} y={ry - (key && attribute.name.length <= 16 ? 4 : 0)} limit={16}
+        underline={key && attribute.name.length > 16} />
       {/* Key attributes are underlined, the standard Chen convention. */}
-      {key ? (
+      {key && attribute.name.length <= 16 ? (
         <line
           className="node__key-line"
           x1={rx - Math.min(measureLabel(attribute.name) / 2, rx - 10)}
@@ -183,6 +177,22 @@ export const AttributeShape = memo(function AttributeShape({
  */
 function measureLabel(text: string): number {
   return Math.max(18, text.length * 6.6);
+}
+
+function ShapeLabel({ name, x, y, limit, underline = false }: {
+  name: string; x: number; y: number; limit: number; underline?: boolean;
+}) {
+  const chars = Array.from(name);
+  const prefix = chars.slice(0, limit).join('');
+  const breakAt = Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('_'));
+  const split = breakAt >= limit / 2 ? breakAt + 1 : limit;
+  const remaining = chars.slice(split).join('').trimStart();
+  const lines = chars.length <= limit ? [name] : [chars.slice(0, split).join('').trimEnd(),
+    remaining.length > limit ? remaining.slice(0, limit - 1) + '…' : remaining];
+  return <text className="node__label" x={x} y={y} style={underline ? { textDecoration: 'underline' } : undefined}>
+    <title>{name + ' — full shape name'}</title>
+    {lines.map((line, index) => <tspan key={index} x={x} y={y + (index - (lines.length - 1) / 2) * 16}>{line}</tspan>)}
+  </text>;
 }
 
 export const IsaShape = memo(function IsaShape({

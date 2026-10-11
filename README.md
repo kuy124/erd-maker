@@ -1,105 +1,90 @@
 # ERD Maker
 
-Draw entity-relationship diagrams in Chen notation or as crow's-foot tables, together, in a browser.
+Build and explain entity–relationship diagrams in your browser. Choose Chen notation or crow’s-foot tables, add keys and relationships, then share a live room or download a diagram.
 
-There is no server and no account. Two people open the same share link and edit the same diagram at
-the same time.
+No account is required. Each room saves in this browser using IndexedDB. Download a JSON backup before clearing browser data.
 
-## Running it
+## Run and verify
 
 ```bash
 npm install
-npm run dev       # http://localhost:5173
+npm run dev
+npm run verify
 ```
 
-```bash
-npm run verify    # unit tests, typecheck, production build, end-to-end tests
-```
+The verification suite runs unit tests, TypeScript, a production build, and browser tests. Browser tests start Vite preview and a local y-webrtc signaling server; they do not depend on a public service.
 
-The end-to-end suite starts two servers of its own: `vite preview` for the built app, and y-webrtc's
-signalling server so the WebRTC tests are deterministic and work offline.
+## Build a diagram
+
+Use **Add your first entity** or **Open an example**. The examples cover Customer–Order (one-to-many), Student–Course (many-to-many), and Employee–Dependent (a weak entity). Each opens in a separate room and can be edited.
+
+The Build panel adds entities, attributes, relationships, and specializations. Creating a shape selects its name for typing. Entity properties include **Add attribute** and a key toggle beside each owned attribute.
+
+Relationship properties list participants. Choose an entity for each row, then set its cardinality and optional or required participation. **Minimum / maximum** accepts whole numbers and N for an unlimited maximum. Unfinished or invalid input stays local until corrected. Relationships can remain incomplete or have more than two participants.
+
+Use **Diagram** to search every shape and center a selection. **Check diagram** offers hints for missing names and keys, unattached attributes, incomplete relationships, and invalid participation ranges. Selecting a hint opens the affected properties. Help explains notation and keyboard shortcuts alongside the canvas.
+
+At 1100px and wider, Build/Diagram and Properties sit beside the canvas. Tablets use side drawers. Phones use Build, Diagram, Properties, and Help sheets that scroll above the on-screen keyboard.
+
+**Auto-arrange** spaces the model using the current renderer’s dimensions. **Fit** frames it. Undo and Redo apply to your edits; remote changes remain shared. Deleting a shape also offers Undo feedback.
 
 ## Notation
 
-Chen notation is the primary view and covers the full notation:
-
-| Shape | Meaning |
+| Chen symbol | Meaning |
 | --- | --- |
-| Rectangle | entity |
-| Ellipse | attribute |
-| Diamond | relationship |
-| Triangle | specialization (ISA) |
-| Double rectangle | weak entity |
-| Double diamond | identifying relationship |
-| Double ellipse | multivalued attribute |
-| Dashed ellipse | derived attribute |
+| Rectangle | Entity |
+| Ellipse | Attribute |
+| Diamond | Relationship |
+| Triangle | Specialization |
+| Double rectangle | Weak entity |
+| Double diamond | Identifying relationship |
+| Double ellipse | Multivalued attribute |
+| Dashed ellipse | Derived attribute |
+| Underlined attribute | Key |
 
-Key attributes are underlined. Relationship lines carry a cardinality and a `(min,max)`
-participation, both editable by clicking the line or its label.
+A weak entity’s partial key identifies it within its parent; SQL export combines it with the parent’s key.
 
-The crow's-foot view is the same document drawn a different way, not a second model: every entity
-becomes a table, key attributes become the primary key, and relationships become crow's-foot
-connectors labelled with their ratio (`1:1`, `1:N`, `N:N`). A connector can be selected and deleted
-here, so a relationship never has to be removed from the other view. A second bar near a table means
-every instance on that side must take part.
+Crow’s-foot tables show source attributes as editable rows. Rows marked **gen** are generated keys or foreign keys. Column types are inferred from names. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
 
-## Drawing
+Create relationships through Properties in either view. In Chen, you can also use Connect or Shift-click. Concepts absent from the table view, including specializations and attributes on relationships, remain in Diagram; selecting one switches your view to Chen.
 
-Press a key and start typing — the name field is focused the moment a shape appears, so `E`, then
-"Customer", then `A`, then "email" builds an entity with an attribute without touching the mouse.
-`Escape` returns to the canvas.
+Each collaborator chooses a notation independently. The choice is stored locally for that room. JSON files and share snapshots retain the existing `view` field and use the exporting person’s current notation.
 
-Attributes land beside their owner in a column, already connected. Press `A` again to add another to
-the same shape.
+## Documents and sharing
 
-To draw a relationship line, hold `Shift` and click two shapes. A dashed line follows your pointer and
-the shape under it is highlighted, so you can see what will connect before you click. `Escape` or a
-click on empty paper cancels. Attributes cannot be endpoints: their link to their owner is part of the
-attribute itself, so a line from an attribute would mean nothing.
+New diagrams, examples, and imported JSON files open in separate rooms. Browser Back returns to the previous room and restores its saved work. An invalid import shows a recovery message and leaves the current room intact.
 
-`Tidy` arranges everything, so a diagram built in any order still reads properly.
+A share link contains the room code and a compressed diagram snapshot, so it can open with nobody online. People with the link can edit the room. If copying is blocked, select the link and copy it manually.
 
-## Collaboration
+Same-browser tabs sync over BroadcastChannel. Separate browsers use WebRTC; a signaling server introduces peers. Presence comes from connected peers and is shown separately from browser storage.
 
-- **Same browser, several tabs** sync over `BroadcastChannel`. No network at all.
-- **Different devices** sync over WebRTC. A signalling server introduces two peers, then gets out of
-  the way; it never sees diagram content, because the room id doubles as the encryption key.
-- **A share link works with nobody online.** The document snapshot is compressed into the URL
-  fragment, so the link reconstructs the diagram on its own. A refresh rejoins the same room.
-
-If no signalling server is reachable, the app still works: same-browser tabs still sync, and share
-links still open. Only cross-device live editing is lost, and the status line says so.
-
-The default signalling server is `wss://signaling.fly.dev`. Override it with `?signaling=` in the
-query string, `window.__ERD_SIGNALING__`, or `VITE_SIGNALING` at build time. Run
-`node scripts/probe-signaling.mjs` to check whether a candidate actually introduces peers, which a
-socket opening does not prove.
+The default signaling server is `wss://signaling.fly.dev`. Override it using `?signaling=`, `window.__ERD_SIGNALING__`, or `VITE_SIGNALING`. If the network blocks direct connections, the editor and snapshot links still work, but cross-device live edits will not arrive.
 
 ## Export
 
-SVG, PNG, JSON, and SQL DDL. The SQL generator follows the textbook mapping: a strong entity becomes
-a table, a weak entity borrows its parent's key, a many-to-many relationship becomes a junction
-table, and a one-to-many relationship adds a foreign key to the many side.
+Download SVG, PNG, JSON, or SQL. Image exports use the complete drawing bounds and remove selection, hover, connection, and presence overlays.
+
+SQL follows the existing textbook mapping: entities become tables, weak entities borrow their parent’s key, many-to-many relationships become junction tables, and one-to-many relationships add foreign keys. Types are inferred; custom database types and SQL/DBML import are outside this editor’s current scope.
 
 ## Keyboard
 
 | Key | Action |
 | --- | --- |
-| `E` / `A` / `R` / `S` | add entity / attribute / relationship / specialization |
-| `V` / `H` | select tool / pan tool |
-| `Shift`-click two shapes | connect them |
-| `Delete` | delete the selected shape |
-| `Ctrl`+`Z`, `Ctrl`+`Shift`+`Z` | undo, redo |
+| E / A / R / S | Add entity / attribute / relationship / specialization |
+| V / C / H | Select / Connect (Chen) or add relationship (tables) / Pan |
+| F | Fit diagram |
+| Shift-click two shapes | Connect in Chen |
+| Escape | Finish typing, then cancel selection or connection |
+| Delete | Delete selection |
+| Ctrl or ⌘ + Z | Undo |
+| Ctrl or ⌘ + Shift + Z | Redo |
+| Ctrl or ⌘ + S | Download JSON |
+| ? | Open Help |
 
-## Design notes
+The keyboard journey for a two-entity keyed schema is kept within 11 deliberate interactions.
 
-The interface is built from the diagram's own primitives: hairline ink on drafting paper, no shadows,
-no fills, and colour reserved for collaborator identity and active state. Radii vary by purpose
-rather than being one value everywhere — zero for drawn shapes, 2px for controls, 3px for panels,
-pill for avatars.
+## Design references
 
-IBM Plex Sans and IBM Plex Mono carry it, because a schema tool is mostly names, cardinalities, and
-identifiers, and identifiers should be monospaced.
+The workspace retains IBM Plex typography, paper-and-ink surfaces, quiet drafting grids, and teal selection. It follows the system’s light or dark theme and respects reduced motion.
 
-Contrast is verified in both light and dark mode and held to WCAG AA by tests, not by eye. Dark mode
-follows the operating system.
+The teaching reference is [ERDPlus](https://erdplus.com/). Discoverable editing and examples were informed by [drawDB](https://www.drawdb.app/), keyboard efficiency by [dbdiagram’s editing guide](https://docs.dbdiagram.io/basic-editing-experience/), and visible peer state by [DrawSQL’s collaboration documentation](https://drawsql.app/docs/real-time-collaboration). These references guide the workflow; the React/CSS/SVG/Yjs implementation and serialized diagram model remain in place.

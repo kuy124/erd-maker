@@ -13,6 +13,7 @@
  */
 
 import { NODE_SIZE, type ErdDocument } from './types';
+import { CROW_WIDTH, deriveTables, tableHeight } from './crowfoot';
 
 export interface Box {
   x: number;
@@ -47,32 +48,36 @@ function overlaps(a: Box, b: Box, gap: number): boolean {
  * The first grid position where a new shape fits without overlapping one that is
  * already placed.
  *
- * If every slot in a generous area is taken the last one is reused, so this
- * always returns a usable position — a caller never has to handle "no room".
+ * If the nearby grid is full, put the shape just beyond the occupied area.
  */
-export function findFreeSlot(occupied: Box[]): { x: number; y: number } {
-  const cellW = SLOT_W + SLOT_GAP;
-  const cellH = SLOT_H + SLOT_GAP;
+export function findFreeSlot(
+  occupied: Box[], origin = { x: ORIGIN_X, y: ORIGIN_Y },
+  size = { w: SLOT_W, h: SLOT_H },
+): { x: number; y: number } {
+  const cellW = size.w + SLOT_GAP;
+  const cellH = size.h + SLOT_GAP;
   const maxSlots = Math.max(SLOT_COLUMNS * 12, occupied.length + SLOT_COLUMNS + 1);
 
   for (let index = 0; index < maxSlots; index += 1) {
     const column = index % SLOT_COLUMNS;
     const row = Math.floor(index / SLOT_COLUMNS);
-    const x = ORIGIN_X + column * cellW;
-    const y = ORIGIN_Y + row * cellH;
-    const candidate: Box = { x, y, w: SLOT_W, h: SLOT_H };
+    const x = origin.x + column * cellW;
+    const y = origin.y + row * cellH;
+    const candidate: Box = { x, y, ...size };
     if (!occupied.some((box) => overlaps(candidate, box, SLOT_GAP))) return { x, y };
   }
 
-  const last = maxSlots - 1;
   return {
-    x: ORIGIN_X + (last % SLOT_COLUMNS) * cellW,
-    y: ORIGIN_Y + Math.floor(last / SLOT_COLUMNS) * cellH,
+    x: origin.x,
+    y: Math.max(origin.y, ...occupied.map((box) => box.y + box.h)) + SLOT_GAP,
   };
 }
 
 /** Every shape currently on the canvas, as a box. */
 export function occupiedBoxes(doc: ErdDocument): Box[] {
+  if (doc.view === 'crowfoot') {
+    return deriveTables(doc).map((table) => ({ x: table.x, y: table.y, w: CROW_WIDTH, h: tableHeight(table) }));
+  }
   return [
     ...doc.entities.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.entity })),
     ...doc.attributes.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.attribute })),
