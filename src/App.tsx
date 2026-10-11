@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
-import { cursorOrigin, documentBounds, hitTestNode, isVisibleIn } from './canvas/geometry';
+import { cursorOrigin, documentBounds, isVisibleIn } from './canvas/geometry';
 import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
@@ -364,23 +364,39 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
    * Opens the right-click menu over whatever is under the pointer.
    *
    * Empty paper creates a shape there; a shape offers grouping. Which one it is
-   * comes from a hit test rather than from the current selection, because the
+   * comes from the rendered target rather than from the current selection, because the
    * selection often outlives what was last clicked: right-clicking clear paper
    * while two shapes are selected has to offer creation, not offer to delete
    * something the pointer is nowhere near.
    */
-  const openMenu = useCallback((event: React.MouseEvent) => {
+  const openMenu = useCallback((event: React.MouseEvent | React.KeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
     const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || !state.loaded) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const pointer = 'clientX' in event ? { x: event.clientX, y: event.clientY } : null;
+    const keyboard = !pointer || (pointer.x === 0 && pointer.y === 0);
+    let hit = target?.closest<HTMLElement | SVGElement>('[data-attribute-id], [data-node-id], [data-selection-id]');
+    if (!hit && keyboard && state.selection[0]) {
+      const id = CSS.escape(state.selection[0]);
+      hit = svgRef.current?.querySelector<SVGElement>(
+        `[data-attribute-id="${id}"], [data-node-id="${id}"], [data-selection-id="${id}"]`,
+      ) ?? null;
+    }
+    const anchor = (hit ?? svgRef.current)?.getBoundingClientRect() ?? rect;
+    const at = keyboard ? { x: anchor.left + anchor.width / 2, y: anchor.top + anchor.height / 2 } : pointer!;
     const world = {
-      x: (event.clientX - (rect?.left ?? 0) - state.viewport.x) / state.viewport.zoom,
-      y: (event.clientY - (rect?.top ?? 0) - state.viewport.y) / state.viewport.zoom,
+      x: (at.x - rect.left - state.viewport.x) / state.viewport.zoom,
+      y: (at.y - rect.top - state.viewport.y) / state.viewport.zoom,
     };
-    const hit = allNodes(state.doc).find((node) => hitTestNode(state.doc, node.id, world));
+    const id = hit?.getAttribute('data-attribute-id') ?? hit?.getAttribute('data-node-id') ?? hit?.getAttribute('data-selection-id');
     // Right-clicking a shape you had not selected selects it, so the menu acts
     // on the thing under the pointer rather than on a stale selection.
-    if (hit && !state.selection.includes(hit.id)) state.setSelection([hit.id]);
-    setMenu({ at: { x: event.clientX, y: event.clientY }, world, shape: Boolean(hit) });
-  }, [state.doc, state.viewport, state.selection, state.setSelection]);
+    if (id && !state.selection.includes(id)) state.setSelection([id]);
+    (hit ?? svgRef.current)?.focus({ preventScroll: true });
+    setMenu({ at, world, shape: Boolean(id) });
+  }, [state.loaded, state.viewport, state.selection, state.setSelection]);
 
   const menuItems: MenuItem[] | null = useMemo(() => {
     if (!menu) return null;
@@ -388,29 +404,34 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       const selection = state.selection;
       const grouped = state.doc.groups.find((g) => selection.length > 0 && selection.every((id) => g.memberIds.includes(id)));
       return [
+        { label: 'Edit properties', onSelect: () => {
+          select(selection);
+          requestAnimationFrame(() => {
+            const field = document.querySelector<HTMLInputElement | HTMLSelectElement>('.inspector input, .inspector select');
+            field?.focus();
+            if (field instanceof HTMLInputElement) field.select();
+          });
+        } },
         { label: selection.length > 1 ? `Group ${selection.length} shapes` : 'Group selected shapes',
-          disabled: selection.length < 2,
-          onSelect: () => { state.group(selection); closeMenu(); } },
-        ...(grouped ? [{ label: 'Remove group', separated: true, onSelect: () => { state.ungroup(grouped.id); closeMenu(); } }] : []),
+          separated: true, disabled: selection.length < 2 || Boolean(grouped),
+          disabledReason: grouped ? 'These shapes are already grouped.' : 'Select at least two shapes with Shift-click to group them.',
+          onSelect: () => state.group(selection) },
+        ...(grouped ? [{ label: 'Remove group', onSelect: () => state.ungroup(grouped.id) }] : []),
         { label: selection.length > 1 ? `Delete ${selection.length} shapes` : 'Delete selection',
-          tone: 'danger' as const, separated: !grouped,
-          onSelect: () => { state.remove(selection); closeMenu(); } },
+          tone: 'danger' as const, separated: true, shortcut: 'Delete',
+          onSelect: () => state.remove(selection) },
       ];
     }
-    const create = (kind: ShapeKind, label: string): MenuItem => ({
-      label,
-      onSelect: () => {
-        closeMenu();
-        addShape(kind, menu.world);
-      },
+    const create = (kind: ShapeKind, label: string, shortcut: string): MenuItem => ({
+      label, shortcut, onSelect: () => addShape(kind, menu.world),
     });
     return [
-      create('entity', 'New entity'),
-      create('attribute', 'New attribute'),
-      create('relationship', 'New relationship'),
-      create('isa', 'New specialization'),
+      create('entity', 'New entity', 'E'),
+      create('attribute', 'New attribute', 'A'),
+      create('relationship', 'New relationship', 'R'),
+      create('isa', 'New specialization', 'S'),
     ];
-  }, [menu, state.selection, state.doc.groups, state.group, state.ungroup, state.remove, addShape, closeMenu]);
+  }, [menu, state.selection, state.doc.groups, state.group, state.ungroup, state.remove, addShape, select]);
   const emptyActions = isEmpty ? <div className="starter-actions">
     <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
     <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
@@ -479,9 +500,11 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
             <DiagramOutline state={editor} onSelect={focusShape} />}
         </div>
 
-        <div className="canvas-stage">
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} onContextMenu={openMenu} /> :
-            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} onContextMenu={openMenu} />}
+        <div className="canvas-stage" onContextMenu={openMenu} onKeyDown={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
+        }}>
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} /> :
+            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>

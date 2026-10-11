@@ -35,10 +35,9 @@ interface Props {
   state: EditorState;
   svgRef: React.MutableRefObject<SVGSVGElement | null>;
   emptyActions?: React.ReactNode;
-  onContextMenu?: (event: React.MouseEvent) => void;
 }
 
-export function CrowFootCanvas({ state, svgRef, emptyActions, onContextMenu }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -194,6 +193,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, onContextMenu }: P
 
   const handleBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
+      if (event.button !== 0 && event.button !== 1) return;
       if (tool === 'connect') { setConnectFrom(null); setPointer(null); }
       // Shift-drag on empty paper draws a marquee; a plain drag still pans.
       if (tool !== 'pan' && !event.shiftKey && event.button === 0) state.setSelection([]);
@@ -249,7 +249,6 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, onContextMenu }: P
       data-tool={tool}
       ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
-      onContextMenu={onContextMenu}
       onWheel={handleWheel}
     >
       <svg
@@ -299,6 +298,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, onContextMenu }: P
                   transform={`translate(${table.x} ${table.y})`}
                   onPointerDown={handleTablePointerDown(table.entityId)}
                   role="group"
+                  tabIndex={-1}
                   aria-label={`Table ${table.name}`}
                   data-node-id={table.entityId}
                   data-testid={`table-${table.name}`}
@@ -345,6 +345,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, onContextMenu }: P
                         }}
                         onPointerUp={(event) => { if (tool === 'connect') event.preventDefault(); }}
                         onPointerDown={(event) => {
+                          if (event.button !== 0) return;
                           event.stopPropagation();
                           if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
                           if (tool === 'connect') {
@@ -488,12 +489,14 @@ function CrowConnector({
       tabIndex={0}
       aria-label={`Relationship ${link.label}, ${link.ratio}, ${from.name}.${from.rows.find((r) => r.id === link.fromColumnId)?.name} to ${to.name}.${to.rows.find((r) => r.id === link.toColumnId)?.name}`}
       data-testid={`crow-link-${link.relId}`}
+      data-selection-id={link.relId}
       data-from-column={link.fromColumnId}
       data-to-column={link.toColumnId}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onKeyboardSelect(); }
       }}
       onPointerDown={(event) => {
+        if (event.button !== 0) return;
         event.stopPropagation();
         onSelect(event);
       }}

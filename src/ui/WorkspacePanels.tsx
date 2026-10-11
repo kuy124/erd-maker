@@ -99,11 +99,13 @@ export function HelpPanel() {
       <p>Both views use the same entities, attributes, and relationships. The table view infers column types and may generate keys and foreign keys. Edit the source attribute or relationship to change them.</p>
       <p>Specializations, derived attributes, and attributes on relationships are shown in Chen. Many-to-many associations are drawn as connectors; SQL export maps them to junction tables.</p>
       <h3>Keyboard shortcuts</h3>
+      <p>Right-click empty canvas to add a shape at the pointer. Right-click a shape, attribute row, or relationship line to edit, group, or delete it. Shift-click selects several shapes; right-click one of them to keep that selection.</p>
       <dl className="shortcut-list">
         {[['E / A / R / S', 'Add entity, attribute, relationship, specialization'],
           ['V / C / H', 'Select, connect, pan'], ['F', 'Fit diagram'],
           ['Shift + click', 'Add to or remove from the selection'],
           ['Shift + drag', 'Draw a box around several shapes'],
+          ['Shift + F10 / Menu key', 'Open canvas actions for the focused shape or selection'],
           ['Escape', 'Finish typing, cancel, or clear the selection'],
           ['Delete', 'Delete everything selected'], ['Ctrl / ⌘ + Z', 'Undo'], ['Ctrl / ⌘ + Shift + Z', 'Redo'],
           ['Ctrl / ⌘ + S', 'Download a diagram file']].map(([key, action]) => (

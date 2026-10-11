@@ -2035,6 +2035,188 @@ test.describe('multi-select', () => {
  * so both are asserted here: empty paper creates, a shape groups.
  */
 test.describe('right-click menu', () => {
+  test('suppresses the browser menu on the canvas and on the ERD menu', async ({ page }) => {
+    await openApp(page);
+    const prevented = await canvas(page).evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const event = new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: box.x + 20, clientY: box.y + 100,
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(prevented).toBe(true);
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    expect(await menu.evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    })).toBe(true);
+  });
+
+  test('right-clicking the wide edge of a crow’s-foot table keeps the multi-selection', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await addNamedEntity(page, 'Beta');
+    await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    await tidy(page);
+    await canvas(page).getByRole('button', { name: 'Table Alpha', exact: true }).click();
+    const beta = canvas(page).getByRole('button', { name: 'Table Beta', exact: true });
+    await beta.click({ modifiers: ['Shift'] });
+    const box = (await beta.boundingBox())!;
+    await page.mouse.click(box.x + box.width - 12, box.y + box.height / 2, { button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Group 2 shapes' })).toBeEnabled();
+    await page.getByRole('menuitem', { name: 'Group 2 shapes' }).click();
+    await expect(page.locator('.group-frame')).toHaveCount(1);
+  });
+
+  test('right-clicking an attribute row deletes that attribute rather than its table', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addShape(page, 'attribute');
+    await nameField(page).fill('email');
+    await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    const attribute = canvas(page).getByRole('button', { name: 'Edit attribute email', exact: true });
+    await attribute.click({ button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Delete selection', exact: true }).click();
+    await expect(attribute).toHaveCount(0);
+    await expect(page.getByTestId('table-Customer')).toBeVisible();
+    await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(attribute).toBeVisible();
+  });
+
+  test('right-clicking a crow’s-foot connector offers actions for that relationship', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await tidy(page);
+    await connectWithTool(page, /Entity Customer/i, /Entity Order/i);
+    await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    await page.locator('.crow-link__ratio').click({ button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Delete selection', exact: true }).click();
+    await expect(page.locator('.crow-link')).toHaveCount(0);
+    await expect(page.getByTestId('table-Customer')).toBeVisible();
+    await expect(page.getByTestId('table-Order')).toBeVisible();
+  });
+
+  test('Shift+F10 opens actions for the selection and Tab dismisses them', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await node(page, /Entity Alpha/i).click();
+    await canvas(page).focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(node(page, /Entity Alpha/i)).toBeVisible();
+  });
+
+  test('the keyboard menu creates a shape and leaves its name ready to type', async ({ page }) => {
+    await openApp(page);
+    await canvas(page).focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menu', { name: 'Add a shape' })).toBeVisible();
+    await page.keyboard.press('e');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(nameField(page)).toBeFocused();
+    await page.keyboard.type('Invoice');
+    await expect(node(page, /Entity Invoice/i)).toBeVisible();
+  });
+
+  test('the first action edits properties rather than deleting the shape', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await node(page, /Entity Alpha/i).click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Edit properties', exact: true })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(nameField(page)).toBeFocused();
+    await expect(node(page, /Entity Alpha/i)).toBeVisible();
+  });
+
+  test('editor shortcuts do not run behind an open shape menu', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await node(page, /Entity Alpha/i).click({ button: 'right' });
+    await expect(page.getByRole('menu')).toBeVisible();
+    await page.keyboard.press('r');
+    await expect(canvas(page).locator('[data-node-id^="rel_"]')).toHaveCount(0);
+    await expect(page.getByRole('menu')).toBeVisible();
+  });
+
+  test('the menu fits the viewport with enlarged text', async ({ page }) => {
+    await openApp(page);
+    await page.setViewportSize({ width: 900, height: 600 });
+    await page.addStyleTag({ content: '.context-menu { font-size: 24px; }' });
+    const box = (await canvas(page).boundingBox())!;
+    await page.mouse.click(box.x + box.width - 12, box.y + box.height - 80, { button: 'right' });
+    const menu = page.getByRole('menu');
+    await expect(menu).toBeVisible();
+    const bounds = (await menu.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(8);
+    expect(bounds.y).toBeGreaterThanOrEqual(8);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(892);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(592);
+  });
+
+  test('keyboard navigation scrolls overflowing menu actions into view', async ({ page }) => {
+    await openApp(page);
+    await page.setViewportSize({ width: 1440, height: 300 });
+    await page.addStyleTag({ content: '.context-menu { font-size: 32px; }' });
+    await canvas(page).focus();
+    await page.keyboard.press('Shift+F10');
+    const menu = page.getByRole('menu', { name: 'Add a shape' });
+    await expect(menu).toBeVisible();
+
+    for (const key of ['End', 'Home', 'ArrowUp', 'ArrowDown']) {
+      await page.keyboard.press(key);
+      await expect.poll(async () => {
+        const bounds = (await menu.boundingBox())!;
+        const focused = (await menu.locator(':focus').boundingBox())!;
+        return focused.y >= bounds.y && focused.y + focused.height <= bounds.y + bounds.height;
+      }).toBe(true);
+    }
+  });
+
+  test('right-clicking does not complete a pending Chen connection', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Alpha');
+    await addNamedEntity(page, 'Beta');
+    await addShape(page, 'relationship');
+    await nameField(page).fill('owns');
+    await tidy(page);
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    await expect(page.locator('.leg-group')).toHaveCount(0);
+
+    await node(page, /Entity Alpha/i).click({ button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
+    await expect(page.locator('.leg-group')).toHaveCount(0);
+
+    await page.keyboard.press('Escape');
+    await dragBetween(page, /Relationship owns/i, /Entity Alpha/i);
+    await expect(page.locator('.leg-group')).toHaveCount(1);
+  });
+
+  for (const notation of ['Chen', "Crow's-foot"]) {
+    test(`a right-button drag does not pan the ${notation} canvas`, async ({ page }) => {
+      await openApp(page);
+      await page.getByRole('button', { name: notation, exact: true }).click();
+      await page.getByRole('button', { name: 'Pan tool', exact: true }).click();
+      const viewport = canvas(page).locator('[data-viewport]');
+      const before = await viewport.getAttribute('transform');
+      const box = (await canvas(page).boundingBox())!;
+      await page.mouse.move(box.x + 40, box.y + box.height - 90);
+      await page.mouse.down({ button: 'right' });
+      await page.mouse.move(box.x + 110, box.y + box.height - 130, { steps: 5 });
+      await page.mouse.up({ button: 'right' });
+      expect(await viewport.getAttribute('transform')).toBe(before);
+    });
+  }
+
   test('empty paper offers the four shapes and creates one where it was opened', async ({ page }) => {
     await openApp(page);
     const canvas = (await page.getByTestId('canvas').boundingBox())!;
@@ -2042,7 +2224,7 @@ test.describe('right-click menu', () => {
 
     await page.mouse.click(at.x, at.y, { button: 'right' });
     await expect(page.getByRole('menu', { name: 'Add a shape' })).toBeVisible();
-    await expect(page.getByRole('menuitem')).toHaveText([
+    await expect(page.getByRole('menuitem').locator('.context-menu__label')).toHaveText([
       'New entity', 'New attribute', 'New relationship', 'New specialization',
     ]);
 
@@ -2070,7 +2252,7 @@ test.describe('right-click menu', () => {
     // Offering to delete something the pointer is nowhere near is the bug this
     // guards against.
     await expect(page.getByRole('menu', { name: 'Add a shape' })).toBeVisible();
-    await expect(page.getByRole('menuitem')).toHaveText([
+    await expect(page.getByRole('menuitem').locator('.context-menu__label')).toHaveText([
       'New entity', 'New attribute', 'New relationship', 'New specialization',
     ]);
   });

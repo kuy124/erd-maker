@@ -25,13 +25,12 @@ interface Props {
   connectFrom: string | null;
   setConnectFrom: (id: string | null) => void;
   emptyActions?: React.ReactNode;
-  onContextMenu?: (event: React.MouseEvent) => void;
 }
 
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, onContextMenu }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions }: Props) {
   const { doc, viewport, selection, tool, peers, identity } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -274,6 +273,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
 
   const handleBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
+      if (event.button !== 0 && event.button !== 1) return;
       // Middle-click, the pan tool, or space-drag all pan the canvas.
       if (tool === 'pan' || event.button === 1) {
         drag.beginPan(event.clientX, event.clientY);
@@ -331,12 +331,12 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
    *
    * The drag is the ERDPlus gesture: press on one shape, release on another. The
    * preview line and the highlighted target already say what will happen, so the
-   * release is where the connection is committed — the same place Shift-click
-   * commits it.
+   * release is where the connection is committed.
    */
   useEffect(() => {
     if (tool !== 'connect' || connectFrom === null) return undefined;
     const onUp = (event: PointerEvent) => {
+      if (event.button !== 0) return;
       const world = toWorld(event.clientX, event.clientY);
       const target = nodeAt(world.x, world.y);
       // Released on nothing, so the drag is abandoned. Leaving the gesture armed
@@ -445,7 +445,6 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       data-tool={tool}
       ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
-      onContextMenu={onContextMenu}
       onPointerMove={handlePointerMove}
       onWheel={handleWheel}
     >
@@ -488,7 +487,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
               const labels = legLabelPoints(seg.from, seg.to, [0.28, 0.52]);
               const participationLabel = legLabelPoints(seg.from, seg.to, [0.28, 0.52], -14)[1];
               return (
-                <g key={leg.id} className="leg-group">
+                <g key={leg.id} className="leg-group" data-selection-id={leg.id} tabIndex={-1}>
                   {/* An invisible wider band under the visible line, so the thin
                       stroke is still easy to click. `pointer-events: stroke`
                       makes it hit-testable even though it is not painted. It is
@@ -501,6 +500,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     x2={seg.to.x}
                     y2={seg.to.y}
                     onPointerDown={(event) => {
+                      if (event.button !== 0) return;
                       event.stopPropagation();
                       state.setSelection([leg.id]);
                     }}
@@ -518,6 +518,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                       data-entity-id={entity.id} data-cardinality={leg.cardinality}
                       data-min={leg.participation.min} data-max={leg.participation.max}
                       onPointerDown={(event) => {
+                        if (event.button !== 0) return;
                         event.stopPropagation();
                         if (tool === 'pan') { drag.beginPan(event.clientX, event.clientY); return; }
                         focusCanvas(event);
@@ -531,7 +532,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     </g>
                     {advanced ? <text className="leg__participation" data-testid="leg-participation"
                       x={participationLabel.x} y={participationLabel.y}
-                      onPointerDown={(event) => { event.stopPropagation(); state.setSelection([leg.id]); }}>
+                      onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); state.setSelection([leg.id]); }}>
                       {formatParticipation(leg.participation.min, leg.participation.max)}
                     </text> : null}
                   </> : <>
@@ -542,6 +543,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     x={labels[0].x}
                     y={labels[0].y}
                     onPointerDown={(event) => {
+                      if (event.button !== 0) return;
                       event.stopPropagation();
                       state.setSelection([leg.id]);
                     }}
@@ -554,6 +556,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                     x={participationLabel.x}
                     y={participationLabel.y}
                     onPointerDown={(event) => {
+                      if (event.button !== 0) return;
                       event.stopPropagation();
                       state.setSelection([leg.id]);
                     }}

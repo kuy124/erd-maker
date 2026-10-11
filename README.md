@@ -22,7 +22,7 @@ The Build panel adds entities, attributes, relationships, and specializations. C
 
 Relationship properties list participants. Choose an entity for each row, then set its cardinality and optional or required participation. **Minimum / maximum** accepts whole numbers and N for an unlimited maximum. Unfinished or invalid input stays local until corrected. Relationships can remain incomplete or have more than two participants.
 
-In Chen, choose **Connect** and drag from one entity to another, or Shift-click both. The editor creates a relationship diamond with both participants, opens its name for editing, and lets you undo the whole connection at once. Connect to an existing diamond to add another participant.
+In Chen, choose **Connect** and drag from one entity to another. The editor creates a relationship diamond with both participants, opens its name for editing, and lets you undo the whole connection at once. Connect to an existing diamond to add another participant.
 
 In crow’s-foot, choose **Connect** (C) and click or tap two attribute rows, or drag between them. The new relationship joins those exact rows. Change either endpoint with **Connection attribute** in its properties; **Automatic** follows the inferred key and foreign key. Real foreign-key attributes remain editable, and generated rows are labeled **gen**. Connections follow their attributes through renaming and table movement, and are retained in saved files and share links.
 
@@ -31,6 +31,8 @@ Use **Diagram** to search every shape and center a selection. **Check diagram** 
 At 1100px and wider, Build/Diagram and Properties sit beside the canvas. Tablets use side drawers. Phones use Build, Diagram, Properties, and Help sheets that scroll above the on-screen keyboard.
 
 **Auto-arrange** spaces the model using the current renderer’s dimensions. **Fit** frames it. Undo and Redo apply to your edits; remote changes remain shared. Deleting a shape also offers Undo feedback.
+
+Right-click empty canvas to add a shape at that point. Right-click a shape, attribute row, or relationship line for its properties, grouping, and deletion actions. Shift-click selects several shapes; right-clicking a selected shape preserves that selection. Open the same menu with **Shift+F10** or the **Menu key** while the canvas is focused. Arrow keys navigate, Enter activates, and Escape or Tab closes it.
 
 ## Notation
 
@@ -52,7 +54,7 @@ Chen relationships use ERDPlus-style symbols at the entity endpoints: two bars f
 
 Crow’s-foot tables show source attributes as editable rows. **gen** identifies generated keys or foreign keys; an existing `id` attribute stays editable when its primary-key role is generated. Column types come from attribute names or referenced keys. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
 
-Create relationships through Properties in either view. In Chen, you can also use Connect or Shift-click. Concepts absent from the table view, including specializations and attributes on relationships, remain in Diagram; selecting one switches your view to Chen.
+Create relationships through Properties in either view. In Chen, you can also use Connect. Concepts absent from the table view, including specializations and attributes on relationships, remain in Diagram; selecting one switches your view to Chen.
 
 Each collaborator chooses a notation independently. The choice is stored locally for that room. JSON files and share snapshots retain the existing `view` field and use the exporting person’s current notation.
 
@@ -79,7 +81,9 @@ SQL follows the existing textbook mapping: entities become tables, weak entities
 | E / A / R / S | Add entity / attribute / relationship / specialization |
 | V / C / H | Select / Connect / Pan |
 | F | Fit diagram |
-| Shift-click two shapes | Connect in Chen |
+| Shift-click | Add to or remove from the selection |
+| Shift-drag empty canvas | Select several shapes with a box |
+| Shift+F10 / Menu key | Open canvas actions |
 | Escape | Finish typing, then cancel selection or connection |
 | Delete | Delete selection |
 | Ctrl or ⌘ + Z | Undo |
