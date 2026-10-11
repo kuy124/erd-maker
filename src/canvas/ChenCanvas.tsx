@@ -129,45 +129,86 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
     [svgRef],
   );
 
+  /**
+   * Joins the pending connection to `id`, and decides what the gesture does next.
+   *
+   * Shared by the drag gesture and the Shift-click one so both behave the same.
+   * A Chen relationship is drawn as a chain — entity, diamond, entity — so the
+   * gesture stays on the diamond and the next target finishes the other side,
+   * rather than making the user start over. It closes once both sides are
+   * joined, because an open gesture on a finished relationship would keep
+   * saying "pick another shape". A ternary relationship is still possible:
+   * start again from the diamond.
+   */
+  const connectTo = useCallback(
+    (id: string): boolean => {
+      if (connectFrom === null || id === connectFrom) return false;
+      // `doc`, not `displayDoc`: the two differ only while a node is mid-drag,
+      // and a drag and a connection are never in flight at the same time.
+      if (!canConnect(doc, connectFrom, id)) return false;
+      state.connect(connectFrom, id);
+      const anchorId = doc.relationships.some((r) => r.id === connectFrom)
+        ? connectFrom
+        : doc.relationships.some((r) => r.id === id)
+          ? id
+          : null;
+      const sides = anchorId
+        ? doc.legs.filter((l) => l.fromId === anchorId || l.toId === anchorId).length + 1
+        : 0;
+      setConnectFrom(sides >= 2 ? null : anchorId);
+      return true;
+    },
+    [connectFrom, doc, state, setConnectFrom],
+  );
+
+  /**
+   * Begins a connection from `id`, refusing endpoints that cannot be one.
+   *
+   * An attribute cannot be an endpoint: its link to its owner is stored as
+   * `ownerId`, so a leg from an attribute is a line the SQL generator and the
+   * crow's-foot view both ignore. Refusing here means the user is never shown a
+   * connection that quietly does nothing.
+   */
+  const beginConnectFrom = useCallback(
+    (id: string): void => {
+      if (connectFrom === null) {
+        if (!isAttribute(doc, id)) setConnectFrom(id);
+        return;
+      }
+      connectTo(id);
+      setConnectPointer(null);
+      setConnectTarget(null);
+    },
+    [connectFrom, doc, connectTo, setConnectFrom],
+  );
+
   const handleNodePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
       event.stopPropagation();
       if (tool === 'pan') return;
       focusCanvas(event);
 
-      // Shift-click connects two nodes, which is the fast path for drawing a leg.
-      if (event.shiftKey) {
-        if (connectFrom === null) {
-          // An attribute cannot be an endpoint: its link to its owner is stored
-          // as `ownerId`, so a leg from an attribute is a line that the SQL
-          // generator and the crow's-foot view both ignore. Refusing here means
-          // the user is never shown a connection that quietly does nothing.
-          if (!isAttribute(displayDoc, id)) setConnectFrom(id);
-        } else if (connectFrom !== id && canConnect(displayDoc, connectFrom, id)) {
-          state.connect(connectFrom, id);
-          // Chen relationships are drawn as a chain: entity, diamond, entity.
-          // Staying on the diamond means the next click completes the other
-          // side rather than restarting the gesture, which is what someone
-          // drawing that shape wants next.
-          //
-          // It closes once both sides are joined, because leaving it open would
-          // keep saying "pick another shape" on a relationship that is already
-          // finished. A ternary relationship is still possible: shift-click the
-          // diamond again to start a third leg.
-          const anchorId = displayDoc.relationships.some((r) => r.id === connectFrom)
-            ? connectFrom
-            : displayDoc.relationships.some((r) => r.id === id)
-              ? id
-              : null;
-          const sides = anchorId
-            ? displayDoc.legs.filter((l) => l.fromId === anchorId || l.toId === anchorId).length + 1
-            : 0;
-          setConnectFrom(sides >= 2 ? null : anchorId);
+      // The Connect tool draws a line from this shape to wherever the pointer
+      // is released. This is the gesture ERDPlus users reach for first, so it
+      // must work without a modifier.
+      if (tool === 'connect') {
+        // Pressing the anchor again re-arms the gesture rather than refusing:
+        // after one leg of a chain the gesture stays on the diamond, and the
+        // next drag must start by pressing that same diamond.
+        if (connectFrom === null || id === connectFrom) {
+          if (!isAttribute(doc, id)) setConnectFrom(id);
+        } else {
+          connectTo(id);
+          setConnectPointer(null);
+          setConnectTarget(null);
         }
-        // Clear the preview: the gesture is either started, finished, or was
-        // refused, and either way it is not in flight.
-        setConnectPointer(null);
-        setConnectTarget(null);
+        return;
+      }
+
+      // Shift-click is the same gesture in two clicks, for people who would
+      // rather not switch tools.
+      if (event.shiftKey) {
+        beginConnectFrom(id);
         return;
       }
 
@@ -176,7 +217,18 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
       const node = nodeAt(world.x, world.y);
       if (node) drag.beginNodeDrag(node.id, world.x, world.y, node.x, node.y);
     },
-    [tool, connectFrom, setConnectFrom, state, toWorld, nodeAt, drag, focusCanvas],
+    [
+      tool,
+      connectFrom,
+      doc,
+      connectTo,
+      beginConnectFrom,
+      state,
+      toWorld,
+      nodeAt,
+      drag,
+      focusCanvas,
+    ],
   );
 
   const handleBackgroundPointerDown = useCallback(
@@ -186,13 +238,19 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
         drag.beginPan(event.clientX, event.clientY);
         return;
       }
-      // Clicking empty paper clears the selection and any pending connection.
+      // Empty paper always pans, in every tool, so the canvas can never feel
+      // stuck. In the Connect tool it deliberately does not cancel a pending
+      // connection: a line drawn from a shape passes over empty paper on its
+      // way to the target, and clearing there would cancel the gesture the
+      // person is halfway through.
       if (tool === 'select' && event.button === 0) {
         focusCanvas(event);
         setConnectFrom(null);
         setConnectPointer(null);
         setConnectTarget(null);
         state.setSelection(null);
+        drag.beginPan(event.clientX, event.clientY);
+      } else if (tool === 'connect' && event.button === 0) {
         drag.beginPan(event.clientX, event.clientY);
       }
     },
@@ -205,7 +263,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
    */
   const handlePointerMove = useCallback(
     (event: React.PointerEvent) => {
-      if (connectFrom === null || tool !== 'select') return;
+      if (connectFrom === null || (tool !== 'select' && tool !== 'connect')) return;
       const world = toWorld(event.clientX, event.clientY);
       setConnectPointer(world);
       const hovered = nodeAt(world.x, world.y);
@@ -217,6 +275,34 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
     },
     [connectFrom, tool, toWorld, nodeAt],
   );
+
+  /**
+   * Releasing a Connect drag over a shape joins them.
+   *
+   * The drag is the ERDPlus gesture: press on one shape, release on another. The
+   * preview line and the highlighted target already say what will happen, so the
+   * release is where the connection is committed — the same place Shift-click
+   * commits it.
+   */
+  useEffect(() => {
+    if (tool !== 'connect' || connectFrom === null) return undefined;
+    const onUp = (event: PointerEvent) => {
+      const world = toWorld(event.clientX, event.clientY);
+      const target = nodeAt(world.x, world.y);
+      // Released on nothing, so the drag is abandoned. Leaving the gesture armed
+      // would leave the canvas waiting for a shape the person has stopped
+      // looking for.
+      if (!target || !connectTo(target.id)) setConnectFrom(null);
+      setConnectPointer(null);
+      setConnectTarget(null);
+    };
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [tool, connectFrom, connectTo, setConnectFrom, toWorld, nodeAt]);
 
   /** Escape cancels a pending connection instead of only closing dialogs. */
   useEffect(() => {
@@ -546,7 +632,10 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom }: Props
               the shape rail, then hang attributes off it and connect it to another entity with a
               relationship.
             </p>
-            <p className="canvas-empty__hint">Press E to add an entity, or A for an attribute</p>
+            <p className="canvas-empty__hint">
+              Press E to add an entity, or A for an attribute. Press C to join two shapes by dragging
+              between them.
+            </p>
           </div>
         </div>
       ) : null}

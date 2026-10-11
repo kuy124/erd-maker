@@ -407,6 +407,11 @@ body {
   cursor: grabbing;
 }
 
+/* Crosshair while connecting: the pointer is about to draw a line. */
+.canvas-wrap[data-tool='connect'] .node {
+  cursor: crosshair;
+}
+
 .canvas {
   display: block;
   width: 100%;

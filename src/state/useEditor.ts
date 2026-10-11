@@ -27,7 +27,7 @@ import { newRoomId, parseShareHash } from '../model/snapshot';
 import { findAttributeSlot } from '../model/placement';
 import { emptyDocument, type ErdDocument } from '../model/types';
 
-export type Tool = 'select' | 'pan';
+export type Tool = 'select' | 'pan' | 'connect';
 
 export interface Viewport {
   /** Pan offset in screen pixels. */

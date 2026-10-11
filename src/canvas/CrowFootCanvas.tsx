@@ -84,7 +84,10 @@ export function CrowFootCanvas({ state, svgRef }: Props) {
 
   const handleBackgroundPointerDown = useCallback(
     (event: React.PointerEvent) => {
-      if (tool === 'select' && event.button === 0) state.setSelection(null);
+      // The Connect tool behaves as Select here: this view derives its lines from
+      // the Chen document rather than drawing them, so there is nothing to
+      // connect, and a tool that silently did nothing would be a trap.
+      if (tool !== 'pan' && event.button === 0) state.setSelection(null);
       drag.beginPan(event.clientX, event.clientY);
     },
     [tool, state, drag],

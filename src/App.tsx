@@ -207,6 +207,9 @@ export function App() {
         case 'v':
           state.setTool('select');
           break;
+        case 'c':
+          state.setTool('connect');
+          break;
         case 'h':
           state.setTool('pan');
           break;

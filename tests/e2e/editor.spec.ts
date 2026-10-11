@@ -377,6 +377,94 @@ test.describe('connections', () => {
     await expect(page.locator('.layer-legs line.leg')).toHaveCount(2);
   });
 
+  test('the Connect tool draws a line by dragging between shapes', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addNamedEntity(page, 'Order');
+    await addShape(page, 'relationship');
+    await nameField(page).fill('places');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+
+    // Press on the diamond and drag to the first entity. A line follows the
+    // pointer, and the shape under it is highlighted, so the release is never a
+    // surprise.
+    const from = await node(page, /Relationship places/i).boundingBox();
+    const to = await node(page, /Entity Customer/i).boundingBox();
+    await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(to!.x + to!.width / 2, to!.y + to!.height / 2, { steps: 12 });
+    await expect(page.getByTestId('connect-preview')).toHaveCount(1);
+    await expect(page.locator('.node--connectable')).toHaveCount(1);
+
+    await page.mouse.up();
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(1);
+
+    // The gesture stays on the diamond, so dragging to the second entity
+    // finishes the chain.
+    const other = await node(page, /Entity Order/i).boundingBox();
+    await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(other!.x + other!.width / 2, other!.y + other!.height / 2, {
+      steps: 12,
+    });
+    await page.mouse.up();
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(2);
+  });
+
+  test('a connect drag released on empty paper draws nothing', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addShape(page, 'relationship');
+    await nameField(page).fill('places');
+    await page.getByRole('button', { name: 'Tidy' }).click();
+    await page.waitForTimeout(150);
+
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+    const from = await node(page, /Relationship places/i).boundingBox();
+    await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+    await page.mouse.down();
+
+    const box = (await canvas(page).boundingBox())!;
+    // Bare paper: the diamond sits top-left, so the bottom-right is empty.
+    await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 12 });
+    await page.mouse.up();
+
+    await expect(page.locator('.layer-legs line.leg:not(.leg--attribute)')).toHaveCount(0);
+    // The gesture is abandoned rather than left waiting forever.
+    await expect(page.locator('.node--connecting')).toHaveCount(0);
+  });
+
+  test('the Connect tool moves nothing, so a drag can only draw', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await page.getByRole('button', { name: 'Connect tool' }).click();
+
+    const before = await node(page, /Entity Customer/i).boundingBox();
+    await page.mouse.move(before!.x + before!.width / 2, before!.y + before!.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(before!.x + 220, before!.y + 120, { steps: 10 });
+    await page.mouse.up();
+
+    const after = await node(page, /Entity Customer/i).boundingBox();
+    expect(Math.round(after!.x)).toBe(Math.round(before!.x));
+    expect(Math.round(after!.y)).toBe(Math.round(before!.y));
+  });
+
+  test('C selects the Connect tool', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    // Escape first: focus is in the name field, where a single key is text.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('c');
+    await expect(page.getByRole('button', { name: 'Connect tool' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
   test('a new relationship is ready to connect as soon as it is made', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');

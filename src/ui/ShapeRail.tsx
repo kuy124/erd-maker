@@ -68,6 +68,21 @@ export function ShapeRail({ state, onAdd }: Props) {
         <button
           type="button"
           className="shape-btn"
+          aria-pressed={state.tool === 'connect'}
+          aria-label="Connect tool"
+          onClick={() => state.setTool('connect')}
+        >
+          <span className="shape-btn__glyph" aria-hidden="true">
+            <LinkGlyph />
+          </span>
+          <span className="shape-btn__label">Connect</span>
+          <span className="shape-btn__key" aria-hidden="true">
+            C
+          </span>
+        </button>
+        <button
+          type="button"
+          className="shape-btn"
           aria-pressed={state.tool === 'pan'}
           aria-label="Pan tool"
           onClick={() => state.setTool('pan')}
@@ -85,8 +100,8 @@ export function ShapeRail({ state, onAdd }: Props) {
       <div className="rail__group">
         <h2 className="panel__title">Connect</h2>
         <p className="rail__hint">
-          Hold <kbd>Shift</kbd> and click two shapes to draw a relationship between them. A line follows
-          your pointer, so you can see what will connect before you click.
+          Press <kbd>C</kbd>, then drag from one shape to another. Or hold <kbd>Shift</kbd> and click
+          two shapes. A line follows your pointer, so you can see what will connect before you let go.
         </p>
       </div>
     </aside>
@@ -97,6 +112,16 @@ function CursorGlyph() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
       <path d="M4 3 L4 16 L7.5 12.5 L10 17 L12 16 L9.5 11.5 L14 11 Z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function LinkGlyph() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <circle cx="4.5" cy="10" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="15.5" cy="10" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M7 10 H13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }
