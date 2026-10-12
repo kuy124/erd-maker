@@ -824,7 +824,8 @@ body {
 /* Live connection state, top-left of the canvas. */
 .canvas-status {
   position: absolute;
-  top: var(--s3);
+  z-index: 11;
+  top: 80px;
   left: var(--s3);
   display: flex;
   align-items: center;
@@ -1384,7 +1385,7 @@ kbd { font: 13px var(--font-mono); }
   .canvas-empty__hint { display: none; }
   .starter-actions { flex-direction: column; width: 100%; }
   .starter-actions .btn { justify-content: center; white-space: normal; }
-  .viewport-tools { right: 8px; top: 124px; bottom: auto; }
+  .viewport-tools { right: 8px; top: 76px; bottom: auto; }
   .viewport-tools .zoom-value { display: none; }
   .app:has(.workspace-panel[data-open='true']) .viewport-tools { display: none; }
   .connection-guidance { top: 124px; max-width: calc(100% - 16px); font-size: 13px; }

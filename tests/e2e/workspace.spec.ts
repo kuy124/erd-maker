@@ -191,7 +191,9 @@ test('table rows distinguish editable attributes, generated keys, and inferred t
   await expect(page.getByLabel('Attribute name')).toHaveValue('customer_id');
   await page.getByLabel('Attribute name').fill('customer_number');
   await expect(canvas(page).getByRole('button', { name: 'Edit attribute customer_number', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
   await canvas(page).getByRole('button', { name: /Generated foreign key/ }).click();
+  await inspectSelection(page);
   await expect(page.getByLabel('Entity name')).toHaveValue('Order');
   await expect(properties(page)).toContainText('SQL types are inferred');
   const svg = (await exportDocument(page, 'SVG')).toString();

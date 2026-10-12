@@ -100,7 +100,8 @@ for (const size of [{ width: 320, height: 640 }, { width: 667, height: 375 }]) {
     expect(panel.height).toBeLessThanOrEqual(size.height * 0.46);
     await expect(page.getByRole('button', { name: 'Select tool', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Close panel', exact: true })).toHaveText('×Done');
+    await expect(page.locator('.workspace-panel[data-open="true"] .panel-close--phone')).toBeVisible();
+    await expect(page.locator('.workspace-panel[data-open="true"] .panel-close--phone')).toHaveText('Done');
     await page.getByRole('button', { name: 'Close panel', exact: true }).click();
     await expect(page.locator('.workspace-panel--right')).toBeHidden();
     await nav.getByRole('button', { name: 'Build', exact: true }).click();
@@ -131,6 +132,49 @@ test('Focus view hides the controls, preserves the diagram, and exits with Escap
   await expect(page.getByTestId('canvas').getByRole('button', { name: 'Entity Customer', exact: true }).locator('.selection-ring')).toBeVisible();
 });
 
+test.describe('touch editing', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 320, height: 640 } });
+
+  test('controls do not overlap and touch edits survive undo, redo, and reload', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Add your first entity', exact: true }).tap();
+    await page.getByLabel('Entity name').fill('Touch customer');
+    await page.getByRole('button', { name: 'Close panel', exact: true }).tap();
+    const canvas = page.getByTestId('canvas');
+    const entity = canvas.getByRole('button', { name: 'Entity Touch customer', exact: true });
+    await entity.tap();
+    const nav = page.getByRole('navigation', { name: 'Workspace panels' });
+    await nav.getByRole('button', { name: 'Properties', exact: true }).tap();
+    await expect(page.getByLabel('Entity name')).toHaveValue('Touch customer');
+
+    const regions = await Promise.all([
+      page.locator('.workspace-panel--right'), nav, page.getByRole('toolbar', { name: 'Diagram tools' }),
+    ].map(async (locator) => (await locator.boundingBox())!));
+    for (let i = 0; i < regions.length; i++) {
+      const a = regions[i]!;
+      expect(a.x).toBeGreaterThanOrEqual(0);
+      expect(a.x + a.width).toBeLessThanOrEqual(320);
+      expect(a.y + a.height).toBeLessThanOrEqual(640);
+      for (const b of regions.slice(i + 1)) {
+        expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true);
+      }
+    }
+    await page.getByRole('button', { name: 'Connect tool', exact: true }).tap();
+    await expect(page.getByRole('button', { name: 'Connect tool', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.workspace-panel--right')).toBeHidden();
+    await page.getByRole('button', { name: 'Select tool', exact: true }).tap();
+    await page.getByRole('button', { name: 'Undo', exact: true }).tap();
+    await expect(entity).toHaveCount(0);
+    await page.getByRole('button', { name: 'Redo', exact: true }).tap();
+    await expect(entity).toBeVisible();
+    await page.reload();
+    await expect(entity).toBeVisible();
+    await entity.tap();
+    await nav.getByRole('button', { name: 'Properties', exact: true }).tap();
+    await expect(page.getByLabel('Entity name')).toHaveValue('Touch customer');
+  });
+});
+
 test('phone properties stay above a reduced visual viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
@@ -146,6 +190,13 @@ test('phone properties stay above a reduced visual viewport', async ({ page }) =
   expect(sheet.y + sheet.height).toBeLessThanOrEqual(400);
   await page.getByRole('button', { name: 'Close panel', exact: true }).click();
   await expect(page.locator('.workspace-panel--right')).toBeHidden();
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 844 });
+    window.visualViewport!.dispatchEvent(new Event('resize'));
+  });
+  await expect(page.locator('.app')).toHaveAttribute('data-keyboard', 'false');
+  await expect(page.getByRole('toolbar', { name: 'Diagram tools' })).toBeVisible();
+  await expect(page.getByTestId('canvas').getByRole('button', { name: 'Entity Keyboard edit', exact: true })).toBeVisible();
 });
 
 test('Focus view keeps right-click creation and keyboard editing available', async ({ page }) => {

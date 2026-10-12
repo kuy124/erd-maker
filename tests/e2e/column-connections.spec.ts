@@ -1,4 +1,4 @@
-import { documentAction } from './actions';
+import { documentAction, inspectSelection } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import AxeBuilder from '@axe-core/playwright';
@@ -90,7 +90,9 @@ test('click connections edit actual fields, retain IDs through cardinality chang
   await anchored(page, 'attribute:c1', 'attribute:o2');
   await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByLabel('Cardinality at Order')).toHaveValue('N');
-  await row(page, 'o', 'attribute:o2').click(); await page.getByLabel('Attribute name').fill('customer_reference');
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await row(page, 'o', 'attribute:o2').click(); await inspectSelection(page);
+  await page.getByLabel('Attribute name').fill('customer_reference');
   await anchored(page, 'attribute:c1', 'attribute:o2');
   expect((await exported(page, 'SQL')).toString()).toContain('FOREIGN KEY ("customer_reference") REFERENCES "customer" ("customer_id")');
 });
@@ -103,6 +105,8 @@ test('dragging between rows creates one relationship and lines follow a moved ta
   await expect(page.getByLabel('Relationship name')).toBeFocused();
   await anchored(page, 'attribute:c1', 'attribute:o2');
   const old = await links(page).locator('.crow-link__path').getAttribute('d');
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await page.getByRole('button', { name: 'Select tool', exact: true }).click();
   const header = page.getByRole('button', { name: 'Table Order', exact: true });
   const box = (await header.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
@@ -134,10 +138,12 @@ test('keyboard connection, cancellation, generated columns, and JSON/share resto
 
 test('deletion reports an unavailable endpoint; Undo and reload restore it without losing the relationship', async ({ page }) => {
   await open(page); await connect(page);
-  await row(page, 'o', 'attribute:o2').click(); await expect(page.getByLabel('Attribute name')).toHaveValue('buyer_ref');
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await row(page, 'o', 'attribute:o2').click(); await inspectSelection(page);
+  await expect(page.getByLabel('Attribute name')).toHaveValue('buyer_ref');
   await properties(page).getByRole('button', { name: 'Delete attribute', exact: true }).click();
   await expect(links(page)).toHaveCount(1);
-  await page.getByRole('group', { name: 'Left panel' }).getByRole('button', { name: 'Diagram', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Workspace panels' }).getByRole('button', { name: 'Diagram', exact: true }).click();
   await page.getByRole('button', { name: 'Check diagram' }).click();
   await expect(page.getByRole('button').filter({ hasText: 'uses an unavailable attribute' })).toBeVisible();
   await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
@@ -187,7 +193,8 @@ test('collaborators share endpoints while retaining personal views and remote wo
   await alice.getByLabel('Connection attribute at Order').selectOption('attribute:o3');
   await expect.poll(async () => (await json(bob)).legs.find((l) => l.toId === 'o')?.columnId).toBe('attribute:o3');
   await bob.getByRole('button', { name: 'Crow\'s-foot', exact: true }).click();
-  await row(bob, 'c', 'attribute:c2').click(); await bob.getByLabel('Attribute name').fill('contact_email');
+  await row(bob, 'c', 'attribute:c2').click(); await inspectSelection(bob);
+  await bob.getByLabel('Attribute name').fill('contact_email');
   await expect(row(alice, 'c', 'attribute:c2')).toHaveAccessibleName('Edit attribute contact_email');
   await alice.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
   await anchored(alice, 'attribute:c1', 'attribute:o2');
@@ -239,7 +246,7 @@ for (const width of [320, 390, 768, 1440]) {
         const stage = document.querySelector('.canvas-stage')!;
         return [scrollX, app.scrollLeft, stage.scrollLeft];
       })).toEqual([0, 0, 0]);
-      const tools = await page.getByRole('toolbar').locator('button').evaluateAll((buttons) => buttons.map((button) => {
+      const tools = await page.getByRole('toolbar').locator('button').evaluateAll((buttons) => buttons.filter((button) => button.getClientRects().length > 0).map((button) => {
         const rect = button.getBoundingClientRect();
         return { x: rect.x, right: rect.right, width: rect.width, height: rect.height, textFits: button.scrollWidth <= button.clientWidth + 2 };
       }));

@@ -150,7 +150,7 @@ async function addNamedEntity(page: Page, name: string): Promise<void> {
  */
 async function waitForLink(pages: Page[]): Promise<void> {
   for (const page of pages) {
-    await expect(page.locator('.canvas-status')).toContainText(/Live with/, { timeout: 45_000 });
+    await expect(page.locator('.collaboration-status')).toContainText(/Editing with/, { timeout: 30_000 });
   }
 }
 
@@ -344,7 +344,7 @@ test.describe('editor basics', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
     // Nothing selected, so this one floats.
-    await canvas(page).click({ position: { x: 40, y: 40 } });
+    await canvas(page).click({ position: { x: 80, y: 120 } });
     await addShape(page, 'attribute');
 
     const attribute = page.getByTestId('canvas').locator('[data-node-id^="attr_"]');
@@ -1015,6 +1015,7 @@ test.describe('export', () => {
     // reaches her document, leaving her leg pointing at nothing. Customer keeps
     // its key, so this isolates the stale binding from "no key at all".
     await bob.getByLabel('Edit attribute buyer_ref').click();
+    await inspectSelection(bob);
     await bob.getByRole('button', { name: 'Delete attribute', exact: true }).click();
     await expect(bob.getByLabel('Edit attribute buyer_ref')).toHaveCount(0);
     await expect(alice.getByTestId('table-Order')).not.toContainText('buyer_ref');
@@ -1282,6 +1283,7 @@ test.describe('multiplayer', () => {
 
     // And Bob's edit flows back to Alice.
     await node(bob, /Entity Customer/i).click();
+    await inspectSelection(bob);
     await nameField(bob).fill('Client');
     await expect(node(alice, /Entity Client/i)).toBeVisible({ timeout: 20_000 });
 
@@ -1316,10 +1318,7 @@ test.describe('multiplayer', () => {
 
     // The status must NOT say "in this browser" — that wording is shown only
     // when no direct WebRTC connection exists.
-    await expect(alice.locator('.canvas-status')).toContainText(/Live with/, { timeout: 30_000 });
-    await expect(alice.locator('.canvas-status')).not.toContainText(/in this browser/, {
-      timeout: 30_000,
-    });
+    await expect(alice.locator('.collaboration-status')).toContainText('Direct connection', { timeout: 30_000 });
 
     await addNamedEntity(alice, 'Over the wire');
     await expect(node(bob, /Entity Over the wire/i)).toBeVisible({ timeout: 20_000 });
@@ -1375,6 +1374,7 @@ test.describe('multiplayer', () => {
     await node(alice, /Entity Alpha/i).click();
     await nameField(alice).fill('Alpha from Alice');
     await node(bob, /Entity Alpha/i).click();
+    await inspectSelection(bob);
     await nameField(bob).fill('Alpha from Bob');
 
     await alice.waitForTimeout(3000);
@@ -1951,7 +1951,8 @@ test.describe('multi-select', () => {
     await node(page, /Entity Alpha/i).click();
     await node(page, /Entity Beta/i).click({ modifiers: ['Shift'] });
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('heading', { name: /Select a shape/i })).toBeVisible();
+    await expect(page.getByTestId('canvas').locator('.selection-ring')).toHaveCount(0);
+    await expect(page.locator('.workspace-panel--right')).toBeHidden();
     await expect(node(page, /Entity Alpha/i)).toBeVisible();
     await expect(node(page, /Entity Beta/i)).toBeVisible();
   });
@@ -1999,9 +2000,9 @@ test.describe('multi-select', () => {
 
     // No modifier: this must pan, not marquee. "Empty paper always pans" is
     // what stops the canvas feeling stuck.
-    await page.mouse.move(canvas.x + 30, canvas.y + 30);
+    await page.mouse.move(canvas.x + 80, canvas.y + 120);
     await page.mouse.down();
-    await page.mouse.move(canvas.x + 130, canvas.y + 90, { steps: 6 });
+    await page.mouse.move(canvas.x + 180, canvas.y + 180, { steps: 6 });
     await page.mouse.up();
 
     expect(await page.locator('[data-viewport]').getAttribute('transform')).not.toBe(before);
@@ -2318,7 +2319,7 @@ test.describe('right-click menu', () => {
     await expect(page.getByRole('menu')).toBeVisible();
 
     const canvas = (await page.getByTestId('canvas').boundingBox())!;
-    await page.mouse.click(canvas.x + 20, canvas.y + 20);
+    await page.mouse.click(canvas.x + 80, canvas.y + 120);
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 });

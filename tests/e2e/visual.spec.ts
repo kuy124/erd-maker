@@ -1,4 +1,4 @@
-import { addShape, documentAction } from './actions';
+import { addShape, documentAction, inspectSelection } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -126,6 +126,7 @@ test('capture the interface', async ({ page }) => {
 
   // Crow's foot, with a one-to-many ratio stated on the connector.
   await page.getByTestId('leg-cardinality').nth(1).click();
+  await inspectSelection(page);
   await page.getByRole('button', { name: 'N', exact: true }).click();
   await page.getByRole('button', { name: "Crow's-foot" }).click();
   await page.waitForTimeout(300);
