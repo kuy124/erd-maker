@@ -1,3 +1,4 @@
+import { addShape, documentAction, openBuild, inspectSelection } from './actions';
 import { expect, test, type Page, type Download } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import { createExample } from '../../src/model/examples';
@@ -29,7 +30,7 @@ async function readDownload(file: Download) {
   return Buffer.concat(parts);
 }
 async function exportDocument(page: Page, format: 'JSON' | 'SVG' | 'PNG' | 'SQL') {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await documentAction(page, 'Export');
   await page.getByRole('tab', { name: format, exact: true }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download ' + format }).click();
@@ -64,13 +65,13 @@ test.describe('phone editing', () => {
     await properties(page).getByRole('button', { name: 'Key', exact: true }).tap();
 
     await panels(page).getByRole('button', { name: 'Build', exact: true }).tap();
-    await page.getByTestId('add-entity').tap();
+    await addShape(page, 'entity');
     await page.getByLabel('Entity name').fill('Order');
     await properties(page).getByRole('button', { name: 'Add attribute', exact: true }).tap();
     await page.getByLabel('Attribute name').fill('order_id');
     await properties(page).getByRole('button', { name: 'Key', exact: true }).tap();
     await panels(page).getByRole('button', { name: 'Build', exact: true }).tap();
-    await page.getByTestId('add-relationship').tap();
+    await addShape(page, 'relationship');
     await page.getByLabel('Relationship name').fill('places');
     await page.getByRole('button', { name: 'Add participant' }).tap();
     await page.getByLabel('Entity 1', { exact: true }).selectOption({ label: 'Customer' });
@@ -94,7 +95,7 @@ test.describe('phone editing', () => {
     await expect(page.locator('.feedback')).toContainText('Order deleted.');
     await page.locator('.feedback').getByRole('button', { name: 'Undo', exact: true }).tap();
 
-    await page.getByRole('button', { name: 'Share', exact: true }).tap();
+    await documentAction(page, 'Share');
     const link = await page.getByLabel('Share link').inputValue();
     expect(parseShareHash(new URL(link).hash).doc?.entities).toHaveLength(2);
     await page.getByRole('button', { name: 'Done', exact: true }).tap();
@@ -113,15 +114,15 @@ test.describe('phone editing', () => {
 test('new diagrams, examples, and legacy imports open separately and Back restores persisted edits and notation', async ({ page }) => {
   await page.goto('/');
   await ready(page);
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await page.getByLabel('Entity name').fill('My diagram');
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
   const original = page.url();
-  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await documentAction(page, 'New');
   await ready(page);
   expect(page.url()).not.toBe(original);
   await expect(page.getByRole('heading', { name: 'Start with an entity' })).toBeVisible();
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await page.getByLabel('Entity name').fill('Second room');
   await page.goBack();
   await ready(page);
@@ -130,6 +131,7 @@ test('new diagrams, examples, and legacy imports open separately and Back restor
   await page.goForward();
   await ready(page);
   await expect(canvas(page).getByRole('button', { name: 'Entity Second room', exact: true })).toBeVisible();
+  await openBuild(page);
   await page.getByTestId('rail').getByRole('button', { name: 'Open an example', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: /Customer & Order/ }).click();
   await ready(page);
@@ -148,7 +150,7 @@ test('new diagrams, examples, and legacy imports open separately and Back restor
 test('invalid imports explain recovery and keep the current room intact', async ({ page }) => {
   await page.goto('/');
   await ready(page);
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await page.getByLabel('Entity name').fill('Keep me');
   const url = page.url();
   await importDocument(page, {});
@@ -185,6 +187,7 @@ test('table rows distinguish editable attributes, generated keys, and inferred t
   await importDocument(page, createExample('orders'));
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
   await canvas(page).getByRole('button', { name: 'Edit attribute customer_id', exact: true }).click();
+  await inspectSelection(page);
   await expect(page.getByLabel('Attribute name')).toHaveValue('customer_id');
   await page.getByLabel('Attribute name').fill('customer_number');
   await expect(canvas(page).getByRole('button', { name: 'Edit attribute customer_number', exact: true })).toBeVisible();
@@ -228,7 +231,7 @@ test('collaborators keep independent views and undo local changes alongside remo
   await alice.goto('/');
   await ready(alice);
   await importDocument(alice, createExample('orders'));
-  await alice.getByRole('button', { name: 'Share', exact: true }).click();
+  await documentAction(alice, 'Share');
   const link = await alice.getByLabel('Share link').inputValue();
   await alice.getByRole('button', { name: 'Done', exact: true }).click();
   const other = await browser.newContext();
@@ -251,7 +254,7 @@ test('collaborators keep independent views and undo local changes alongside remo
     await expect.poll(async () => (await json(bob)).legs[0]?.participation.max).toBe(4);
     await findShape(alice, 'Customer');
     await alice.getByLabel('Entity name').fill('Local name');
-    await bob.getByTestId('add-entity').click();
+    await addShape(bob, 'entity');
     await bob.getByLabel('Entity name').fill('Remote entity');
     await expect(canvas(alice).getByRole('button', { name: 'Entity Remote entity', exact: true })).toBeVisible();
     await alice.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -271,7 +274,7 @@ test('clipboard failures offer a selectable share link for manual copying', asyn
   });
   await page.goto('/');
   await ready(page);
-  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await documentAction(page, 'Share');
   await page.getByRole('button', { name: 'Copy link', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('copy it manually');
   await page.getByLabel('Share link').focus();
@@ -316,7 +319,8 @@ for (const colorScheme of ['light', 'dark'] as const) for (const width of [320, 
     await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
     if (width < 1100) await page.getByRole('button', { name: 'Close panel', exact: true }).click();
     await page.getByRole('button', { name: 'Fit', exact: true }).click();
-    const relationAction = page.getByRole('toolbar').getByRole('button', { name: 'Add relationship', exact: true });
+    await openBuild(page);
+    const relationAction = page.getByTestId('add-relationship');
     await expect(relationAction).toBeVisible();
     const actionBounds = await relationAction.boundingBox();
     expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(width);

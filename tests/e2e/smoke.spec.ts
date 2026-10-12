@@ -1,3 +1,4 @@
+import { addShape, documentAction } from './actions';
 /**
  * Smoke test against the deployed site.
  *
@@ -48,7 +49,7 @@ test.describe('deployed site', () => {
 
     await page.goto(DEPLOY_URL!);
     await expect(page.getByTestId('canvas')).toBeVisible();
-    await page.getByTestId('add-entity').click();
+    await addShape(page, 'entity');
     await expect(page.getByTestId('canvas').getByRole('button', { name: /Entity New entity/i })).toBeVisible();
 
     expect(failedRequests, 'requests failed to load').toEqual([]);
@@ -58,10 +59,10 @@ test.describe('deployed site', () => {
   test('accepts a share link and builds one', async ({ page }) => {
     await page.goto(DEPLOY_URL!);
     await expect(page.getByTestId('canvas')).toBeVisible();
-    await page.getByTestId('add-entity').click();
+    await addShape(page, 'entity');
     await page.getByTestId('inspector-name').fill('Deployed');
 
-    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(page, 'Share');
     const link = await page.getByLabel('Share link').inputValue();
     expect(link).toContain('#room=');
 

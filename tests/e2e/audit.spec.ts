@@ -1,3 +1,4 @@
+import { addShape, documentAction, inspectSelection } from './actions';
 /**
  * Feature audit.
  *
@@ -47,19 +48,19 @@ async function openApp(page: Page): Promise<void> {
 
 /** Customer --(places)-- Order, with a key on each. */
 async function buildTwoEntities(page: Page): Promise<void> {
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await nameField(page).fill('Customer');
-  await page.getByTestId('add-attribute').click();
+  await addShape(page, 'attribute');
   await nameField(page).fill('customer_id');
   await page.getByRole('button', { name: 'Key', exact: true }).click();
 
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await nameField(page).fill('Order');
-  await page.getByTestId('add-attribute').click();
+  await addShape(page, 'attribute');
   await nameField(page).fill('order_id');
   await page.getByRole('button', { name: 'Key', exact: true }).click();
 
-  await page.getByTestId('add-relationship').click();
+  await addShape(page, 'relationship');
   await nameField(page).fill('places');
   await page.getByRole('button', { name: 'Auto-arrange' }).click();
   await page.waitForTimeout(150);
@@ -72,11 +73,12 @@ async function buildTwoEntities(page: Page): Promise<void> {
   // Back to selecting, the way anyone finishes a connection: the editing
   // affordances on the lines are hidden while the Connect tool is active.
   await page.getByRole('button', { name: 'Select tool' }).click();
+  await inspectSelection(page);
 }
 
 async function readSvg(page: Page): Promise<string> {
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await documentAction(page, 'Export');
   await page.getByRole('button', { name: 'Download SVG' }).click();
   const file = await downloadPromise;
   const stream = await file.createReadStream();
@@ -358,7 +360,7 @@ test.describe("crow's foot", () => {
 test.describe('ease of use', () => {
   test('AUDIT: typing is possible immediately after adding a shape', async ({ page }) => {
     await openApp(page);
-    await page.getByTestId('add-entity').click();
+    await addShape(page, 'entity');
 
     // ERDPlus-style: the name field should already have focus, so a new user
     // can just start typing without hunting for the inspector.

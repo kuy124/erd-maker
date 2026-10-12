@@ -17,6 +17,7 @@ import { ContextMenu, type MenuItem } from './ui/ContextMenu';
 import { ShareDialog } from './ui/Modals';
 import { ShapeRail, type ShapeKind } from './ui/ShapeRail';
 import { DiagramOutline, ExamplesDialog, HelpPanel } from './ui/WorkspacePanels';
+import { WorkspaceIcon } from './ui/WorkspaceIcon';
 
 type Dialog = 'share' | 'export' | 'examples' | null;
 type Panel = 'build' | 'diagram' | 'properties' | 'help';
@@ -78,6 +79,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   const state = useEditor(room, seed);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileMenuTrigger = useRef<HTMLButtonElement>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
@@ -87,12 +89,15 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   const panelTrigger = useRef<HTMLElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [menu, setMenu] = useState<MenuRequest | null>(null);
+  const [fileMenuAt, setFileMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
   const framed = useRef(false);
   const isCrowFoot = state.view === 'crowfoot';
   const isEmpty = allNodes(state.doc).length === 0;
 
   const showPanel = useCallback((panel: Panel, trigger?: HTMLElement) => {
     if (trigger) panelTrigger.current = trigger;
+    setFocusMode(false);
     setOpenPanel(panel);
     if (panel === 'build' || panel === 'diagram') setLeftTab(panel);
     else setRightTab(panel);
@@ -103,17 +108,50 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     if (panelTrigger.current?.getClientRects().length) panelTrigger.current.focus();
     else svgRef.current?.focus();
   }, []);
-  /**
-   * Selecting anything opens the properties panel, because a selection with no
-   * visible consequence reads as a dead click. Clearing it does not close the
-   * panel — Escape leaving the panel open on an empty canvas is less jarring
-   * than it snapping shut.
-   */
-  const select = useCallback((ids: string[]) => {
-    state.setSelection(ids);
-    if (ids.length > 0) showPanel('properties');
-  }, [state.setSelection, showPanel]);
-  const editor = useMemo(() => ({ ...state, setSelection: select }), [state, select]);
+  const select = state.setSelection;
+  const editor = state;
+  const toggleFocus = useCallback(() => {
+    setFocusMode((current) => !current);
+    setOpenPanel(null);
+    setMenu(null);
+    setFileMenuAt(null);
+    requestAnimationFrame(() => svgRef.current?.focus());
+  }, []);
+
+  // Floating controls and open panels leave the canvas size unchanged. Frame
+  // shapes inside the unobscured part of it instead of moving them under a panel.
+  const canvasArea = useCallback(() => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const app = svgRef.current?.closest('.app');
+    const quiet = app?.getAttribute('data-focus') === 'true' || app?.getAttribute('data-keyboard') === 'true';
+    const phone = window.matchMedia('(max-width: 767px)').matches;
+    let left = quiet || phone ? 20 : 72;
+    let right = 20;
+    const top = quiet ? 20 : phone ? 124 : 80;
+    let bottom = quiet ? 20 : phone ? 124 : 80;
+    for (const panel of app?.querySelectorAll('.workspace-panel[data-open="true"]') ?? []) {
+      const bounds = panel.getBoundingClientRect();
+      if (phone) bottom = Math.max(bottom, rect.bottom - bounds.top + 12);
+      else if (panel.classList.contains('workspace-panel--left')) left = Math.max(left, bounds.right - rect.left + 12);
+      else right = Math.max(right, rect.right - bounds.left + 12);
+    }
+    return { x: left, y: top, width: Math.max(1, rect.width - left - right), height: Math.max(1, rect.height - top - bottom) };
+  }, []);
+
+  const fitToDoc = useCallback((doc: ErdDocument) => {
+    const area = canvasArea();
+    if (!area) return;
+    const bounds = documentBounds(doc, 40);
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+    const zoom = Math.max(0.25, Math.min(1.2, area.width / width, area.height / height));
+    state.setViewport(() => ({
+      zoom, x: area.x - bounds.minX * zoom + (area.width - width * zoom) / 2,
+      y: area.y - bounds.minY * zoom + (area.height - height * zoom) / 2,
+    }));
+  }, [state.setViewport, canvasArea]);
+  const fitToView = useCallback(() => fitToDoc(state.doc), [fitToDoc, state.doc]);
 
   useEffect(() => {
     if (!state.justCreated || !state.selection.includes(state.justCreated)) return;
@@ -124,46 +162,30 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       if (!rect || !node) return;
       const table = state.view === 'crowfoot' ? deriveTables(state.doc).find((item) =>
         item.entityId === node.id || item.rows.some((row) => row.attributeId === node.id)) : null;
-      if (state.view === 'crowfoot' && !table) return;
+      if (state.view === 'crowfoot' && !table) { fitToDoc(state.doc); return; }
       const rowIndex = table?.rows.findIndex((row) => row.attributeId === node.id) ?? -1;
       const dimensions = table ? { w: CROW_WIDTH, h: rowIndex < 0 ? tableHeight(table) : 44 } : sizeOf(state.doc, node.id);
       const x = table?.x ?? node.x;
       const y = table ? table.y + (rowIndex < 0 ? 0 : 44 + rowIndex * 44) : node.y;
-      const panel = document.querySelector('.workspace-panel--right[data-open="true"]')?.getBoundingClientRect();
-      const phone = window.matchMedia('(max-width: 767px)').matches;
-      const drawer = window.matchMedia('(max-width: 1099px)').matches;
-      const width = rect.width - (drawer && !phone ? panel?.width ?? 0 : 0);
-      const height = rect.height - (phone ? panel?.height ?? 0 : 0);
+      const area = canvasArea();
+      if (!area) return;
       state.setViewport((current) => {
         // A shape created under the pointer is already on screen, and
         // re-centring on it yanked the canvas out from under the pointer that
         // had just placed it. Only move the view when the shape would otherwise
         // be off it — which is the case when it was created from the shape rail
         // with the pointer parked in a side panel.
-        if (isVisibleIn(x, y, dimensions, width, height, current)) return current;
+        if (isVisibleIn(x, y, dimensions, area.width, area.height,
+          { ...current, x: current.x - area.x, y: current.y - area.y })) return current;
         return {
           ...current,
-          x: width / 2 - (x + dimensions.w / 2) * current.zoom,
-          y: height / 2 - (y + dimensions.h / 2) * current.zoom,
+          x: area.x + area.width / 2 - (x + dimensions.w / 2) * current.zoom,
+          y: area.y + area.height / 2 - (y + dimensions.h / 2) * current.zoom,
         };
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [state.justCreated, showPanel]);
-
-  const fitToDoc = useCallback((doc: ErdDocument) => {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect?.width || !rect.height) return;
-    const bounds = documentBounds(doc, 40);
-    const width = bounds.maxX - bounds.minX;
-    const height = bounds.maxY - bounds.minY;
-    const zoom = Math.max(0.25, Math.min(1.2, rect.width / width, rect.height / height));
-    state.setViewport(() => ({
-      zoom, x: -bounds.minX * zoom + (rect.width - width * zoom) / 2,
-      y: -bounds.minY * zoom + (rect.height - height * zoom) / 2,
-    }));
-  }, [state.setViewport]);
-  const fitToView = useCallback(() => fitToDoc(state.doc), [fitToDoc, state.doc]);
+  }, [state.justCreated, showPanel, canvasArea, fitToDoc]);
 
   useEffect(() => {
     if (!state.loaded || framed.current) return;
@@ -237,6 +259,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     if (view === 'crowfoot' && !table && !link) view = 'chen';
     if (view !== state.view) state.setView(view);
     select([id]);
+    showPanel('properties');
     let node = allNodes(state.doc).find((item) => item.id === id);
     if (!node) {
       const leg = state.doc.legs.find((item) => item.id === id);
@@ -253,15 +276,10 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       point = routeColumns(a, link.fromColumnId, b, link.toColumnId, link.lane).label;
     }
     if (point) requestAnimationFrame(() => {
-      const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const panel = document.querySelector('.workspace-panel--right[data-open="true"]')?.getBoundingClientRect();
-      const phone = window.matchMedia('(max-width: 767px)').matches;
-      const drawer = window.matchMedia('(max-width: 1099px)').matches;
-      const width = rect.width - (drawer && !phone ? panel?.width ?? 0 : 0);
-      const height = rect.height - (phone ? panel?.height ?? 0 : 0);
+      const area = canvasArea();
+      if (!area) return;
       state.setViewport((current) => ({ ...current,
-        x: width / 2 - point!.x * current.zoom, y: height / 2 - point!.y * current.zoom,
+        x: area.x + area.width / 2 - point!.x * current.zoom, y: area.y + area.height / 2 - point!.y * current.zoom,
       }));
     });
     if (attribute && view === 'chen') setConnectFrom(null);
@@ -331,13 +349,17 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         case 'delete': case 'backspace':
           if (state.selection.length > 0) { event.preventDefault(); state.remove(state.selection); }
           break;
-        case 'escape': setConnectFrom(null); state.setSelection([]); closePanel(); break;
+        case 'i': event.preventDefault(); toggleFocus(); break;
+        case 'escape':
+          if (focusMode) { event.preventDefault(); toggleFocus(); }
+          else { setConnectFrom(null); state.setSelection([]); closePanel(); }
+          break;
         case '?': showPanel('help'); break;
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [state, isCrowFoot, addShape, fitToView, closePanel, showPanel, dialog]);
+  }, [state, isCrowFoot, addShape, fitToView, closePanel, showPanel, dialog, focusMode, toggleFocus]);
 
   // VisualViewport shrinks when a phone keyboard opens; sheets stay above it.
   useEffect(() => {
@@ -359,6 +381,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     'Editing with ' + state.peers.map((peer) => peer.name).join(', ');
   const closeDialog = useCallback(() => setDialog(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const closeFileMenu = useCallback(() => setFileMenuAt(null), []);
 
   /**
    * Opens the right-click menu over whatever is under the pointer.
@@ -372,6 +395,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   const openMenu = useCallback((event: React.MouseEvent | React.KeyboardEvent) => {
     event.preventDefault();
     event.stopPropagation();
+    setFileMenuAt(null);
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || !state.loaded) return;
     const target = event.target instanceof Element ? event.target : null;
@@ -406,6 +430,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       return [
         { label: 'Edit properties', onSelect: () => {
           select(selection);
+          showPanel('properties');
           requestAnimationFrame(() => {
             const field = document.querySelector<HTMLInputElement | HTMLSelectElement>('.inspector input, .inspector select');
             field?.focus();
@@ -431,36 +456,53 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       create('relationship', 'New relationship', 'R'),
       create('isa', 'New specialization', 'S'),
     ];
-  }, [menu, state.selection, state.doc.groups, state.group, state.ungroup, state.remove, addShape, select]);
+  }, [menu, state.selection, state.doc.groups, state.group, state.ungroup, state.remove, addShape, select, showPanel]);
+  const fileItems: MenuItem[] = [
+    { label: 'New', onSelect: () => openDocument(emptyDocument()) },
+    { label: 'Import', onSelect: () => fileInputRef.current?.click() },
+    { label: 'Open an example', onSelect: () => setDialog('examples') },
+    { label: 'Export', separated: true, onSelect: () => setDialog('export') },
+    { label: 'Share', onSelect: () => setDialog('share') },
+    { label: 'Help', separated: true, onSelect: () => showPanel('help') },
+  ];
   const emptyActions = isEmpty ? <div className="starter-actions">
     <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
     <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
   </div> : null;
 
   return (
-    <div className="app" data-keyboard={keyboardOpen}>
+    <div className="app" data-keyboard={keyboardOpen} data-focus={focusMode}>
       <a className="skip-link" href="#canvas-region" onClick={(event) => { event.preventDefault(); svgRef.current?.focus(); }}>Skip to the canvas</a>
       <header className="topbar">
-        <h1 className="wordmark"><span className="wordmark__mark" aria-hidden="true">▢</span>ERD Maker</h1>
+        <h1 className="visually-hidden">ERD Maker</h1>
+        <button ref={fileMenuTrigger} type="button" className="btn btn--ghost icon-control" aria-label="Diagram actions"
+          title="Diagram actions" aria-haspopup="menu" aria-expanded={Boolean(fileMenuAt)}
+          onClick={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            setMenu(null);
+            setFileMenuAt(fileMenuAt ? null : { x: bounds.left, y: bounds.bottom + 8 });
+          }}><WorkspaceIcon name="menu" /></button>
         <div className="document-title">
           <label className="visually-hidden" htmlFor="doc-name">Diagram name</label>
           <input id="doc-name" className="docname" value={state.doc.name} disabled={!state.loaded}
             onChange={(event) => state.setDocName(event.target.value)} placeholder="Untitled diagram" autoComplete="off" />
-          <span className="storage-label">{state.loaded ? 'Saves in this browser' : 'Opening diagram…'}</span>
+          <span className="storage-label visually-hidden">{state.loaded ? 'Saves in this browser' : 'Opening diagram…'}</span>
+        </div>
+        <div className="seg notation" role="group" aria-label="Notation">
+          {(['chen', 'crowfoot'] as const).map((view) => <button key={view} type="button" className="seg__btn" aria-pressed={state.view === view}
+            onClick={() => { state.setView(view); requestAnimationFrame(() => fitToDoc({ ...state.doc, view })); }}>{view === 'chen' ? 'Chen' : "Crow's-foot"}</button>)}
         </div>
         <span className="topbar__spacer" />
-        <div className="presence" title={peerSummary} aria-label={peerSummary}>
-          <span className="presence__avatar" style={{ background: state.identity.color, color: presenceInk(state.identity.color) }}
-            title={'You are ' + state.identity.name}>{initials(state.identity.name)}</span>
+        {state.peers.length > 0 ? <div className="presence" title={peerSummary} aria-label={peerSummary}>
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}
-        </div>
+        </div> : null}
         <div className="file-actions">
-          <button type="button" className="btn btn--ghost" onClick={() => openDocument(emptyDocument())}>New</button>
-          <button type="button" className="btn" onClick={() => fileInputRef.current?.click()} title="Open a diagram file in a separate room">Import</button>
-          <button type="button" className="btn" onClick={() => setDialog('export')}>Export</button>
-          <button type="button" className="btn btn--primary" onClick={() => setDialog('share')}>Share</button>
-          <button type="button" className="btn btn--ghost desktop-help" onClick={(event) => showPanel('help', event.currentTarget)}>Help</button>
+          <button type="button" className="btn btn--ghost icon-control header-export" aria-label="Export"
+            title="Export diagram" onClick={() => setDialog('export')}><WorkspaceIcon name="export" /></button>
+          <button type="button" className="btn btn--ghost header-share" onClick={() => setDialog('share')}>Share</button>
+          <button type="button" className="btn btn--ghost icon-control" aria-label="Enter Focus view"
+            title="Focus view (I)" aria-keyshortcuts="I" onClick={toggleFocus}><WorkspaceIcon name="focus" /></button>
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" className="visually-hidden"
           onChange={(event) => { const file = event.target.files?.[0]; if (file) void onImportFile(file); event.target.value = ''; }}
@@ -468,23 +510,18 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       </header>
 
       <div className="editor-toolbar" role="toolbar" aria-label="Diagram tools">
-        <div className="seg notation" role="group" aria-label="Notation">
-          {(['chen', 'crowfoot'] as const).map((view) => <button key={view} type="button" className="seg__btn" aria-pressed={state.view === view}
-            onClick={() => { state.setView(view); requestAnimationFrame(() => fitToDoc({ ...state.doc, view })); }}>{view === 'chen' ? 'Chen' : "Crow's-foot"}</button>)}
-        </div>
         <div className="history-tools">
-          <button type="button" className="btn btn--ghost" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={state.undo}>↶<span className="wide-label"> Undo</span></button>
-          <button type="button" className="btn btn--ghost" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={state.redo}>↷<span className="wide-label"> Redo</span></button>
+          <button type="button" className="btn btn--ghost icon-control" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={state.undo}>↶</button>
+          <button type="button" className="btn btn--ghost icon-control" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={state.redo}>↷</button>
         </div>
         <div className="drawing-tools">
-          <button type="button" className="btn btn--ghost tool-btn" aria-label="Select tool" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}>Select</button>
-          <button type="button" className="btn btn--ghost tool-btn" aria-label="Connect tool"
+          <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Select tool" title="Select (V)" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}><WorkspaceIcon name="select" /></button>
+          <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Connect tool"
             title={isCrowFoot ? 'Connect two attribute rows (C)' : 'Connect two entities to create a relationship (C)'}
-            aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}>Connect</button>
-          {isCrowFoot ? <button type="button" className="btn btn--ghost" aria-label="Add relationship" onClick={() => addShape('relationship')}><span className="wide-label">Add </span>Relationship</button> : null}
-          <button type="button" className="btn btn--ghost tool-btn" aria-label="Pan tool" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}>Pan</button>
+            aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}><WorkspaceIcon name="connect" /></button>
+          <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Pan tool" title="Pan (H)" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}><WorkspaceIcon name="pan" /></button>
         </div>
-        <button type="button" className="btn btn--ghost arrange-btn" onClick={tidy} title="Arrange the diagram automatically">Auto-arrange</button>
+        <button type="button" className="btn btn--ghost arrange-btn icon-control" aria-label="Auto-arrange" onClick={tidy} title="Auto-arrange"><WorkspaceIcon name="arrange" /></button>
       </div>
 
       <div className="workspace" id="canvas-region">
@@ -494,7 +531,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
               <button type="button" className="seg__btn" aria-pressed={leftTab === 'build'} onClick={() => { setLeftTab('build'); setOpenPanel('build'); }}>Build</button>
               <button type="button" className="seg__btn" aria-pressed={leftTab === 'diagram'} onClick={() => { setLeftTab('diagram'); setOpenPanel('diagram'); }}>Diagram</button>
             </div>
-            <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}>×</button>
+            <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}><span className="panel-close--desktop">×</span><span className="panel-close--phone">Done</span></button>
           </div>
           {leftTab === 'build' ? <ShapeRail state={editor} onAdd={addShape} onExamples={() => setDialog('examples')} /> :
             <DiagramOutline state={editor} onSelect={focusShape} />}
@@ -516,24 +553,28 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         <div className="workspace-panel workspace-panel--right" data-open={openPanel === 'properties' || openPanel === 'help'}>
           <div className="panel-header panel-header--right">
             <span>{rightTab === 'help' ? 'Help' : 'Properties'}</span>
-            <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}>×</button>
+            <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}><span className="panel-close--desktop">×</span><span className="panel-close--phone">Done</span></button>
           </div>
           {rightTab === 'help' ? <HelpPanel /> : <Inspector state={editor} nameFocusReady={openPanel === 'properties'} />}
         </div>
       </div>
 
-      <footer className="statusbar">
+      <footer className="statusbar visually-hidden">
         <span className="diagram-counts">{state.doc.entities.length} entities · {state.doc.relationships.length} relationships · {state.doc.attributes.length} attributes</span>
         <span className="statusbar__spacer" />
         <span className="collaboration-status">{peerSummary}{state.directPeers > 0 ? ' · Direct connection' : state.connected ? ' · Same browser' : ''}</span>
-        {connectFrom ? <span className="connection-guidance">Pick a shape to connect <button type="button" className="btn btn--ghost" onClick={() => setConnectFrom(null)}>Cancel</button></span> : null}
       </footer>
+      {connectFrom ? <div className="connection-guidance" role="status">Pick a shape to connect <button type="button" className="btn btn--ghost" onClick={() => setConnectFrom(null)}>Cancel</button></div> : null}
       <nav className="panel-navigation" aria-label="Workspace panels">
         {(['build', 'diagram', 'properties', 'help'] as const).map((panel) => <button key={panel} type="button" className="btn btn--ghost"
+          aria-label={panel.charAt(0).toUpperCase() + panel.slice(1)} title={panel.charAt(0).toUpperCase() + panel.slice(1)}
           aria-expanded={openPanel === panel} onClick={(event) => openPanel === panel ? closePanel() : showPanel(panel, event.currentTarget)}>
-          {panel.charAt(0).toUpperCase() + panel.slice(1)}
+          <WorkspaceIcon name={panel} />
+          <span className="panel-navigation__label">{panel === 'build' ? 'Add' : panel === 'properties' ? 'Edit' : panel.charAt(0).toUpperCase() + panel.slice(1)}</span>
         </button>)}
       </nav>
+      {focusMode ? <button type="button" className="btn btn--ghost focus-exit" aria-label="Exit Focus view"
+        title="Exit Focus view (Esc or I)" onClick={toggleFocus}><WorkspaceIcon name="focus" /><span>Exit Focus view</span></button> : null}
 
       {error ? <div className="feedback feedback--error" role="alert"><span>{error}</span><button type="button" className="btn btn--ghost" onClick={() => setError(null)}>Dismiss</button></div> : null}
       {state.notice ? <div className="feedback" role="status"><span>{state.notice}</span>
@@ -545,6 +586,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       {menu && menuItems ? (
         <ContextMenu at={menu.at} items={menuItems} label={menu.shape ? 'Shape actions' : 'Add a shape'} onClose={closeMenu} />
       ) : null}
+      {fileMenuAt ? <ContextMenu at={fileMenuAt} items={fileItems} label="Diagram actions" onClose={closeFileMenu} trigger={fileMenuTrigger} /> : null}
     </div>
   );
 }

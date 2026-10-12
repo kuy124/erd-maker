@@ -31,7 +31,7 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 3;
 
 export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions }: Props) {
-  const { doc, viewport, selection, tool, peers, identity } = state;
+  const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
 
@@ -730,19 +730,6 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
         </div>
       ) : null}
 
-      <div className="canvas-status" role="status">
-        <span
-          className={`canvas-status__dot${state.connected ? ' canvas-status__dot--live' : ''}`}
-          aria-hidden="true"
-        />
-        {state.connected
-          ? `Live with ${state.peers.length} ${state.peers.length === 1 ? 'peer' : 'peers'}${
-              state.directPeers > 0 ? '' : ' in this browser'
-            }`
-          : 'Editing alone'}
-        <span aria-hidden="true">·</span>
-        <span>You are {identity.name}</span>
-      </div>
     </div>
   );
 }

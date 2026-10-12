@@ -12,9 +12,11 @@
  */
 
 import { expect, test } from '@playwright/test';
+import { openBuild } from './actions';
 
 test('no shape rail label is truncated at desktop width', async ({ page }) => {
   await page.goto('/');
+  await openBuild(page);
   await expect(page.getByTestId('rail')).toBeVisible();
   await page.waitForTimeout(200);
 
@@ -34,6 +36,7 @@ test('no shape rail label is truncated at desktop width', async ({ page }) => {
 
 test('rail labels are legible at a large text size', async ({ page }) => {
   await page.goto('/');
+  await openBuild(page);
   await expect(page.getByTestId('rail')).toBeVisible();
 
   // Text-only zoom, which is what a browser's zoom or a larger default font

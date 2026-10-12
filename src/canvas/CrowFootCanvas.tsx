@@ -440,13 +440,10 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
         </div>
       ) : null}
 
-      <div className="canvas-status" role="status">
-        {tool === 'connect' ? (connectFrom ? 'Choose the second attribute' : 'Choose an attribute, then another. You can also drag between rows.') : "Crow's-foot view"}
-        <span aria-hidden="true">·</span>
-        <span>{positioned.length} {positioned.length === 1 ? 'table' : 'tables'}</span>
-        {connectFrom ? <button className="btn btn--ghost" type="button" onClick={() => { setConnectFrom(null); setPointer(null); }}>Cancel connection</button> :
-          <span className="table-legend">· gen = generated · Types inferred</span>}
-      </div>
+      {tool === 'connect' ? <div className="canvas-status" role="status">
+        {connectFrom ? 'Choose the second attribute' : 'Choose an attribute, then another. You can also drag between rows.'}
+        {connectFrom ? <button className="btn btn--ghost" type="button" onClick={() => { setConnectFrom(null); setPointer(null); }}>Cancel connection</button> : null}
+      </div> : null}
     </div>
   );
 }

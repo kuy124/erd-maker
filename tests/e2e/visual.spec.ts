@@ -1,3 +1,4 @@
+import { addShape, documentAction } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -35,21 +36,21 @@ test('capture the exported SVG', async ({ page }) => {
   await expect(page.getByTestId('canvas')).toBeVisible();
   await page.waitForTimeout(300);
 
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await page.getByTestId('inspector-name').fill('Customer');
   await page.keyboard.press('Escape');
-  await page.getByTestId('add-attribute').click();
+  await addShape(page, 'attribute');
   await page.getByTestId('inspector-name').fill('customer_id');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Key', exact: true }).click();
 
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await page.getByTestId('inspector-name').fill('Order');
   await page.keyboard.press('Escape');
-  await page.getByTestId('add-attribute').click();
+  await addShape(page, 'attribute');
   await page.getByTestId('inspector-name').fill('total');
   await page.keyboard.press('Escape');
-  await page.getByTestId('add-relationship').click();
+  await addShape(page, 'relationship');
   await page.getByTestId('inspector-name').fill('places');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Auto-arrange' }).click();
@@ -71,7 +72,7 @@ test('capture the exported SVG', async ({ page }) => {
   await page.waitForTimeout(200);
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await documentAction(page, 'Export');
   await page.getByRole('button', { name: 'Download SVG' }).click();
   const file = await downloadPromise;
   const stream = await file.createReadStream();
@@ -96,23 +97,23 @@ test('capture the interface', async ({ page }) => {
   await page.waitForTimeout(400);
   await page.screenshot({ path: shot('01-empty-chen') });
 
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await name(page, 'Customer');
   await page.keyboard.press('Escape');
-  await page.getByTestId('add-attribute').click();
+  await addShape(page, 'attribute');
   await name(page, 'customer_id');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Key', exact: true }).click();
 
-  await page.getByTestId('add-entity').click();
+  await addShape(page, 'entity');
   await name(page, 'Order');
   await page.keyboard.press('Escape');
-  await page.getByTestId('add-attribute').click();
+  await addShape(page, 'attribute');
   await name(page, 'order_id');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Key', exact: true }).click();
 
-  await page.getByTestId('add-relationship').click();
+  await addShape(page, 'relationship');
   await name(page, 'places');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Auto-arrange' }).click();
@@ -131,13 +132,13 @@ test('capture the interface', async ({ page }) => {
   await page.screenshot({ path: shot('03-crowfoot') });
 
   await page.getByRole('button', { name: 'Chen' }).click();
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await documentAction(page, 'Export');
   await page.getByRole('tab', { name: 'SQL' }).click();
   await page.waitForTimeout(300);
   await page.screenshot({ path: shot('04-export-sql') });
 
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await documentAction(page, 'Share');
   await page.waitForTimeout(300);
   await page.screenshot({ path: shot('05-share') });
   await page.keyboard.press('Escape');

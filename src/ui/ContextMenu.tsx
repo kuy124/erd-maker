@@ -32,9 +32,10 @@ interface Props {
   items: MenuItem[];
   label: string;
   onClose: () => void;
+  trigger?: React.RefObject<HTMLElement>;
 }
 
-export function ContextMenu({ at, items, label, onClose }: Props) {
+export function ContextMenu({ at, items, label, onClose, trigger }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState(at);
   const restoreFocus = useRef(true);
@@ -99,7 +100,7 @@ export function ContextMenu({ at, items, label, onClose }: Props) {
     };
 
     const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && node?.contains(event.target)) return;
+      if (event.target instanceof Node && (node?.contains(event.target) || trigger?.current?.contains(event.target))) return;
       restoreFocus.current = false;
       closeRef.current();
     };

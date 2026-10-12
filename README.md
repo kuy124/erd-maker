@@ -28,7 +28,11 @@ In crow’s-foot, choose **Connect** (C) and click or tap two attribute rows, or
 
 Use **Diagram** to search every shape and center a selection. **Check diagram** offers hints for missing names and keys, unattached attributes, incomplete relationships, and invalid participation ranges. Selecting a hint opens the affected properties. Help explains notation and keyboard shortcuts alongside the canvas.
 
-At 1100px and wider, Build/Diagram and Properties sit beside the canvas. Tablets use side drawers. Phones use Build, Diagram, Properties, and Help sheets that scroll above the on-screen keyboard.
+The canvas fills the workspace. Open Build, Diagram, Properties, or Help from the compact controls on the left; opening or closing panels preserves your drawing position. On phones, **Add**, **Diagram**, **Edit**, and **Help** sit along the bottom instead of covering the left side. Scrollable editing sheets occupy at most 45% of the screen, with **Done** to return to the drawing; Select, Connect, Pan, Undo, and Redo remain available below them. Sheets stay above the on-screen keyboard. Selecting a shape highlights it; use Properties (Edit on phones) or right-click **Edit properties** to edit. New shapes still open their names for typing. Use **Fit** when you want to frame the drawing around an open panel.
+
+Use **Focus view** (I) to hide the controls and spend the whole screen on the diagram. Pan, zoom, shortcuts, and the right-click menu keep working. Press Escape or I, or use **Exit Focus view**, to return. Creating a shape or requesting properties brings the editing controls back.
+
+The **Diagram actions** menu contains New, Import, examples, Export, Share, and Help. Export and Share also appear directly in the desktop header.
 
 **Auto-arrange** spaces the model using the current renderer’s dimensions. **Fit** frames it. Undo and Redo apply to your edits; remote changes remain shared. Deleting a shape also offers Undo feedback.
 
@@ -81,6 +85,7 @@ SQL follows the existing textbook mapping: entities become tables, weak entities
 | E / A / R / S | Add entity / attribute / relationship / specialization |
 | V / C / H | Select / Connect / Pan |
 | F | Fit diagram |
+| I | Toggle Focus view |
 | Shift-click | Add to or remove from the selection |
 | Shift-drag empty canvas | Select several shapes with a box |
 | Shift+F10 / Menu key | Open canvas actions |

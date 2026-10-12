@@ -1,3 +1,4 @@
+import { documentAction, openBuild, inspectSelection } from './actions';
 /**
  * End-to-end tests.
  *
@@ -75,6 +76,7 @@ const node = (page: Page, label: string | RegExp) =>
 
 /** Adds a node through the shape rail, the most reliable creation path. */
 async function addShape(page: Page, kind: 'entity' | 'attribute' | 'relationship' | 'isa'): Promise<void> {
+  await openBuild(page);
   await page.getByTestId(`add-${kind}`).click();
 }
 
@@ -100,6 +102,7 @@ async function connectWithTool(page: Page, ...labels: Array<string | RegExp>): P
   // Back to selecting, the way anyone finishes a connection: the editing
   // affordances on the lines are hidden while the Connect tool is active.
   await page.getByRole('button', { name: 'Select tool' }).click();
+  await inspectSelection(page);
 }
 
 /** Presses on one shape, releases on another: the Connect tool's own gesture. */
@@ -159,7 +162,7 @@ async function waitForLink(pages: Page[]): Promise<void> {
  * assert against the wrong file.
  */
 async function download(page: Page, format: 'SVG' | 'PNG' | 'JSON' | 'SQL'): Promise<string> {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await documentAction(page, 'Export');
   await page.getByRole('tab', { name: format, exact: true }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download ' + format }).click();
@@ -681,7 +684,7 @@ test.describe('connections', () => {
     await expect(page.getByTestId('connect-preview')).toHaveCount(1);
 
     const downloadPromise = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('button', { name: 'Download SVG' }).click();
     const file = await downloadPromise;
 
@@ -831,7 +834,7 @@ test.describe('export', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download SVG' }).click();
     const file = await downloadPromise;
@@ -842,7 +845,7 @@ test.describe('export', () => {
     await openApp(page);
     await addNamedEntity(page, 'Invoice');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'JSON' }).click();
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download JSON' }).click();
@@ -854,7 +857,7 @@ test.describe('export', () => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'JSON' }).click();
     const downloadPromise = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download JSON' }).click();
@@ -876,7 +879,7 @@ test.describe('export', () => {
     await nameField(page).fill('customer_id');
     await page.getByRole('button', { name: 'Key', exact: true }).click();
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'SQL' }).click();
     const code = page.getByLabel('Generated SQL');
     await expect(code).toContainText('CREATE TABLE "customer"');
@@ -885,7 +888,7 @@ test.describe('export', () => {
 
   test('reports when SQL cannot be generated yet', async ({ page }) => {
     await openApp(page);
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'SQL' }).click();
     await expect(page.getByText(/Add an entity to generate SQL/i)).toBeVisible();
   });
@@ -917,7 +920,7 @@ test.describe('export', () => {
     await page.getByRole('button', { name: 'N', exact: true }).click();
     await expect(page.getByTestId('leg-cardinality').nth(1)).toHaveAttribute('data-cardinality', 'N');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'SQL' }).click();
     const code = page.getByLabel('Generated SQL');
     await expect(code).toContainText('CREATE TABLE "order"');
@@ -966,7 +969,7 @@ test.describe('export', () => {
   test('a diagram SQL cannot be generated from still opens the dialog and still exports', async ({ page }) => {
     await importDiagram(page, connectedDiagram('attribute:c-email'));
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     // The editor survived the click. This is the regression: the throw used to
     // unmount the whole tree, leaving #root empty.
     await expect(page.getByTestId('canvas')).toBeVisible();
@@ -991,7 +994,7 @@ test.describe('export', () => {
     const alice = await context.newPage();
     await importDiagram(alice, connectedDiagram('attribute:c-key'));
 
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
 
@@ -1017,7 +1020,7 @@ test.describe('export', () => {
     await expect(alice.getByTestId('table-Order')).not.toContainText('buyer_ref');
 
     // The reported bug: this click used to blank her page.
-    await alice.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(alice, 'Export');
     await expect(alice.getByTestId('canvas')).toBeVisible();
     await expect(alice.getByRole('dialog')).toBeVisible();
 
@@ -1077,7 +1080,7 @@ test.describe('everyday use', () => {
     expect(await download(page, 'PNG')).toBe('untitled-diagram.png');
     expect(await download(page, 'JSON')).toBe('untitled-diagram.json');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'SQL', exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Add an entity');
     await expect(page.getByTestId('canvas')).toBeVisible();
@@ -1102,7 +1105,7 @@ test.describe('everyday use', () => {
     await addNamedEntity(page, 'Invoice');
 
     // Export, then feed the exact bytes back in through the real file input.
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'JSON', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download JSON' }).click();
@@ -1193,7 +1196,7 @@ test.describe('everyday use', () => {
     await page.getByRole('button', { name: 'Fit', exact: true }).click();
     expect(await download(page, 'JSON')).toBe('untitled-diagram.json');
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'SQL', exact: true }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
   });
@@ -1205,7 +1208,7 @@ test.describe('share links', () => {
     await addNamedEntity(page, 'Customer');
     await addNamedEntity(page, 'Order');
 
-    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(page, 'Share');
     const link = await page.getByLabel('Share link').inputValue();
     expect(link).toContain('#room=');
     expect(link).toContain('&d=');
@@ -1226,7 +1229,7 @@ test.describe('share links', () => {
       await addNamedEntity(page, `Entity number ${i} with a fairly long name`);
     }
 
-    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(page, 'Share');
     const link = await page.getByLabel('Share link').inputValue();
 
     const fresh = await page.context().newPage();
@@ -1239,7 +1242,7 @@ test.describe('share links', () => {
   test('the room code is shown and the link can be copied', async ({ page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await openApp(page);
-    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(page, 'Share');
 
     const room = await page.getByLabel('Room code').inputValue();
     expect(room).toMatch(/^[a-z2-9]{12}$/);
@@ -1264,7 +1267,7 @@ test.describe('multiplayer', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Customer');
 
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.keyboard.press('Escape');
 
@@ -1304,7 +1307,7 @@ test.describe('multiplayer', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Shared');
 
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.keyboard.press('Escape');
 
@@ -1334,7 +1337,7 @@ test.describe('multiplayer', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Temporary');
 
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.keyboard.press('Escape');
 
@@ -1359,7 +1362,7 @@ test.describe('multiplayer', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Alpha');
 
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.keyboard.press('Escape');
 
@@ -1391,7 +1394,7 @@ test.describe('multiplayer', () => {
     await openApp(first);
     await addNamedEntity(first, 'Archived');
 
-    await first.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(first, 'Share');
     const link = await first.getByLabel('Share link').inputValue();
     await firstContext.close();
 
@@ -1413,7 +1416,7 @@ test.describe('multiplayer', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Shared');
 
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.keyboard.press('Escape');
 
@@ -1451,7 +1454,7 @@ test.describe('live presence', () => {
     const alice = await context.newPage();
     await openApp(alice);
     await addNamedEntity(alice, 'Shared');
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
     const bob = await context.newPage();
@@ -1503,7 +1506,7 @@ test.describe('live presence', () => {
     await expect(alice.locator('.peer-cursor')).toHaveCount(1);
 
     // A peer's arrow is live presence, not part of the drawing.
-    await alice.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(alice, 'Export');
     await alice.getByRole('tab', { name: 'SVG', exact: true }).click();
     const pending = alice.waitForEvent('download');
     await alice.getByRole('button', { name: 'Download SVG' }).click();
@@ -1562,7 +1565,7 @@ test.describe('accessibility', () => {
 
   test('the modal opens, traps focus, and closes on Escape', async ({ page }) => {
     await openApp(page);
-    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(page, 'Share');
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
@@ -1571,7 +1574,7 @@ test.describe('accessibility', () => {
 
   test('Escape closes the export dialog too', async ({ page }) => {
     await openApp(page);
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
@@ -1593,6 +1596,7 @@ test.describe('accessibility', () => {
 
   test('the shape rail buttons are reachable by keyboard', async ({ page }) => {
     await openApp(page);
+    await openBuild(page);
     const addEntity = page.getByTestId('add-entity');
     await addEntity.focus();
     await expect(addEntity).toBeFocused();
@@ -1829,6 +1833,7 @@ test.describe('creating at the pointer', () => {
 
   test('a shape stays on screen when the shortcut is used from a side panel', async ({ page }) => {
     await openApp(page);
+    await openBuild(page);
     // The pointer ends up over the shape rail, outside the canvas.
     await page.getByRole('complementary', { name: 'Shapes' }).hover();
     await page.waitForTimeout(120);
@@ -2007,7 +2012,7 @@ test.describe('multi-select', () => {
     const alice = await context.newPage();
     await openApp(alice);
     await addNamedEntity(alice, 'Shared');
-    await alice.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(alice, 'Share');
     const link = await alice.getByLabel('Share link').inputValue();
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
     const bob = await context.newPage();
@@ -2428,7 +2433,7 @@ test.describe('groups', () => {
     await expect(page.getByTestId('canvas')).toBeVisible();
     await expect(page.locator('.group-frame')).toHaveCount(1);
 
-    await page.getByRole('button', { name: 'Share', exact: true }).click();
+    await documentAction(page, 'Share');
     const link = await page.getByLabel('Share link').inputValue();
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await page.goto(link);
@@ -2440,7 +2445,7 @@ test.describe('groups', () => {
     await twoSelected(page);
     await groupViaMenu(page);
 
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await documentAction(page, 'Export');
     await page.getByRole('tab', { name: 'SVG', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download SVG' }).click();
@@ -2467,7 +2472,7 @@ test.describe('groups', () => {
     await page.waitForTimeout(250);
 
     const readSql = async (): Promise<string> => {
-      await page.getByRole('button', { name: 'Export', exact: true }).click();
+      await documentAction(page, 'Export');
       await page.getByRole('tab', { name: 'SQL', exact: true }).click();
       const text = (await page.getByLabel('Generated SQL').textContent()) ?? '';
       await page.getByRole('button', { name: 'Done', exact: true }).click();

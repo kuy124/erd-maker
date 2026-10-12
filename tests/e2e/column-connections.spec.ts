@@ -1,3 +1,4 @@
+import { documentAction } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import AxeBuilder from '@axe-core/playwright';
@@ -39,7 +40,7 @@ async function connect(page: Page, source = 'attribute:c1', target = 'attribute:
   await expect(page.getByLabel('Relationship name')).toBeFocused();
 }
 async function exported(page: Page, format: 'JSON' | 'SVG' | 'PNG' | 'SQL') {
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await documentAction(page, 'Export');
   await page.getByRole('tab', { name: format, exact: true }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download ' + format }).click();
@@ -121,7 +122,7 @@ test('keyboard connection, cancellation, generated columns, and JSON/share resto
   await row(page, 'o', 'attribute:o2').focus(); await page.keyboard.press('Enter');
   await expect(page.getByLabel('Relationship name')).toBeFocused();
   await anchored(page, 'key:c', 'attribute:o2');
-  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  await documentAction(page, 'Share');
   const link = await page.getByLabel('Share link').inputValue();
   expect(parseShareHash(new URL(link).hash).doc?.legs.map((l) => l.columnId)).toEqual(['key:c', 'attribute:o2']);
   const offline = await browser.newContext();
@@ -174,7 +175,7 @@ test('identifying relationships keep the chosen weak-entity field as an editable
 
 test('collaborators share endpoints while retaining personal views and remote work during Undo', async ({ page: alice, browser }) => {
   await open(alice); await connect(alice); await alice.getByLabel('Relationship name').fill('places');
-  await alice.getByRole('button', { name: 'Share', exact: true }).click();
+  await documentAction(alice, 'Share');
   const link = await alice.getByLabel('Share link').inputValue();
   await alice.getByRole('button', { name: 'Done', exact: true }).click();
   const other = await browser.newContext();
@@ -210,7 +211,7 @@ test.describe('phone attribute connections', () => {
     await expect(links(page)).toHaveCount(0);
     await page.locator('.feedback').getByRole('button', { name: 'Undo', exact: true }).tap();
     await anchored(page, 'attribute:c1', 'attribute:o3');
-    await page.getByRole('button', { name: 'Share', exact: true }).tap();
+    await documentAction(page, 'Share');
     expect(parseShareHash(new URL(await page.getByLabel('Share link').inputValue()).hash).doc?.legs.some((l) => l.columnId === 'attribute:o3')).toBe(true);
     await page.getByRole('button', { name: 'Done', exact: true }).tap();
     expect((await json(page)).legs.find((l) => l.toId === 'o')).toMatchObject({ cardinality: 'M', columnId: 'attribute:o3' });
