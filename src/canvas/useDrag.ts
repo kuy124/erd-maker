@@ -156,6 +156,7 @@ export interface DragApi {
   drag: DragState | null;
   beginNodeDrag: (start: Map<string, Point>, worldX: number, worldY: number) => void;
   beginPan: (clientX: number, clientY: number) => void;
+  cancel: () => void;
 }
 
 export function useDrag(options: Options): DragApi {
@@ -163,6 +164,12 @@ export function useDrag(options: Options): DragApi {
   const [pan, setPan] = useState<PanState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
+  const cancel = useCallback(() => {
+    dragRef.current = null;
+    panRef.current = null;
+    setDrag(null);
+    setPan(null);
+  }, []);
 
   // Keep the latest callbacks without re-binding listeners on every render.
   const latest = useRef(options);
@@ -248,5 +255,6 @@ export function useDrag(options: Options): DragApi {
     drag,
     beginNodeDrag,
     beginPan,
+    cancel,
   };
 }

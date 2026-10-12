@@ -15,6 +15,7 @@ import type { EditorState } from '../state/useEditor';
 import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentBetween, type Point } from './geometry';
 import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
 import { useDrag, usePeerCursor } from './useDrag';
+import { useCanvasZoom } from './useCanvasZoom';
 import { findNode, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
 
@@ -27,8 +28,6 @@ interface Props {
   emptyActions?: React.ReactNode;
 }
 
-const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 3;
 
 export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
@@ -383,27 +382,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [connectFrom, setConnectFrom]);
 
-  const handleWheel = useCallback(
-    (event: React.WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const pointerX = event.clientX - rect.left;
-      const pointerY = event.clientY - rect.top;
-      state.setViewport((v) => {
-        const nextZoom = clamp(v.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12), ZOOM_MIN, ZOOM_MAX);
-        // Zoom about the pointer, so the point under the cursor stays put.
-        const ratio = nextZoom / v.zoom;
-        return {
-          zoom: nextZoom,
-          x: pointerX - (pointerX - v.x) * ratio,
-          y: pointerY - (pointerY - v.y) * ratio,
-        };
-      });
-    },
-    [state],
-  );
+  useCanvasZoom(containerRef, state, drag.cancel);
 
   // While a node is being dragged, render it at its in-flight position.
   const displayDoc = useMemo<ErdDocument>(() => {
@@ -446,7 +425,6 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
       onPointerMove={handlePointerMove}
-      onWheel={handleWheel}
     >
       <svg
         ref={svgRef}
@@ -732,10 +710,6 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
 
     </div>
   );
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 function isAttribute(doc: ErdDocument, id: string): boolean {

@@ -80,6 +80,8 @@ SQL follows the existing textbook mapping: entities become tables, weak entities
 
 ## Keyboard
 
+Scroll over the canvas to zoom smoothly toward the pointer. Trackpad pinch and two-finger touch pinch also zoom; moving the pinch midpoint pans the drawing. Zoom stays between 25% and 300%. Editing panels retain their normal scrolling.
+
 | Key | Action |
 | --- | --- |
 | E / A / R / S | Add entity / attribute / relationship / specialization |

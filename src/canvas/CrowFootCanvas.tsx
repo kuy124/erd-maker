@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCanvasZoom } from './useCanvasZoom';
 import {
   CROW_HEADER_HEIGHT,
   CROW_ROW_HEIGHT,
@@ -208,26 +209,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
     [tool, state, drag, toWorld],
   );
 
-  const handleWheel = useCallback(
-    (event: React.WheelEvent) => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const pointerX = event.clientX - rect.left;
-      const pointerY = event.clientY - rect.top;
-      state.setViewport((v) => {
-        const nextZoom = Math.min(3, Math.max(0.25, v.zoom * (event.deltaY < 0 ? 1.12 : 1 / 1.12)));
-        const ratio = nextZoom / v.zoom;
-        return {
-          zoom: nextZoom,
-          x: pointerX - (pointerX - v.x) * ratio,
-          y: pointerY - (pointerY - v.y) * ratio,
-        };
-      });
-    },
-    [state],
-  );
+  useCanvasZoom(containerRef, state, drag.cancel);
 
   // Render every dragged table at its in-flight position.
   const positioned = useMemo(() => {
@@ -249,7 +231,6 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
       data-tool={tool}
       ref={containerRef}
       onPointerDown={handleBackgroundPointerDown}
-      onWheel={handleWheel}
     >
       <svg
         ref={svgRef}
