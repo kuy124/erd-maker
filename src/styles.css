@@ -896,6 +896,21 @@ body {
   line-height: 1.55;
 }
 
+/* Naming the diagram comes before drawing it, so it is the first control on an
+   empty canvas. Full width, and the same tap target as every other control. */
+.starter-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  width: 100%;
+  max-width: 320px;
+}
+
+.starter-name .field__input {
+  width: 100%;
+  min-height: 44px;
+}
+
 .canvas-empty__hint {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

@@ -180,7 +180,21 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       const start = new Map<string, { x: number; y: number }>();
       for (const nodeId of ids) {
         const node = findNode(doc, nodeId);
-        if (node) start.set(nodeId, { x: node.x, y: node.y });
+        if (!node) continue;
+        start.set(nodeId, { x: node.x, y: node.y });
+        /*
+         * An attribute belongs to the shape it hangs off, so dragging that
+         * shape has to carry it. Without this the owner slides out from under
+         * its own attributes and is left looking abandoned, which is also how a
+         * collaborator sees it: the position is in the shared document, so it
+         * arrives there stranded too.
+         */
+        if (isAttribute(doc, nodeId)) continue;
+        for (const owned of doc.attributes) {
+          if (owned.ownerId === nodeId && !start.has(owned.id)) {
+            start.set(owned.id, { x: owned.x, y: owned.y });
+          }
+        }
       }
       if (!start.has(id)) return;
       const world = toWorld(event.clientX, event.clientY);
@@ -693,7 +707,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
           ) : null}
 
           {/* Peer cursors. The name always travels with the colour. */}
-          <PeerCursors peers={peers} />
+          <PeerCursors peers={peers} view="chen" />
         </g>
       </svg>
 

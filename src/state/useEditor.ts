@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
-import { createLocalIdentity, type Identity } from '../collab/identity';
+import { createLocalIdentity, rememberIdentity, type Identity } from '../collab/identity';
 import {
   connectColumns,
   connectNodes,
@@ -46,6 +46,8 @@ export interface Viewport {
 export interface EditorState {
   room: string;
   identity: Identity;
+  /** Renames you for other collaborators, and remembers it in this browser. */
+  setIdentityName: (name: string) => void;
   doc: ErdDocument;
   view: ErdDocument['view'];
   canUndo: boolean;
@@ -157,7 +159,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   const [tool, setTool] = useState<Tool>('select');
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
-  const [identity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
+  const [identity, setIdentity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
   const visibleDoc = useMemo(() => ({ ...doc, view }), [doc, view]);
 
   // Seed the shared document from the share link, but only if it is empty —
@@ -233,6 +235,13 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   useEffect(() => {
     room.awareness.setLocalStateField('selectedIds', selection);
   }, [room, selection]);
+
+  // Publish which notation we are looking at, so a peer's cursor is only drawn
+  // for somebody reading the same drawing. The two notations place one schema at
+  // different coordinates, so an arrow from the other one points at nothing.
+  useEffect(() => {
+    room.awareness.setLocalStateField('view', view);
+  }, [room, view]);
 
   // Track whether the WebRTC transport actually has peers. This is a second
   // signal on top of awareness: awareness can be populated by BroadcastChannel
@@ -525,7 +534,22 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
         }
       }, true);
     },
-  }), [room, mutate]);
+
+    /**
+     * Renames you, for the people you are drawing with.
+     *
+     * Generated names like "Swift Otter" are fine until two people in a room
+     * both get one and nobody can say which is which. The choice is stored per
+     * browser rather than per room, because a person is the same person in
+     * every room they open.
+     */
+    setIdentityName: (name: string) => {
+      const trimmed = name.trim().slice(0, 32);
+      if (trimmed.length === 0) return;
+      setIdentity((current) => ({ ...current, name: trimmed }));
+      rememberIdentity({ name: trimmed, color: identity.color });
+    },
+  }), [room, mutate, identity.color]);
 
   return {
     room: room.room,

@@ -72,6 +72,8 @@ Share defaults to a short URL containing only the room code. Keep the diagram op
 
 Same-browser tabs sync over BroadcastChannel. Separate browsers use WebRTC; a signaling server introduces peers. Presence comes from connected peers and is shown separately from browser storage. Closing a tab announces the departure, so a collaborator's cursor and name disappear at once instead of lingering.
 
+An empty diagram offers **Your name** before anything is drawn, because two people in a room both getting an animal name is how nobody can say which arrow is which. It is stored in that browser rather than the diagram, so it applies in every room, and reaches collaborators as you type. A peer's cursor is drawn only for somebody reading the same notation: the two views place one schema at different coordinates, so an arrow from the other one would point at nothing.
+
 **Keeping a copy.** Because there is no server, a diagram lives in the room it was made in and in this browser. **Save a copy** in the Share dialog writes it as a JSON file: it needs nobody online, it is not a link that a chat app can truncate, and whoever receives it opens it with Import. Ctrl+S and Export do the same thing. A short link plus someone staying online is the only way to collaborate live.
 
 The default signaling server is `wss://signaling.fly.dev`. Override it using `?signaling=`, `window.__ERD_SIGNALING__`, or `VITE_SIGNALING`. If the network blocks direct connections, the editor and snapshot links still work, but cross-device live edits will not arrive.

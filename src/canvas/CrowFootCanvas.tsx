@@ -419,7 +419,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
             />
           ) : null}
 
-          <PeerCursors peers={peers} />
+          <PeerCursors peers={peers} view="crowfoot" />
         </g>
       </svg>
 

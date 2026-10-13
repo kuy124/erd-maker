@@ -108,6 +108,9 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
    * framing, and new-shape placement all agree without knowing why.
    */
   const [crowLayout, setCrowLayout] = useState(() => loadCrowLayout(room.room));
+  // The name field is a draft so it can be emptied to be retyped; the identity
+  // only ever holds a name that was actually committed.
+  const [nameDraft, setNameDraft] = useState(state.identity.name);
   const shown = useMemo(() => (isCrowFoot ? withCrowLayout(state.doc, crowLayout) : state.doc), [state.doc, crowLayout, isCrowFoot]);
   const setTablePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
     setCrowLayout((current) => {
@@ -553,10 +556,31 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     { label: 'Share', onSelect: () => setDialog('share') },
     { label: 'Help', separated: true, onSelect: () => showPanel('help') },
   ];
-  const emptyActions = isEmpty ? <div className="starter-actions">
-    <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
-    <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
-  </div> : null;
+  const emptyActions = isEmpty ? <>
+    <div className="starter-name">
+      <label className="field__label" htmlFor="start-name">Your name</label>
+      <input
+        id="start-name"
+        className="field__input"
+        value={nameDraft}
+        onChange={(event) => {
+          setNameDraft(event.target.value);
+          state.setIdentityName(event.target.value);
+        }}
+        // Blurring puts back the last name that was actually committed, so
+        // emptying the field to retype it does not leave a nameless person.
+        onBlur={() => setNameDraft(state.identity.name)}
+        placeholder="Your name"
+        autoComplete="off"
+        maxLength={32}
+      />
+      <p className="field__help">Collaborators see this beside your cursor. It stays in this browser.</p>
+    </div>
+    <div className="starter-actions">
+      <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
+      <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
+    </div>
+  </> : null;
 
   /*
    * A short link carries no diagram, so an empty canvas after following one is

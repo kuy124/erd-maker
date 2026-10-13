@@ -302,6 +302,73 @@ test.describe('editor basics', () => {
     expect(overlapBottom - overlapTop, 'attribute should share a row with its owner').toBeGreaterThan(0);
   });
 
+  test('dragging an entity carries the attributes it owns', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    // Two attributes, so a rule that carries only the first one still fails.
+    // The entity stays selected between them, so both belong to it.
+    for (let i = 0; i < 2; i += 1) {
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('a');
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('canvas').locator('[data-node-id^="attr_"]')).toHaveCount(2);
+
+    const attributeBox = () => page.getByTestId('canvas').locator('[data-node-id^="attr_"]').first().boundingBox();
+    const entityBox = () => node(page, /Entity Customer/i).boundingBox();
+    const boxes = async () => {
+      const [entity, first, second] = await Promise.all([
+        entityBox(),
+        attributeBox(),
+        page.getByTestId('canvas').locator('[data-node-id^="attr_"]').nth(1).boundingBox(),
+      ]);
+      return { entity: entity!, first: first!, second: second! };
+    };
+    // Offsets rather than deltas: "still attached" is the claim, and measuring
+    // it relative to the owner holds at any zoom level.
+    const offset = (box: { x: number; y: number }, owner: { x: number; y: number }) =>
+      ({ x: box.x - owner.x, y: box.y - owner.y });
+    // Select the entity before measuring, because the selection ring grows its box
+    // by 5px on each axis. Measuring it selected both before and after is the
+    // only way the two boxes are comparable.
+    await node(page, /Entity Customer/i).click();
+    const before = await boxes();
+
+    const box = before.entity;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 180, y + 90, { steps: 8 });
+    await page.mouse.up();
+
+    const after = await boxes();
+    // The entity moved, so the drag reached the model rather than only the view.
+    expect(Math.abs(after.entity.x - before.entity.x)).toBeGreaterThan(150);
+    // Every attribute is still exactly where it was relative to its owner.
+    expect(offset(after.first, after.entity)).toEqual(offset(before.first, before.entity));
+    expect(offset(after.second, after.entity)).toEqual(offset(before.second, before.entity));
+  });
+
+  test('dragging an attribute leaves its owner alone', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addShape(page, 'attribute');
+    await page.keyboard.press('Escape');
+
+    const entityBefore = (await node(page, /Entity Customer/i).boundingBox())!;
+    const attribute = (await page.getByTestId('canvas').locator('[data-node-id^="attr_"]').boundingBox())!;
+    await page.mouse.move(attribute.x + attribute.width / 2, attribute.y + attribute.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(attribute.x + attribute.width / 2 + 120, attribute.y + 120, { steps: 6 });
+    await page.mouse.up();
+
+    // Ownership runs one way: an attribute belongs to the shape, not the reverse.
+    const entityAfter = (await node(page, /Entity Customer/i).boundingBox())!;
+    expect(Math.abs(entityAfter.x - entityBefore.x)).toBeLessThan(2);
+    expect(Math.abs(entityAfter.y - entityBefore.y)).toBeLessThan(2);
+  });
+
   test('a second attribute stacks below the first', async ({ page }) => {
     await openApp(page);
     await addNamedEntity(page, 'Customer');
@@ -1498,6 +1565,26 @@ test.describe('live presence', () => {
     }
     await bob.mouse.move(600, 350);
     await bob.waitForTimeout(300);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+  });
+
+  test('a cursor is only drawn for a peer reading the same notation', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+
+    // Both start in Chen, so the cursor is there to be found.
+    await bob.mouse.move(620, 380);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+
+    // Bob moves to Crow's-foot. The two notations place one schema at different
+    // coordinates, so his arrow would point at a shape that is not there.
+    await bob.getByRole('button', { name: /Crow/ }).click();
+    await expect(bob.getByTestId('table-Shared')).toBeVisible();
+    await bob.mouse.move(660, 400);
+    await bob.waitForTimeout(500);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(0);
+    // And back again, so this is about the notation and not about presence.
+    await bob.getByRole('button', { name: 'Chen', exact: true }).click();
+    await bob.mouse.move(700, 420);
     await expect(alice.locator('.peer-cursor')).toHaveCount(1);
   });
 

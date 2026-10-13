@@ -1,12 +1,75 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   colorFromSeed,
   contrastRatio,
+  createLocalIdentity,
   identityFor,
   nameFromSeed,
   PRESENCE_COLORS,
   presenceInk,
+  rememberIdentity,
 } from '../../src/collab/identity';
+
+/**
+ * A real in-memory storage.
+ *
+ * `localStorage` is a gated global under Node 25 and jsdom's is not reachable
+ * from here, so identity's remember-and-reuse path had no coverage at all. A
+ * working stub also means a failure below is a failure of the logic rather than
+ * of the environment — the module's own try/catch cannot hide anything.
+ */
+function stubStorage(): Map<string, string> {
+  const store = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    setItem: (key: string, value: string) => { store.set(key, String(value)); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => store.clear(),
+  });
+  return store;
+}
+
+describe('a remembered name', () => {
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = stubStorage();
+  });
+
+  it('is reused by a later session instead of a new animal name', () => {
+    rememberIdentity({ name: 'Priya', color: '#0F7B8A' });
+    expect(createLocalIdentity(12345).name).toBe('Priya');
+  });
+
+  it('falls back to a generated name when storage is empty', () => {
+    expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));
+  });
+
+  it('ignores a stored name that is blank or the wrong shape', () => {
+    store.set('erd:identity', JSON.stringify({ name: '   ' }));
+    expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));
+    store.set('erd:identity', JSON.stringify({ name: 42 }));
+    expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));
+    store.set('erd:identity', 'not json at all');
+    expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));
+  });
+
+  it('keeps the stored name within what the cursor chip can draw', () => {
+    // The chip is sized from the name's length, so an unbounded name would run
+    // off the end of it.
+    store.set('erd:identity', JSON.stringify({ name: 'x'.repeat(200) }));
+    expect(createLocalIdentity(7).name.length).toBeLessThanOrEqual(32);
+  });
+
+  it('survives storage that throws, which private modes do', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new Error('denied'); },
+      setItem: () => { throw new Error('denied'); },
+    });
+    expect(() => rememberIdentity({ name: 'Priya', color: '#0F7B8A' })).not.toThrow();
+    expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));
+  });
+});
 
 describe('presence identities', () => {
   it('gives every peer a name and a colour derived from its client id', () => {
