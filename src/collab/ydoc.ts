@@ -30,9 +30,12 @@ import type {
   Isa,
   Leg,
   Relationship,
+  RouteSide,
 } from '../model/types';
+import { ROUTE_SIDES } from '../model/types';
 import { emptyDocument } from '../model/types';
 import { normalizeDataType } from '../model/dataTypes';
+import { descendantAttributeIds, normalizeAttributeOwners } from '../model/attributes';
 import { canConnect, findRelationshipSlot } from '../model/placement';
 import { deriveTables, type ColumnEndpoint } from '../model/crowfoot';
 
@@ -270,18 +273,20 @@ export function connectColumns(
 /** Removes a node and the legs and attributes that depended on it. */
 export function deleteNodeFromYdoc(ydoc: Y.Doc, id: string): void {
   ydoc.transact(() => {
+    const removed = descendantAttributeIds(snapshotFromYdoc(ydoc), id);
+    removed.add(id);
     // Legs are nodes too. Without this a relationship line cannot be deleted on
     // its own: nothing below removes it, because a leg is never the `fromId` or
     // `toId` of another leg.
     ydoc.getMap(LEGS).delete(id);
 
     for (const key of [ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS] as const) {
-      ydoc.getMap(key).delete(id);
+      for (const nodeId of removed) ydoc.getMap(key).delete(nodeId);
     }
     const legs = ydoc.getMap(LEGS);
     legs.forEach((value, key) => {
       const leg = value as Y.Map<unknown>;
-      if (leg.get('fromId') === id || leg.get('toId') === id) legs.delete(key);
+      if (removed.has(String(leg.get('fromId'))) || removed.has(String(leg.get('toId')))) legs.delete(key);
     });
     const attributes = ydoc.getMap(ATTRIBUTES);
     attributes.forEach((value, key) => {
@@ -302,7 +307,7 @@ export function deleteNodeFromYdoc(ydoc: Y.Doc, id: string): void {
     groups.forEach((value) => {
       const group = value as Y.Map<unknown>;
       const before = readStringArray(group, 'memberIds');
-      const after = before.filter((m) => m !== id);
+      const after = before.filter((m) => !removed.has(m));
       if (after.length !== before.length) group.set('memberIds', after);
     });
     groups.forEach((value, key) => {
@@ -361,12 +366,27 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
 
   ydoc.getMap(RELATIONSHIPS).forEach((value, key) => {
     const m = value as Y.Map<unknown>;
+    const bendX = readOptionalNumber(m, 'bendX');
+    const bendY = readOptionalNumber(m, 'bendY');
     doc.relationships.push({
       id: key,
       name: readString(m, 'name', 'relationship'),
       x: readNumber(m, 'x'),
       y: readNumber(m, 'y'),
       kind: readString(m, 'kind', 'strong') === 'weak' ? 'weak' : 'strong',
+      /*
+       * Absent stays absent: it means automatic, and materialising `'auto'` on
+       * every relationship would make a document that never chose a route differ
+       * from the one it was saved from. A peer can send any string here, so the
+       * value is checked rather than trusted.
+       */
+      ...(ROUTE_SIDES.includes(m.get('route') as RouteSide) ? { route: m.get('route') as RouteSide } : {}),
+      /*
+       * A dragged corner, or absent for "the router decides". Both halves have to
+       * be finite and present: a peer can send anything, and a corner at
+       * Infinity would put the line somewhere nobody can scroll to.
+       */
+      ...(bendX !== undefined && bendY !== undefined ? { bendX, bendY } : {}),
     });
   });
 
@@ -417,9 +437,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
     ...doc.isas.map((i) => i.id),
   ]);
   doc.legs = doc.legs.filter((l) => ids.has(l.fromId) && ids.has(l.toId));
-  doc.attributes = doc.attributes.map((a) =>
-    a.ownerId && !ids.has(a.ownerId) ? { ...a, ownerId: null } : a,
-  );
+  doc.attributes = normalizeAttributeOwners(doc);
 
   // Group members can be any positioned shape, including attributes, so they are
   // checked against the full set and emptied groups are dropped.

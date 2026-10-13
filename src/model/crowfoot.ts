@@ -1,6 +1,7 @@
-import { attributesOf, legsFor, type ErdDocument, type Entity, type Leg } from './types';
+import { legsFor, type ErdDocument, type Entity, type Leg, type RouteSide } from './types';
 import { foreignKeyColumnName, toSqlName } from './columnNames';
 import { attributeType } from './dataTypes';
+import { leafAttributesOf } from './attributes';
 
 export interface CrowTable {
   entityId: string;
@@ -84,10 +85,14 @@ export interface CrowLink {
   fromMany: boolean;
   toMany: boolean;
   lane: number;
+  /** Which side this connector detours to, when it has to detour at all. */
+  route: RouteSide;
+  /** A corner the person dragged. Absent means the router still decides. */
+  bend?: { x: number; y: number };
 }
 
 function baseRows(doc: ErdDocument, entity: Entity): CrowRow[] {
-  const attrs = attributesOf(doc, entity.id).filter((a) => a.kind !== 'derived');
+  const attrs = leafAttributesOf(doc, entity.id);
   const rows: CrowRow[] = attrs.filter((a) => a.kind === 'key').concat(attrs.filter((a) => a.kind !== 'key'))
     .map((a) => ({ id: 'attribute:' + a.id, attributeId: a.id, name: a.name,
       pk: a.kind === 'key', fk: false, type: attributeType(a) }));
@@ -289,6 +294,9 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
       label: rel.name, ratio: `${a.leg.cardinality}:${b.leg.cardinality}`,
       fromMandatory: a.leg.participation.min >= 1, toMandatory: b.leg.participation.min >= 1,
       fromMany: aMany, toMany: bMany, lane,
+      route: rel.route ?? 'auto',
+      // Absent stays absent, so a document with no dragged corners is unchanged.
+      ...(rel.bendX !== undefined && rel.bendY !== undefined ? { bend: { x: rel.bendX, y: rel.bendY } } : {}),
     };
     links.push(link);
     // Preserve the existing helper contract; the renderer draws the relationship once.
@@ -324,7 +332,8 @@ function polyline(points: Point[]): string {
   if (!first) return '';
   return rest.map((point, index) => {
     const previous = points[index]!;
-    return `${point.y === previous.y ? 'H' : 'V'}${point.x} ${point.y}`;
+    if (point.x === previous.x && point.y === previous.y) return '';
+    return point.y === previous.y ? `H${point.x}` : `V${point.y}`;
   }).join(' ').replace(/^/, `M${first.x} ${first.y} `);
 }
 
@@ -361,6 +370,11 @@ export function tableObstacle(table: CrowTable): Obstacle {
  *
  * `lane` separates connectors that share the same pair of tables, so three
  * relationships between two entities read as three lines rather than one.
+ *
+ * `preferred` overrides which side a detour takes. It only matters when the
+ * connector has to detour at all: a clear straight line is left alone, because
+ * forcing a detour around nothing is worse than the line someone is complaining
+ * about.
  */
 export function routeColumns(
   from: CrowTable,
@@ -369,6 +383,8 @@ export function routeColumns(
   toColumnId: string,
   lane = 0,
   obstacles: Obstacle[] = [],
+  preferred: RouteSide = 'auto',
+  bend?: Point | null,
 ) {
   const ay = rowCenter(from, fromColumnId), by = rowCenter(to, toColumnId);
   const span = Math.max(from.width, to.width);
@@ -395,22 +411,86 @@ export function routeColumns(
   const clear = obstacles.every((rect) =>
     direct.slice(1).every((point, index) => !crossesObstacle(direct[index]!, point, rect)));
 
-  if (clear || obstacles.length === 0) {
+  /*
+   * A hand-placed bend wins over every automatic rule below.
+   *
+   * Once someone has dragged the corner of a line, that corner is the answer.
+   * Obstacles, shorter sides, and lanes are all guesses about where a line
+   * should go; a dragged point is not a guess. Only "automatic" or a missing
+   * point lets the router decide again.
+   */
+  if (bend) {
+    const corner = { x: bend.x, y: bend.y };
+    const aStub = { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: ay };
+    const bStub = { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: by };
+    const points = [a, aStub, { x: corner.x, y: ay }, corner,
+      { x: bStub.x, y: corner.y }, bStub, b];
+    const path = polyline(points);
+    return {
+      a, b,
+      aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
+      bToward: { x: b.x + (toRight ? 30 : -30), y: by },
+      path,
+      /*
+       * The label sits beside the corner, never on it.
+       *
+       * Both are drawn in the same place otherwise, and the label is on top, so
+       * the handle could not be grabbed: the drag went to the text.
+       */
+      label: { x: corner.x + 26, y: corner.y },
+      labelAnchor: 'start' as const,
+      handle: corner,
+      bounds: { minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)),
+        minY: Math.min(ay, by, corner.y), maxY: Math.max(ay, by, corner.y) },
+    };
+  }
+
+  /*
+   * A clear line is left alone unless the person asked otherwise.
+   *
+   * Automatic keeps the direct route whenever nothing is in the way, because
+   * detouring around nothing draws a longer line for no reason. An explicit
+   * side overrides that: choosing "above" means above, even when the line would
+   * have fitted straight through. A control that silently does nothing is worse
+   * than no control, and this is the reason someone reaches for the menu.
+   */
+  if ((clear || obstacles.length === 0) && preferred === 'auto') {
     const label = { x: facing ? (a.x + b.x) / 2 : bendX + (fromRight ? 12 : -12),
       y: jogY !== ay || ay === by ? jogY - 20 : (ay + by) / 2 - (facing ? 0 : lane * 32) };
     return { a, b, aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
       bToward: { x: b.x + (toRight ? 30 : -30), y: by },
       path: directPath, label, labelAnchor: facing ? 'middle' as const : fromRight ? 'start' as const : 'end' as const,
+      handle: { x: bendX, y: jogY === ay ? by : jogY },
       bounds: { minX: Math.min(a.x, b.x, bendX), maxX: Math.max(a.x, b.x, bendX),
         minY: Math.min(ay, by, jogY), maxY: Math.max(ay, by) } };
   }
 
-  // Detour through a clear channel above or below everything, whichever is
-  // closer. The lane shifts the channel so parallel connectors do not coincide.
-  const above = Math.min(...obstacles.map((rect) => rect.minY)) - DETOUR_CLEARANCE - lane * 20;
-  const below = Math.max(...obstacles.map((rect) => rect.maxY)) + DETOUR_CLEARANCE + lane * 20;
+  /*
+   * Detour just past the tables actually in the way.
+   *
+   * Only the obstacles the direct route crosses decide where the line goes.
+   * Measuring against every table instead meant the channel sat outside the
+   * whole drawing, so on a diagram of any size one obstructed connector drew a
+   * line the height of the entire schema — which is what made Crow's-foot look
+   * broken rather than busy. An unrelated table far above must not move this
+   * line past it.
+   */
+  const blocking = obstacles.filter((rect) =>
+    direct.slice(1).some((point, index) => crossesObstacle(direct[index]!, point, rect)));
+  /*
+   * With nothing in the way the direct route is already the answer, so the
+   * detour channels are measured from the row band: a preference can then move
+   * the line off a path that was merely ugly without pretending there was an
+   * obstacle to go around.
+   */
+  const above = Math.min(ay, by, ...blocking.map((rect) => rect.minY)) - DETOUR_CLEARANCE - lane * 20;
+  const below = Math.max(ay, by, ...blocking.map((rect) => rect.maxY)) + DETOUR_CLEARANCE + lane * 20;
   const cost = (channel: number) => Math.abs(channel - ay) + Math.abs(channel - by);
-  const channel = cost(above) <= cost(below) ? above : below;
+  // An explicit side wins over the shorter one. The caller sets it because the
+  // shorter detour is not always the one they want, and a diagram that puts the
+  // line off the edge of the drawing is worse than a longer one.
+  const forced = preferred === 'above' ? above : preferred === 'below' ? below : undefined;
+  const channel = forced ?? (cost(above) <= cost(below) ? above : below);
   const path = polyline([a, { x: a.x, y: channel }, { x: b.x, y: channel }, b]);
   return {
     a, b,
@@ -419,6 +499,7 @@ export function routeColumns(
     path,
     label: { x: (a.x + b.x) / 2, y: channel + (channel < Math.min(ay, by) ? -12 : 16) },
     labelAnchor: 'middle' as const,
+    handle: { x: (a.x + b.x) / 2, y: channel },
     bounds: { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x),
       minY: Math.min(ay, by, channel), maxY: Math.max(ay, by, channel) },
   };

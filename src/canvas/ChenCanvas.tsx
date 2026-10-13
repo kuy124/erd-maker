@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
+import { descendantAttributeIds } from '../model/attributes';
 import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentBetween, type Point } from './geometry';
 import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
 import { useDrag, usePeerCursor } from './useDrag';
@@ -189,9 +190,9 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
          * collaborator sees it: the position is in the shared document, so it
          * arrives there stranded too.
          */
-        if (isAttribute(doc, nodeId)) continue;
+        const descendants = descendantAttributeIds(doc, nodeId);
         for (const owned of doc.attributes) {
-          if (owned.ownerId === nodeId && !start.has(owned.id)) {
+          if (descendants.has(owned.id) && !start.has(owned.id)) {
             start.set(owned.id, { x: owned.x, y: owned.y });
           }
         }
@@ -743,6 +744,8 @@ function findOwnerCenter(doc: ErdDocument, ownerId: string): { x: number; y: num
   if (rel) return { x: rel.x + 75, y: rel.y + 36 };
   const isa = doc.isas.find((i) => i.id === ownerId);
   if (isa) return { x: isa.x + 48, y: isa.y + 28 };
+  const attr = doc.attributes.find(a => a.id === ownerId && a.kind === 'composite');
+  if (attr) return { x: attr.x + 65, y: attr.y + 26 };
   return null;
 }
 

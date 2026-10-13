@@ -146,6 +146,7 @@ export function serializeSvg(
     '.leg-hit',
     '.connect-preview',
     '.crow-link__hit',
+    '.layer-bend-handles',
     '.connection-ports',
     // A group frame is a working aid, not part of the drawing.
     // A group frame is a working aid, not part of the drawing.

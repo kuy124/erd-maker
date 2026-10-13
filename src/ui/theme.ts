@@ -23,14 +23,19 @@ export const THEMES = [
     note: 'Follows your device’s light or dark setting.',
   },
   {
-    id: 'graph',
-    name: 'Graph',
-    note: 'The default: cool paper, schematic teal.',
+    id: 'graph-light',
+    name: 'Light',
+    note: 'The default: white paper, teal accents.',
+  },
+  {
+    id: 'graph-dark',
+    name: 'Dark',
+    note: 'The same, in charcoal.',
   },
   {
     id: 'solarized-light',
     name: 'Solarized Light',
-    note: 'Ethan Schoonover’s low-contrast light palette.',
+    note: 'Ethan Schoonover’s warm, low-contrast light palette.',
   },
   {
     id: 'solarized-dark',

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyLayout, autoArrange } from '../../src/model/layout';
+import { applyLayout, autoArrange, sizeFor } from '../../src/model/layout';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
+import { boundsOf } from '../../src/canvas/geometry';
 
 /** Two entities joined through one relationship. */
 function chain(): ErdDocument {
@@ -37,7 +38,7 @@ describe('autoArrange', () => {
     expect(xr).toBeLessThan(x2);
   });
 
-  it('never overlaps two nodes in the same layer', () => {
+  it('never overlaps two nodes', () => {
     const doc = emptyDocument();
     // A hub entity related to five others.
     doc.entities.push({ id: 'hub', name: 'Hub', x: 0, y: 0, kind: 'strong' });
@@ -49,18 +50,25 @@ describe('autoArrange', () => {
         { id: `l${i}b`, fromId: `r${i}`, toId: `e${i}`, cardinality: 'N', participation: { min: 0, max: 'N' } },
       );
     }
+    /*
+     * Checked as rectangles, not as "same x means same column".
+     *
+     * That grouping was fine when every layer was one column, and stopped
+     * being true once a deep Crow's-foot layer filled sideways: two nodes from
+     * different layers can now share an x. What has to hold either way is that
+     * no two shapes cover the same ground, which is what the reader sees.
+     */
     const positions = autoArrange(doc).positions;
-    const byLayer = new Map<number, string[]>();
-    for (const [id, pos] of positions) {
-      const key = Math.round(pos.x);
-      const bucket = byLayer.get(key) ?? [];
-      bucket.push(id);
-      byLayer.set(key, bucket);
-    }
-    for (const ids of byLayer.values()) {
-      const ys = ids.map((id) => positions.get(id)!.y).sort((a, b) => a - b);
-      for (let i = 1; i < ys.length; i += 1) {
-        expect(ys[i]! - ys[i - 1]!).toBeGreaterThan(40);
+    const boxes = [...positions].map(([id, pos]) => {
+      const size = sizeFor(doc, id);
+      return { id, ...boundsOf({ id, x: pos.x, y: pos.y }, size) };
+    });
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i]!;
+        const b = boxes[j]!;
+        const overlap = a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
+        expect(overlap, `${a.id} overlaps ${b.id}`).toBe(false);
       }
     }
   });

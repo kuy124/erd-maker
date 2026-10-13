@@ -46,6 +46,7 @@ function lengthFields(base: BaseType): Array<{ id: string; base: BaseType; label
   return [];
 }
 import { deriveTables } from '../model/crowfoot';
+import { canOwnAttribute } from '../model/attributes';
 import { ParticipationFields, RelationshipParticipants } from './RelationshipParticipants';
 
 interface Props {
@@ -244,7 +245,10 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
   }
 
   if (attribute) {
-    const owners = [...doc.entities, ...doc.relationships, ...doc.isas];
+    const owned = doc.attributes.filter(a => a.ownerId === attribute.id);
+    const owners = [...doc.entities, ...doc.relationships, ...doc.isas,
+      ...doc.attributes.filter(a => a.kind === 'composite')]
+      .filter(owner => canOwnAttribute(doc, attribute.id, owner.id));
     const row = doc.view === 'crowfoot' ? deriveTables(doc).flatMap((table) => table.rows).find((r) => r.attributeId === attribute.id) : undefined;
     return (
       <aside className="inspector" aria-label="Properties">
@@ -322,6 +326,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
                 type="button"
                 className="seg__btn"
                 aria-pressed={attribute.kind === kind.value}
+                disabled={owned.length > 0 && kind.value !== 'composite'}
                 onClick={() => state.updateAttribute(attribute.id, { kind: kind.value })}
               >
                 {kind.label}
@@ -330,7 +335,21 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
           </div>
           <p className="field__help">{attribute.kind === 'key' && doc.entities.some((owner) => owner.id === attribute.ownerId && owner.kind === 'weak') ?
             'This partial key identifies a weak entity within its parent. The same value may occur under a different parent.' : describeKind(attribute.kind)}</p>
+          {owned.length > 0 ? <p className="field__help">Move or delete the parts before changing this composite’s kind.</p> : null}
         </div>
+        {attribute.kind === 'composite' ? <div className="field">
+          <span className="field__label">Parts ({owned.length})</span>
+          <ul className="attr-list">
+            {owned.map(part => <li className="attr-list__item" key={part.id}>
+              <button type="button" className="btn btn--ghost" onClick={() => state.setSelection([part.id])}>
+                {part.name || 'Unnamed attribute'}
+              </button>
+            </li>)}
+          </ul>
+          <button type="button" className="btn attribute-add"
+            onClick={() => state.addAttribute(attribute.x, attribute.y, attribute.id)}>Add attribute</button>
+          <p className="field__help">Parts can also be composite. Tables and SQL use the leaf parts with their parent names.</p>
+        </div> : null}
         <div className="field">
           <label className="field__label" htmlFor="attr-owner">
             Belongs to
@@ -406,6 +425,34 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             border.
           </p>
         </div>
+        {/*
+          Route control, Crow's-foot only.
+
+          The router picks the shorter side when a connector cannot go straight,
+          which is usually right and sometimes sends the line out of the drawing.
+          This is the override for that case, and Automatic is the default so
+          nobody has to think about it.
+        */}
+        {doc.view === 'crowfoot' ? <div className="field">
+          <span className="field__label" id="rel-route-label">Line route</span>
+          <div className="seg" role="group" aria-labelledby="rel-route-label">
+            {([['auto', 'Automatic'], ['above', 'Above'], ['below', 'Below']] as const).map(([side, label]) => (
+              <button
+                key={side}
+                type="button"
+                className="seg__btn"
+                data-testid={`rel-route-${side}`}
+                aria-pressed={relationship.bendX === undefined && (relationship.route ?? 'auto') === side}
+                onClick={() => state.updateRelationship(relationship.id, { route: side, bendX: undefined, bendY: undefined }, true)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="field__help">
+            Above and Below choose a detour. Automatic clears a dragged bend and lets the router choose.
+          </p>
+        </div> : null}
         <RelationshipParticipants key={relationship.id} state={state} relationshipId={relationship.id} />
         <button type="button" className="btn btn--danger" onClick={() => state.remove([relationship.id])}>
           Delete relationship

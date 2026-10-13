@@ -127,10 +127,11 @@ export function normalizeDataType(value: unknown): DataType | undefined {
  * `BOOL` here is a legacy spelling kept for documents and snapshots written
  * before `BOOLEAN` was a base; `sqlDataType` still translates it.
  */
-export function attributeType(attribute: { name: string; dataType?: unknown }): string {
+export function attributeType(attribute: { name: string; dataType?: unknown; sourceName?: string }): string {
   const chosen = normalizeDataType(attribute.dataType);
   if (chosen) return chosen;
-  const name = attribute.name.toLowerCase();
+  // Projected composite columns retain the leaf name for Automatic inference.
+  const name = (attribute.sourceName ?? attribute.name).toLowerCase();
   if (/(^|_)(id|code|number|num|no)($|_)/.test(name) || /(^|_)id$/.test(name)) return 'INT';
   if (/(date|time|created|updated|at)$/.test(name)) return 'TIMESTAMP';
   if (/(amount|price|total|cost|salary|balance|qty|quantity|count)/.test(name)) return 'NUMERIC';

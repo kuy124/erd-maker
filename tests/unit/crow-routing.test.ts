@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deriveLinks, deriveTables, routeColumns, tableHeight, type CrowTable } from '../../src/model/crowfoot';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
+import { orthogonalPoints } from './svgPath';
 
 /**
  * Crow's-foot links.
@@ -31,9 +32,7 @@ type Rect = { minX: number; minY: number; maxX: number; maxY: number };
 
 /** Parses the orthogonal `M..H..V..` form this router emits. */
 function segments(path: string): Array<[Point, Point]> {
-  const numbers = (path.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const points: Point[] = [];
-  for (let i = 0; i + 1 < numbers.length; i += 2) points.push({ x: numbers[i]!, y: numbers[i + 1]! });
+  const points = orthogonalPoints(path);
   const out: Array<[Point, Point]> = [];
   for (let i = 1; i < points.length; i += 1) {
     const a = points[i - 1]!, b = points[i]!;
