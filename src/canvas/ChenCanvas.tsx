@@ -26,10 +26,12 @@ interface Props {
   connectFrom: string | null;
   setConnectFrom: (id: string | null) => void;
   emptyActions?: React.ReactNode;
+  /** Replaces the empty-canvas card entirely; see `emptyState` in App. */
+  emptyState?: React.ReactNode;
 }
 
 
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -695,7 +697,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
         </g>
       </svg>
 
-      {isEmpty ? (
+      {emptyState ?? (isEmpty ? (
         <div className="canvas-empty">
           <div className="canvas-empty__card">
             <h2 className="canvas-empty__title">Start with an entity</h2>
@@ -706,7 +708,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
             <p className="canvas-empty__hint">E adds an entity · A adds an attribute · R adds a relationship</p>
           </div>
         </div>
-      ) : null}
+      ) : null)}
 
     </div>
   );

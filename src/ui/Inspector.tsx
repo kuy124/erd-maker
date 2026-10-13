@@ -13,6 +13,8 @@
 import { useEffect, useRef } from 'react';
 import type { EditorState } from '../state/useEditor';
 import type { AttributeKind, ErdDocument } from '../model/types';
+import { attributeType, DATA_TYPES, normalizeDataType } from '../model/dataTypes';
+import { deriveTables } from '../model/crowfoot';
 import { ParticipationFields, RelationshipParticipants } from './RelationshipParticipants';
 
 interface Props {
@@ -201,7 +203,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             </ul>
           )}
           <button type="button" className="btn attribute-add" onClick={() => state.addAttribute(entity.x, entity.y, entity.id)}>Add attribute</button>
-          {doc.view === 'crowfoot' ? <p className="field__help">Rows marked “gen” are generated keys or foreign keys. SQL types are inferred from attribute names; edit the original attribute here.</p> : null}
+          {doc.view === 'crowfoot' ? <p className="field__help">Select an attribute to choose its SQL data type. Rows marked “gen” are generated; foreign keys inherit the referenced type.</p> : null}
         </div>
 
         <button type="button" className="btn btn--danger" onClick={() => state.remove([entity.id])}>
@@ -212,6 +214,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
 
   if (attribute) {
     const owners = [...doc.entities, ...doc.relationships, ...doc.isas];
+    const row = doc.view === 'crowfoot' ? deriveTables(doc).flatMap((table) => table.rows).find((r) => r.attributeId === attribute.id) : undefined;
     return (
       <aside className="inspector" aria-label="Properties">
         <h2 className="panel__title">Attribute</h2>
@@ -229,6 +232,23 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             autoComplete="off"
           />
         </div>
+        {doc.view === 'crowfoot' ? <div className="field">
+          <label className="field__label" htmlFor="attr-data-type">Data type</label>
+          <select id="attr-data-type" className="field__select"
+            aria-describedby="attr-data-type-help"
+            value={row?.fk ? 'inherited' : attribute.dataType ?? ''}
+            disabled={row?.fk}
+            onChange={(event) => state.updateAttribute(attribute.id, { dataType: normalizeDataType(event.target.value) })}>
+            {row?.fk ? <option value="inherited">{row.type} (inherited)</option> : <>
+              <option value="">Automatic ({attributeType({ name: attribute.name })})</option>
+              {DATA_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+            </>}
+          </select>
+          <p id="attr-data-type-help" className="field__help">{row?.fk ?
+            'Inherited from ' + row.references?.label + '. Change the referenced attribute’s data type to keep this foreign key compatible.' :
+            attribute.kind === 'derived' ? 'Derived attributes are calculated and omitted from tables and SQL.' :
+            'Automatic infers a type from the name. Choose a type to use it in tables and SQL.'}</p>
+        </div> : null}
         <div className="field">
           <span className="field__label" id="attr-kind-label">
             Kind

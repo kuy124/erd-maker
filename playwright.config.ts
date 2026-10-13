@@ -20,11 +20,23 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * `--strictPort` matters: the multiplayer tests open several browser contexts
  * and all of them must reach the same origin, so the port has to be predictable.
+ *
+ * Parallelism: every test drives its own browser context, and contexts share
+ * nothing that crosses between them — IndexedDB, local storage, and the
+ * BroadcastChannel room all live inside the context. That makes tests
+ * independent, so `fullyParallel` splits them across workers even inside a
+ * single large spec file, and one slow file can no longer hold up the run.
+ * `editor.spec.ts` alone was 6.9 of a 12.8 minute serial suite.
+ *
+ * Three workers is deliberate: the machine has four logical cores, and a
+ * worker is a Chromium process plus a Node driver. Leaving a core for the OS
+ * keeps the WebRTC handshakes the multiplayer tests wait on from being starved
+ * by the rest of the suite.
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  workers: 3,
   retries: 0,
   reporter: [['list']],
   timeout: 45_000,

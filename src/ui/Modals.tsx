@@ -5,13 +5,13 @@
  * export (SVG, PNG, JSON, SQL). Both trap focus, close on Escape, and restore
  * focus on close, which is the minimum a dialog has to do.
  *
- * The share dialog is where the "no server" design has to be explained, because
- * it changes what people expect: the link carries the diagram, so it still works
- * when nobody else is online.
+ * Sharing defaults to a short live-room link. An optional snapshot makes the
+ * link longer but lets a new visitor open a copy with nobody online.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { copyText } from '../export';
+import { downloadText, fileStem, serializeJson } from '../export';
 import { buildShareUrl } from '../model/snapshot';
 import type { EditorState } from '../state/useEditor';
 
@@ -109,6 +109,7 @@ export function ShareDialog({
 }) {
   const [copied, setCopied] = useState<'link' | 'room' | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [includeSnapshot, setIncludeSnapshot] = useState(false);
   const linkRef = useRef<HTMLInputElement>(null);
   const roomRef = useRef<HTMLInputElement>(null);
   const linkId = useId();
@@ -116,7 +117,7 @@ export function ShareDialog({
   const link =
     typeof window === 'undefined'
       ? ''
-      : buildShareUrl(window.location.href.split('#')[0]!, state.doc, state.room);
+      : buildShareUrl(window.location.href.split('#')[0]!, state.doc, state.room, includeSnapshot);
 
   const copy = async (value: string, what: 'link' | 'room') => {
     const ok = await copyText(value);
@@ -147,8 +148,7 @@ export function ShareDialog({
       }
     >
       <p className="note" style={{ marginTop: 0 }}>
-        Anyone who opens this link joins the same live diagram. The link also carries a copy of the
-        diagram itself, so it still opens when nobody else is online.
+        Share a short link to this live room. Keep the diagram open until the other person joins.
       </p>
 
       <div className="field">
@@ -156,6 +156,16 @@ export function ShareDialog({
           Share link
         </label>
         <input id={linkId} ref={linkRef} className="field__input field__input--mono" readOnly value={link} onFocus={(e) => e.target.select()} />
+      </div>
+
+      <div className="field">
+        <label className="snapshot-option">
+          <input type="checkbox" checked={includeSnapshot} onChange={(event) => {
+            setIncludeSnapshot(event.target.checked); setCopied(null);
+          }} />
+          Include diagram snapshot
+        </label>
+        <p className="field__help">Use a longer link that opens a copy even when nobody is online.</p>
       </div>
 
       <div className="field">
@@ -175,9 +185,29 @@ export function ShareDialog({
       </div>
 
       <p className="note note--warn">
-        Live editing uses a direct connection between browsers. On a locked-down network that blocks
-        those connections, the link still opens the diagram, but edits will not appear on other screens.
+        Live changes need a direct browser connection. If the connection is blocked, use a snapshot
+        link to share a copy.
       </p>
+
+      {/*
+        The honest answer to "I need this to be somewhere other than my screen",
+        for an app with no server: a file. It needs nobody online, it is not a
+        link that can be truncated, and whoever receives it opens it with Import
+        into their own room. Export also does this, but this is where someone
+        asking about sharing is actually looking.
+      */}
+      <div className="field">
+        <span className="field__label">Save a copy to this device</span>
+        <p className="field__help">
+          Writes the diagram as a JSON file. Anyone can open it with Import, whether or not you are
+          online, and it cannot be shortened or truncated in transit.
+        </p>
+        <button type="button" className="btn" onClick={() =>
+          downloadText(serializeJson(state.doc), fileStem(state.doc.name) + '.json', 'application/json')
+        }>
+          Save a copy
+        </button>
+      </div>
 
       <div className="modal__footer" style={{ borderTop: 'none', padding: 'var(--s3) 0 0' }}>
         <button type="button" className="btn btn--primary" onClick={() => copy(link, 'link')}>

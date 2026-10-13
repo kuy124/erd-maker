@@ -96,7 +96,7 @@ export function HelpPanel() {
       <p>Connect two entities to create a relationship diamond automatically. Connect an entity to an existing diamond to add a participant.</p>
       <h3>Chen and crow’s-foot</h3>
       <p>In crow’s-foot view, choose Connect (C) and click or tap two attribute rows, or drag from one row to another. A relationship is created with its endpoints on those rows. Use its Connection attribute selectors to change either end; Automatic follows the inferred key and foreign key.</p>
-      <p>Both views use the same entities, attributes, and relationships. The table view infers column types and may generate keys and foreign keys. Edit the source attribute or relationship to change them.</p>
+      <p>Both views use the same entities, attributes, and relationships. Choose an attribute’s Data type in Properties, or leave it Automatic to infer from its name. Foreign keys inherit the referenced field’s type; generated rows follow their source keys.</p>
       <p>Specializations, derived attributes, and attributes on relationships are shown in Chen. Many-to-many associations are drawn as connectors; SQL export maps them to junction tables.</p>
       <h3>Keyboard shortcuts</h3>
       <p>Focus view (I) hides the controls while you explore the diagram. Press Escape or I to return. Selecting a shape keeps you on the canvas; open Properties or use right-click Edit properties when you want to change it.</p>

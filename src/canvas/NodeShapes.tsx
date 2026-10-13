@@ -174,12 +174,17 @@ export const AttributeShape = memo(function AttributeShape({
 });
 
 /**
- * Rough text width for the key underline. A real measurement would need the
- * font loaded; 6.6px per character is close for 13px IBM Plex Sans and errs
- * slightly wide, which looks intentional rather than clipped.
+ * Rough text width for the key underline. A real measurement would need the font
+ * loaded; 6.6px per character is close for 13px IBM Plex Sans and errs slightly
+ * wide, which looks intentional rather than clipped.
+ *
+ * The floor is deliberately tiny. It used to be 18px, which is wider than the
+ * word "id" is drawn — so a short key got a long bar hanging off it, while a long
+ * key looked right because the per-character estimate dominated. The floor only
+ * exists so a one-character name still gets a visible line.
  */
 function measureLabel(text: string): number {
-  return Math.max(18, text.length * 6.6);
+  return Math.max(7, text.length * 6.6);
 }
 
 function ShapeLabel({ name, x, y, limit, underline = false }: {

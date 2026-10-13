@@ -17,7 +17,7 @@ import { useCanvasZoom } from './useCanvasZoom';
 import {
   CROW_HEADER_HEIGHT,
   CROW_ROW_HEIGHT,
-  CROW_WIDTH,
+  CROW_NAME_X,
   deriveLinks,
   deriveTables,
   routeColumns,
@@ -36,9 +36,20 @@ interface Props {
   state: EditorState;
   svgRef: React.MutableRefObject<SVGSVGElement | null>;
   emptyActions?: React.ReactNode;
+  /** Replaces the empty-canvas card entirely; see `emptyState` in App. */
+  emptyState?: React.ReactNode;
+  /**
+   * Commits table positions to this browser's layout.
+   *
+   * Deliberately not `state.applyPositions`: a table's place on screen is a
+   * local reading of the schema, and writing it to the shared document would
+   * move the table under everyone else in the room. The attributes, keys, and
+   * types still sync — only where the table sits is personal.
+   */
+  onTablePositions?: (positions: Map<string, { x: number; y: number }>) => void;
 }
 
-export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -83,7 +94,10 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
 
   const drag = useDrag({
     toWorld,
-    onCommit: (positions) => state.applyPositions(positions),
+    onCommit: (positions) => {
+      if (onTablePositions) onTablePositions(positions);
+      else state.applyPositions(positions);
+    },
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
     onSettled: (moved) => {
       // A press that never moved was a click: narrow to that one table.
@@ -287,7 +301,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                   <title>{table.name + (table.weak ? ' (weak entity)' : ' entity table')}</title>
                   <rect
                     className="node__body"
-                    width={CROW_WIDTH}
+                    width={table.width}
                     height={height}
                     style={table.weak ? { strokeDasharray: '6 4' } : undefined}
                   />
@@ -295,13 +309,13 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                     className="leg"
                     x1={0}
                     y1={CROW_HEADER_HEIGHT}
-                    x2={CROW_WIDTH}
+                    x2={table.width}
                     y2={CROW_HEADER_HEIGHT}
                   />
                   <g role="button" tabIndex={-1} aria-label={`Table ${table.name}`}>
-                  <rect className="hit-target crow-row__hit" width={CROW_WIDTH} height={CROW_HEADER_HEIGHT} />
+                  <rect className="hit-target crow-row__hit" width={table.width} height={CROW_HEADER_HEIGHT} />
                   <text className="crow-table__name" x={10} y={CROW_HEADER_HEIGHT / 2}>
-                    {shorten(table.name, table.weak ? 26 : 34)}
+                    {table.name}
                     {table.weak ? ' (weak)' : ''}
                   </text>
                   </g>
@@ -342,11 +356,12 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                         }}>
                         <title>{row.name + (row.attributeId ? ' — editable attribute' : ' — generated ' + (row.fk ? 'foreign key' : 'primary key')) +
                           (row.generatedKey ? '. Primary key generated; mark this attribute as Key to make it explicit' : '') +
-                          (row.references ? '. References ' + row.references.label : '') + '. Type ' + row.type + ' is inferred from its name or referenced key.'}</title>
-                        <rect className="hit-target crow-row__hit" width={CROW_WIDTH} height={CROW_ROW_HEIGHT}
+                          (row.references ? '. Type ' + row.type + ' is inherited from ' + row.references.label :
+                            '. Type ' + row.type + (doc.attributes.find((a) => a.id === row.attributeId)?.dataType ? ' is chosen in Properties' : ' is inferred from its name')) + '.'}</title>
+                        <rect className="hit-target crow-row__hit" width={table.width} height={CROW_ROW_HEIGHT}
                           y={y - CROW_ROW_HEIGHT / 2} />
                         {tool === 'connect' ? <g className="connection-ports" pointerEvents="none" aria-hidden="true">
-                          <circle cx={0} cy={y} r={5} /><circle cx={CROW_WIDTH} cy={y} r={5} />
+                          <circle cx={0} cy={y} r={5} /><circle cx={table.width} cy={y} r={5} />
                         </g> : null}
                         <text className="crow-row__key" x={10} y={row.attributeId && !row.generatedKey ? y : y - 7}>
                           <tspan style={row.pk && row.fk ? { fontSize: 10 } : undefined}>{row.pk && row.fk ? 'PK/FK' : row.pk ? 'PK' : row.fk ? 'FK' : ''}</tspan>
@@ -354,12 +369,12 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                         {!row.attributeId || row.generatedKey ? <text className="crow-row__key" x={10} y={y + 9}>gen</text> : null}
                         <text
                           className={`crow-row__name${row.pk ? ' crow-row__name--pk' : ''}`}
-                          x={46}
+                          x={CROW_NAME_X}
                           y={y}
                         >
-                          {shorten(row.name, 18)}
+                          {row.name}
                         </text>
-                        <text className="crow-row__type" x={CROW_WIDTH - 10} y={y}>
+                        <text className="crow-row__type" x={table.width - 10} y={y}>
                           {row.type}
                         </text>
                         {index < table.rows.length - 1 ? (
@@ -367,18 +382,18 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
                             className="crow-row__rule"
                             x1={0}
                             y1={CROW_HEADER_HEIGHT + (index + 1) * CROW_ROW_HEIGHT}
-                            x2={CROW_WIDTH}
+                            x2={table.width}
                             y2={CROW_HEADER_HEIGHT + (index + 1) * CROW_ROW_HEIGHT}
                           />
                         ) : null}
                         {row.attributeId && selection.includes(row.attributeId) ? <rect className="selection-ring"
-                          x={2} y={y - CROW_ROW_HEIGHT / 2 + 2} width={CROW_WIDTH - 4} height={CROW_ROW_HEIGHT - 4} /> : null}
+                          x={2} y={y - CROW_ROW_HEIGHT / 2 + 2} width={table.width - 4} height={CROW_ROW_HEIGHT - 4} /> : null}
                       </g>
                     );
                   })}
 
                   {isSelected ? (
-                    <rect className="selection-ring" x={-5} y={-5} width={CROW_WIDTH + 10} height={height + 10} />
+                    <rect className="selection-ring" x={-5} y={-5} width={table.width + 10} height={height + 10} />
                   ) : null}
                 </g>
               );
@@ -387,9 +402,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
           {connectFrom && pointer ? (() => {
             const table = byId.get(connectFrom.entityId);
             if (!table) return null;
-            if (pointer.x >= table.x && pointer.x <= table.x + CROW_WIDTH &&
+            if (pointer.x >= table.x && pointer.x <= table.x + table.width &&
                 Math.abs(pointer.y - rowCenter(table, connectFrom.columnId)) <= CROW_ROW_HEIGHT / 2) return null;
-            const x = table.x + (pointer.x >= table.x + CROW_WIDTH / 2 ? CROW_WIDTH : 0);
+            const x = table.x + (pointer.x >= table.x + table.width / 2 ? table.width : 0);
             const y = rowCenter(table, connectFrom.columnId);
             return <path className="connect-preview" d={`M${x} ${y} H${x + (x > table.x ? 36 : -36)} V${pointer.y} H${pointer.x}`} />;
           })() : null}
@@ -408,7 +423,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
         </g>
       </svg>
 
-      {isEmpty ? (
+      {emptyState ?? (isEmpty ? (
         <div className="canvas-empty">
           <div className="canvas-empty__card">
             <h2 className="canvas-empty__title">No tables yet</h2>
@@ -419,7 +434,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions }: Props) {
             {emptyActions}
           </div>
         </div>
-      ) : null}
+      ) : null)}
 
       {tool === 'connect' ? <div className="canvas-status" role="status">
         {connectFrom ? 'Choose the second attribute' : 'Choose an attribute, then another. You can also drag between rows.'}

@@ -1,5 +1,6 @@
 import { attributesOf, legsFor, type ErdDocument, type Entity, type Leg } from './types';
 import { foreignKeyColumnName, toSqlName } from './columnNames';
+import { attributeType } from './dataTypes';
 
 export interface CrowTable {
   entityId: string;
@@ -8,6 +9,104 @@ export interface CrowTable {
   y: number;
   weak: boolean;
   rows: CrowRow[];
+  /**
+   * Rendered width, which grows with the longest text so nothing is truncated.
+   *
+   * Previously a fixed 280 clipped long column names to an ellipsis, which made
+   * two tables with the same column indistinguishable — the one thing a schema
+   * cannot afford.
+   */
+  width: number;
+}
+
+/**
+ * Rough advance width per character, used to size a table to its contents.
+ *
+ * Deliberately estimates wide. An over-wide table reads as generous spacing; an
+ * under-wide one clips the text, and `measureLabel` in NodeShapes already
+ * relies on the same trade.
+ */
+const CHAR_SANS = 7.0;
+const CHAR_SANS_BOLD = 7.4;
+const CHAR_MONO = 8.0;
+/** Left edge of a row's name; the type is anchored to the right edge. */
+export const CROW_NAME_X = 46;
+/** Gap between the longest text and the table border, each side. */
+const CROW_GUTTER = 12;
+
+/** Width that fits the table's own title and every row's name and type. */
+function widthFor(name: string, weak: boolean, rows: CrowRow[]): number {
+  const title = name + (weak ? ' (weak)' : '');
+  let needed = CROW_GUTTER * 2 + title.length * CHAR_SANS_BOLD;
+  for (const row of rows) {
+    needed = Math.max(needed,
+      CROW_NAME_X + row.name.length * CHAR_SANS + CROW_GUTTER + row.type.length * CHAR_MONO + CROW_GUTTER);
+  }
+  return Math.max(CROW_WIDTH, Math.ceil(needed));
+}
+
+/**
+ * Where this browser has put each table, which is deliberately not in the
+ * document.
+ *
+ * Two people reading the same schema do not need the same picture of it, and a
+ * table that slides away under someone else's cursor while they are reading is
+ * worse than a diagram that is laid out differently in each browser. The
+ * attributes, keys, and relationships still sync — only the position on screen
+ * is local.
+ */
+export type CrowLayout = Map<string, { x: number; y: number }>;
+
+const CROW_LAYOUT_KEY = 'erd:crow:';
+
+/** Reads this browser's table positions for a room. Never throws. */
+export function loadCrowLayout(room: string): CrowLayout {
+  try {
+    const raw = localStorage.getItem(CROW_LAYOUT_KEY + room);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const layout: CrowLayout = new Map();
+    for (const [id, value] of Object.entries(parsed)) {
+      const point = Array.isArray(value) ? value : null;
+      if (point && typeof point[0] === 'number' && typeof point[1] === 'number') {
+        layout.set(id, { x: point[0], y: point[1] });
+      }
+    }
+    return layout;
+  } catch {
+    return new Map();
+  }
+}
+
+/** Stores this browser's table positions for a room. Never throws. */
+export function saveCrowLayout(room: string, layout: CrowLayout): void {
+  try {
+    const plain: Record<string, [number, number]> = {};
+    for (const [id, point] of layout) plain[id] = [Math.round(point.x), Math.round(point.y)];
+    localStorage.setItem(CROW_LAYOUT_KEY + room, JSON.stringify(plain));
+  } catch {
+    // A full or disabled store costs the user their layout, not their diagram.
+  }
+}
+
+/**
+ * The document as this browser's table layout shows it.
+ *
+ * Everything downstream — tables, links, `occupiedBoxes`, framing, and new-shape
+ * placement — already takes a document, so applying the layout in one place
+ * keeps the local positions out of the shared document without any of those
+ * functions needing to know it exists.
+ */
+export function withCrowLayout(doc: ErdDocument, layout: CrowLayout | null): ErdDocument {
+  if (!layout || layout.size === 0) return doc;
+  let changed = false;
+  const entities = doc.entities.map((entity) => {
+    const at = layout.get(entity.id);
+    if (!at) return entity;
+    changed = true;
+    return { ...entity, x: at.x, y: at.y };
+  });
+  return changed ? { ...doc, entities } : doc;
 }
 
 export interface CrowRow {
@@ -43,20 +142,11 @@ export interface CrowLink {
   lane: number;
 }
 
-function typeFor(name: string): string {
-  const n = name.toLowerCase();
-  if (/(^|_)(id|code|number|num|no)($|_)/.test(n) || /(^|_)id$/.test(n)) return 'INT';
-  if (/(date|time|created|updated|at)$/.test(n)) return 'TIMESTAMP';
-  if (/(amount|price|total|cost|salary|balance|qty|quantity|count)/.test(n)) return 'NUMERIC';
-  if (/(is|has|active|enabled|flag)/.test(n)) return 'BOOL';
-  return 'TEXT';
-}
-
 function baseRows(doc: ErdDocument, entity: Entity): CrowRow[] {
   const attrs = attributesOf(doc, entity.id).filter((a) => a.kind !== 'derived');
   const rows: CrowRow[] = attrs.filter((a) => a.kind === 'key').concat(attrs.filter((a) => a.kind !== 'key'))
     .map((a) => ({ id: 'attribute:' + a.id, attributeId: a.id, name: a.name,
-      pk: a.kind === 'key', fk: false, type: typeFor(a.name) }));
+      pk: a.kind === 'key', fk: false, type: attributeType(a) }));
   if (!rows.some((r) => r.pk)) {
     const existingId = rows.find((r) => toSqlName(r.name) === 'id');
     if (existingId) { existingId.pk = true; existingId.generatedKey = true; }
@@ -92,7 +182,7 @@ export function foreignKeyDirection(doc: ErdDocument, [a, b]: [RelationshipEnd, 
 /** Every entity's editable columns, plus foreign keys inferred from its relationships. */
 export function deriveTables(doc: ErdDocument): CrowTable[] {
   const tables = doc.entities.map((entity) => ({ entityId: entity.id, name: entity.name,
-    x: entity.x, y: entity.y, weak: entity.kind === 'weak', rows: baseRows(doc, entity) }));
+    x: entity.x, y: entity.y, weak: entity.kind === 'weak', width: CROW_WIDTH, rows: baseRows(doc, entity) }));
   const byId = new Map(tables.map((t) => [t.entityId, t]));
   // Inherited keys must exist before another table can reference the weak entity.
   for (const rel of [...doc.relationships].sort((a, b) => Number(b.kind === 'weak') - Number(a.kind === 'weak'))) {
@@ -126,6 +216,21 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
       row.references = { entityId: target.entity.id, columnId: key.id, label: target.entity.name + '.' + key.name };
     }
   }
+  // A referenced key can itself be an FK processed later. Resolve types only
+  // after every reference exists; the row bound also terminates cyclic models.
+  const rows = tables.flatMap((table) => table.rows);
+  for (let pass = 0; pass < rows.length; pass++) {
+    let changed = false;
+    for (const row of rows) {
+      if (!row.references) continue;
+      const target = byId.get(row.references.entityId)?.rows.find((r) => r.id === row.references!.columnId);
+      if (target && row.type !== target.type) { row.type = target.type; changed = true; }
+    }
+    if (!changed) break;
+  }
+  // Sized last: foreign-key rows are appended above, and a table that measured
+  // itself before them would still truncate the names it gained.
+  for (const table of tables) table.width = widthFor(table.name, table.weak, table.rows);
   return tables;
 }
 
@@ -194,13 +299,13 @@ export function rowCenter(table: CrowTable, columnId: string): number {
 /** Orthogonal paths leave the selected rows horizontally, including stacked/self links. */
 export function routeColumns(from: CrowTable, fromColumnId: string, to: CrowTable, toColumnId: string, lane = 0) {
   const ay = rowCenter(from, fromColumnId), by = rowCenter(to, toColumnId);
-  const gapRight = to.x - from.x - CROW_WIDTH;
-  const gapLeft = from.x - to.x - CROW_WIDTH;
+  const gapRight = to.x - from.x - Math.max(from.width, to.width);
+  const gapLeft = from.x - to.x - Math.max(from.width, to.width);
   const facing = Math.max(gapRight, gapLeft) >= 80;
   const fromRight = facing ? gapRight >= gapLeft : to.x >= from.x;
   const toRight = facing ? !fromRight : fromRight;
-  const a = { x: from.x + (fromRight ? CROW_WIDTH : 0), y: ay };
-  const b = { x: to.x + (toRight ? CROW_WIDTH : 0), y: by };
+  const a = { x: from.x + (fromRight ? from.width : 0), y: ay };
+  const b = { x: to.x + (toRight ? to.width : 0), y: by };
   const bendX = facing ? (a.x + b.x) / 2 + lane * 12 :
     fromRight ? Math.max(a.x, b.x) + 48 + lane * 16 : Math.min(a.x, b.x) - 48 - lane * 16;
   const jogY = facing && lane > 0 ? Math.min(ay, by) - lane * 44 : ay;

@@ -16,6 +16,8 @@
  * diamond and draws ERDPlus-style endpoint symbols beside the entity.
  */
 
+import type { DataType } from './dataTypes';
+
 export type EntityKind = 'strong' | 'weak';
 export type RelationshipKind = 'strong' | 'weak';
 export type AttributeKind = 'simple' | 'key' | 'multivalued' | 'derived' | 'composite';
@@ -44,6 +46,8 @@ export interface Attribute {
   kind: AttributeKind;
   /** The entity or relationship this attribute hangs off, or null while floating. */
   ownerId: string | null;
+  /** Absent means infer from the name. Foreign keys inherit the referenced type. */
+  dataType?: DataType;
 }
 
 export interface Relationship {

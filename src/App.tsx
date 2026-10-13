@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
 import { cursorOrigin, documentBounds, isVisibleIn } from './canvas/geometry';
@@ -6,7 +6,7 @@ import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
 import { findFreeSlot, occupiedBoxes } from './model/placement';
-import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight } from './model/crowfoot';
+import { deriveTables, deriveLinks, routeColumns, loadCrowLayout, saveCrowLayout, withCrowLayout, CROW_WIDTH, tableHeight } from './model/crowfoot';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
@@ -21,7 +21,7 @@ import { WorkspaceIcon } from './ui/WorkspaceIcon';
 
 type Dialog = 'share' | 'export' | 'examples' | null;
 type Panel = 'build' | 'diagram' | 'properties' | 'help';
-interface Session { room: string; seed: ErdDocument | null }
+interface Session { room: string; seed: ErdDocument | null; fromLink: boolean }
 
 /**
  * Where the right-click menu was opened.
@@ -35,7 +35,23 @@ interface MenuRequest { at: { x: number; y: number }; world: { x: number; y: num
 
 function readSession(): Session {
   const parsed = parseShareHash(window.location.hash);
-  return { room: parsed.room ?? newRoomId(), seed: parsed.doc ?? null };
+  /*
+   * Is this room ours or somebody else's?
+   *
+   * The hash is rewritten on load to always name the current room, so a reload
+   * of a diagram you opened yourself is indistinguishable from a link that
+   * arrived from elsewhere — the difference is whether *this* app put the room
+   * in the hash, which `history.state` survives a reload. Without it there is no
+   * way to tell "waiting for the person who shared this" from "you have an
+   * empty diagram", and guessing wrong on an empty canvas is how a joiner ends
+   * up drawing a fresh schema over somebody else's work.
+   */
+  const generated = (window.history.state as { room?: string } | null)?.room;
+  return {
+    room: parsed.room ?? newRoomId(),
+    seed: parsed.doc ?? null,
+    fromLink: Boolean(parsed.room) && generated !== parsed.room,
+  };
 }
 
 export function App() {
@@ -44,7 +60,9 @@ export function App() {
     if (!parseShareHash(window.location.hash).room) {
       const url = new URL(window.location.href);
       url.hash = 'room=' + session.room + (session.seed ? '&d=' + encodeSnapshot(session.seed).replace(/\+/g, '%2B') : '');
-      window.history.replaceState(null, '', url);
+      // Record that this room was invented here, so a reload is not mistaken
+      // for somebody else's link. See `readSession`.
+      window.history.replaceState({ room: session.room }, '', url);
     }
     const onHashChange = () => {
       const parsed = parseShareHash(window.location.hash);
@@ -72,11 +90,35 @@ function EditorSession({ session }: { session: Session }) {
     return () => handle.destroy();
   }, [session.room]);
   if (!room) return <main className="loading-editor"><h1>ERD Maker</h1><p role={error ? 'alert' : 'status'}>{error ?? 'Opening your diagram…'}</p></main>;
-  return <Editor room={room} seed={session.seed} />;
+  return <Editor room={room} seed={session.seed} fromLink={session.fromLink} />;
 }
 
-function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) {
+function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument | null; fromLink: boolean }) {
   const state = useEditor(room, seed);
+  const isCrowFoot = state.view === 'crowfoot';
+
+  /*
+   * Table positions are this browser's, not the document's.
+   *
+   * Two people reading one schema do not need the same picture of it, and a
+   * table that slides away under somebody else's cursor while they are reading
+   * it is worse than a diagram laid out differently in each browser. Everything
+   * else — attributes, keys, relationships, types — still syncs, because that is
+   * the content. Applying the layout in one place (`shown`) means the canvas,
+   * framing, and new-shape placement all agree without knowing why.
+   */
+  const [crowLayout, setCrowLayout] = useState(() => loadCrowLayout(room.room));
+  const shown = useMemo(() => (isCrowFoot ? withCrowLayout(state.doc, crowLayout) : state.doc), [state.doc, crowLayout, isCrowFoot]);
+  const setTablePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
+    setCrowLayout((current) => {
+      const next = new Map(current);
+      // Absolute positions: the drag starts from where the table is drawn, which
+      // is already this layout, so there is no delta to apply.
+      for (const [id, point] of positions) next.set(id, point);
+      saveCrowLayout(room.room, next);
+      return next;
+    });
+  }, [room.room]);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileMenuTrigger = useRef<HTMLButtonElement>(null);
@@ -87,16 +129,17 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   const [rightTab, setRightTab] = useState<'properties' | 'help'>('properties');
   const [error, setError] = useState<string | null>(null);
   const panelTrigger = useRef<HTMLElement | null>(null);
+  const focusPanel = useRef(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [menu, setMenu] = useState<MenuRequest | null>(null);
   const [fileMenuAt, setFileMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const framed = useRef(false);
-  const isCrowFoot = state.view === 'crowfoot';
   const isEmpty = allNodes(state.doc).length === 0;
 
-  const showPanel = useCallback((panel: Panel, trigger?: HTMLElement) => {
+  const showPanel = useCallback((panel: Panel, trigger?: HTMLElement, keyboard = false) => {
     if (trigger) panelTrigger.current = trigger;
+    focusPanel.current = keyboard;
     setFocusMode(false);
     setOpenPanel(panel);
     if (panel === 'build' || panel === 'diagram') setLeftTab(panel);
@@ -109,7 +152,11 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     else svgRef.current?.focus();
   }, []);
   const select = state.setSelection;
-  const editor = state;
+  const editor: typeof state = { ...state, doc: shown, setViewport: (update) => {
+    // Canvas gestures take ownership of the view while a live room is loading.
+    framed.current = true;
+    state.setViewport(update);
+  } };
   const toggleFocus = useCallback(() => {
     setFocusMode((current) => !current);
     setOpenPanel(null);
@@ -151,20 +198,24 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       y: area.y - bounds.minY * zoom + (area.height - height * zoom) / 2,
     }));
   }, [state.setViewport, canvasArea]);
-  const fitToView = useCallback(() => fitToDoc(state.doc), [fitToDoc, state.doc]);
+  const fitToView = useCallback(() => fitToDoc(shown), [fitToDoc, shown]);
 
   useEffect(() => {
     if (!state.justCreated || !state.selection.includes(state.justCreated)) return;
     showPanel('properties');
+  }, [state.justCreated, showPanel]);
+
+  useEffect(() => {
+    if (!state.justCreated || openPanel !== 'properties' || !state.selection.includes(state.justCreated)) return;
     const frame = requestAnimationFrame(() => {
       const rect = svgRef.current?.getBoundingClientRect();
-      const node = allNodes(state.doc).find((item) => item.id === state.justCreated);
+      const node = allNodes(shown).find((item) => item.id === state.justCreated);
       if (!rect || !node) return;
-      const table = state.view === 'crowfoot' ? deriveTables(state.doc).find((item) =>
+      const table = isCrowFoot ? deriveTables(shown).find((item) =>
         item.entityId === node.id || item.rows.some((row) => row.attributeId === node.id)) : null;
-      if (state.view === 'crowfoot' && !table) { fitToDoc(state.doc); return; }
+      if (isCrowFoot && !table) { fitToDoc(shown); return; }
       const rowIndex = table?.rows.findIndex((row) => row.attributeId === node.id) ?? -1;
-      const dimensions = table ? { w: CROW_WIDTH, h: rowIndex < 0 ? tableHeight(table) : 44 } : sizeOf(state.doc, node.id);
+      const dimensions = table ? { w: table.width, h: rowIndex < 0 ? tableHeight(table) : 44 } : sizeOf(shown, node.id);
       const x = table?.x ?? node.x;
       const y = table ? table.y + (rowIndex < 0 ? 0 : 44 + rowIndex * 44) : node.y;
       const area = canvasArea();
@@ -185,15 +236,26 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [state.justCreated, showPanel, canvasArea, fitToDoc]);
+  }, [state.justCreated, openPanel, canvasArea, fitToDoc, shown, isCrowFoot]);
 
   useEffect(() => {
-    if (!state.loaded || framed.current) return;
+    if (!openPanel || !focusPanel.current) return;
+    focusPanel.current = false;
+    svgRef.current?.closest('.app')?.querySelector<HTMLElement>(
+      '.workspace-panel[data-open="true"] :is(.rail, .outline, .inspector, .help-panel) :is(button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href])',
+    )?.focus({ preventScroll: true });
+  }, [openPanel]);
+
+  useLayoutEffect(() => {
+    if (!state.loaded || framed.current || isEmpty) return;
     framed.current = true;
-    if (!isEmpty) requestAnimationFrame(() => fitToDoc(state.doc));
-  }, [state.loaded, state.doc, isEmpty, fitToDoc]);
+    // A room-only link starts empty; frame its first incoming content. Local
+    // creation keeps its pointer placement and has its own visibility check.
+    if (!state.justCreated) fitToDoc(shown);
+  }, [state.loaded, state.doc, state.justCreated, isEmpty, fitToDoc, shown]);
 
   const zoomBy = (factor: number) => {
+    framed.current = true;
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
     state.setViewport((current) => {
@@ -228,7 +290,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     const origin = at
       ? { x: at.x - size.w / 2, y: at.y - size.h / 2 }
       : cursorOrigin(size, state.pointer.current, rect ?? null, state.viewport);
-    const slot = findFreeSlot(occupiedBoxes({ ...state.doc, view }), origin, size);
+    const slot = findFreeSlot(occupiedBoxes({ ...shown, view }), origin, size);
     if (kind === 'attribute') state.addAttribute(slot.x, slot.y, ownerId);
     else if (kind === 'entity') state.addEntity(slot.x, slot.y);
     else if (kind === 'relationship') {
@@ -239,36 +301,52 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
   }, [state, showPanel]);
 
   const tidy = useCallback(() => {
-    const arranged = applyLayout(state.doc);
+    const arranged = applyLayout(shown);
+    if (isCrowFoot) {
+      /*
+       * Tables are positioned locally, so Tidy arranges them here and nowhere
+       * else. Writing the result to the shared document would move the tables
+       * under everybody else, which is the one thing this layout is for.
+       */
+      const positions = new Map(arranged.entities.map((entity) => [entity.id, { x: entity.x, y: entity.y }]));
+      const before = new Map(shown.entities.map((entity) => [entity.id, entity]));
+      const moved = new Map([...positions].filter(([id, point]) => {
+        const old = before.get(id);
+        return old && (old.x !== point.x || old.y !== point.y);
+      }));
+      if (moved.size) setTablePositions(moved);
+      fitToDoc(moved.size ? withCrowLayout(shown, new Map([...crowLayout, ...moved])) : shown);
+      return;
+    }
     const positions = new Map<string, { x: number; y: number }>();
-    const before = new Map(allNodes(state.doc).map((node) => [node.id, node]));
+    const before = new Map(allNodes(shown).map((node) => [node.id, node]));
     for (const node of allNodes(arranged)) {
       const old = before.get(node.id);
       if (old && (old.x !== node.x || old.y !== node.y)) positions.set(node.id, { x: node.x, y: node.y });
     }
     if (positions.size) state.applyPositions(positions);
     fitToDoc(arranged);
-  }, [state, fitToDoc]);
+  }, [state, fitToDoc, shown, isCrowFoot, setTablePositions, crowLayout]);
 
   const focusShape = (id: string) => {
     let view = state.view;
     const attribute = state.doc.attributes.find((node) => node.id === id);
-    const tables = deriveTables(state.doc);
+    const tables = deriveTables(shown);
     const table = tables.find((item) => item.entityId === id || item.rows.some((row) => row.attributeId === id));
-    const link = deriveLinks(state.doc).find((item) => item.relId === id);
+    const link = deriveLinks(shown).find((item) => item.relId === id);
     if (view === 'crowfoot' && !table && !link) view = 'chen';
     if (view !== state.view) state.setView(view);
     select([id]);
     showPanel('properties');
-    let node = allNodes(state.doc).find((item) => item.id === id);
+    let node = allNodes(shown).find((item) => item.id === id);
     if (!node) {
-      const leg = state.doc.legs.find((item) => item.id === id);
-      node = allNodes(state.doc).find((item) => item.id === leg?.fromId);
+      const leg = shown.legs.find((item) => item.id === id);
+      node = allNodes(shown).find((item) => item.id === leg?.fromId);
     }
-    let point = node ? { x: node.x + sizeOf(state.doc, node.id).w / 2, y: node.y + sizeOf(state.doc, node.id).h / 2 } : null;
+    let point = node ? { x: node.x + sizeOf(shown, node.id).w / 2, y: node.y + sizeOf(shown, node.id).h / 2 } : null;
     if (view === 'crowfoot' && table) {
       const row = table.rows.findIndex((item) => item.attributeId === id);
-      point = { x: table.x + CROW_WIDTH / 2, y: table.y + (row < 0 ? tableHeight(table) / 2 : 44 + (row + 0.5) * 44) };
+      point = { x: table.x + table.width / 2, y: table.y + (row < 0 ? tableHeight(table) / 2 : 44 + (row + 0.5) * 44) };
     }
     if (view === 'crowfoot' && link) {
       const a = tables.find((item) => item.entityId === link.fromEntityId)!;
@@ -294,7 +372,17 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     try {
       const result = parseJsonImport(await file.text());
       if (result.error || !result.doc) { setError(result.error); return; }
-      openDocument(result.doc);
+      /*
+       * Import into the room you are already in.
+       *
+       * This used to mint a new room and navigate, which quietly left every
+       * collaborator behind on the old one and made Back the only way back.
+       * Importing is an edit, so it belongs to the room the edit happens in and
+       * reaches everyone already there. Normalising here replaces what the old
+       * path did by round-tripping the file through a share link — without it a
+       * file missing whole collections would reach the model unchecked.
+       */
+      state.replaceDocument(normalizeDocument(result.doc));
     } catch {
       setError('Could not read that file. Choose a diagram JSON file and try again.');
     }
@@ -470,6 +558,33 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
     <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
   </div> : null;
 
+  /*
+   * A short link carries no diagram, so an empty canvas after following one is
+   * a *waiting* state, not a blank page. Showing "start with an entity" there is
+   * the worst possible answer: the joiner starts drawing a schema that the
+   * incoming document will replace, or believes their link is broken and
+   * re-sends it. The room id is in the message because telling somebody "ask
+   * them to reopen it" is only actionable if they can identify which room.
+   */
+  const waitingForPeer = fromLink && !seed && isEmpty && state.loaded && state.peers.length === 0;
+  const emptyState = waitingForPeer ? (
+    <div className="canvas-empty">
+      <div className="canvas-empty__card">
+        <h2 className="canvas-empty__title">Waiting for the diagram</h2>
+        <p className="canvas-empty__body">
+          This link opens a live room rather than a copy, so the diagram appears as soon as the
+          person who shared it connects. Their tab needs to be open.
+        </p>
+        {/* Not `.canvas-empty__hint`: that is hidden on phones, and a phone is
+            exactly where a second person opens a shared link. */}
+        <p className="canvas-empty__body">
+          Room <code>{state.room}</code>. If that tab is closed, ask them to send a snapshot link
+          instead — it carries the diagram and opens with nobody online.
+        </p>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="app" data-keyboard={keyboardOpen} data-focus={focusMode}>
       <a className="skip-link" href="#canvas-region" onClick={(event) => { event.preventDefault(); svgRef.current?.focus(); }}>Skip to the canvas</a>
@@ -540,8 +655,8 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
         <div className="canvas-stage" onContextMenu={openMenu} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} /> :
-            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} />}
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={setTablePositions} /> :
+            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>
@@ -568,7 +683,7 @@ function Editor({ room, seed }: { room: RoomHandle; seed: ErdDocument | null }) 
       <nav className="panel-navigation" aria-label="Workspace panels">
         {(['build', 'diagram', 'properties', 'help'] as const).map((panel) => <button key={panel} type="button" className="btn btn--ghost"
           aria-label={panel.charAt(0).toUpperCase() + panel.slice(1)} title={panel.charAt(0).toUpperCase() + panel.slice(1)}
-          aria-expanded={openPanel === panel} onClick={(event) => openPanel === panel ? closePanel() : showPanel(panel, event.currentTarget)}>
+          aria-expanded={openPanel === panel} onClick={(event) => openPanel === panel ? closePanel() : showPanel(panel, event.currentTarget, event.detail === 0)}>
           <WorkspaceIcon name={panel} />
           <span className="panel-navigation__label">{panel === 'build' ? 'Add' : panel === 'properties' ? 'Edit' : panel.charAt(0).toUpperCase() + panel.slice(1)}</span>
         </button>)}

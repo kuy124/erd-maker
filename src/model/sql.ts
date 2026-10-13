@@ -34,7 +34,8 @@ import {
   type Relationship,
 } from './types';
 import { toSqlName } from './columnNames';
-import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, type RelationshipEnd } from './crowfoot';
+import { attributeType, normalizeDataType, sqlDataType } from './dataTypes';
+import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, type CrowTable, type RelationshipEnd } from './crowfoot';
 export { foreignKeyColumnName, toSqlName } from './columnNames';
 
 export interface SqlOptions {
@@ -50,13 +51,8 @@ function quote(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-function columnTypeFor(attr: { name: string; kind: string }): string {
-  const n = attr.name.toLowerCase();
-  if (/(^|_)(id|code|number|num|no)($|_)/.test(n) || /(^|_)id$/.test(n)) return 'INTEGER';
-  if (/(date|time|created|updated|at)$/.test(n)) return 'TIMESTAMP';
-  if (/(amount|price|total|cost|salary|balance|qty|quantity|count)/.test(n)) return 'NUMERIC';
-  if (/(is|has|active|enabled|flag)/.test(n)) return 'BOOLEAN';
-  return 'TEXT';
+function columnTypeFor(attr: { name: string; dataType?: unknown }): string {
+  return sqlDataType(attributeType(attr));
 }
 
 function surrogateKey(dialect: SqlOptions['dialect']): string {
@@ -159,7 +155,7 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
     if (!row?.pk || keys.length !== 1) {
       throw new SqlError(`${relationshipName}: choose a single-column primary key at ${end.entity.name} for SQL export. A non-key field or one part of a composite key cannot be referenced alone.`);
     }
-    return { name: toSqlName(row.name), type: row.type === 'INT' ? 'INTEGER' : row.type === 'BOOL' ? 'BOOLEAN' : row.type,
+    return { name: toSqlName(row.name), type: sqlDataType(row.type),
       pk: true, nullable: false };
   };
 
@@ -175,7 +171,7 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
       const source = ends?.find((end) => end.entity.id === entity.id);
       const target = ends?.find((end) => end.entity.id === weakParent.parent.id);
       const bound = source?.leg.columnId || target?.leg.columnId;
-      const keys = bound && target ? [selectedKey(target, weakParent.rel.name)] : parentKeyColumns(doc, weakParent.parent);
+      const keys = bound && target ? [selectedKey(target, weakParent.rel.name)] : parentKeyColumns(crowTables, weakParent.parent);
       if (bound && keys.length !== 1) throw new SqlError(`${weakParent.rel.name}: a single connection attribute cannot reference a composite key.`);
       const sourceRow = bound && ends && source ? endpointRows(doc, crowTables, ends)[ends[0].leg.id === source.leg.id ? 0 : 1] : null;
       for (const pk of keys) {
@@ -191,7 +187,9 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
     }
 
     if (keyAttrs.length === 0 && !weakParent) {
-      columns.push({ name: 'id', type: surrogateKey(dialect), pk: true, nullable: false });
+      const existingId = attrs.find((attr) => toSqlName(attr.name) === 'id');
+      const type = existingId && normalizeDataType(existingId.dataType) ? columnTypeFor(existingId) : surrogateKey(dialect);
+      columns.push({ name: 'id', type, pk: true, nullable: false });
     }
 
     for (const attr of attrs) {
@@ -210,8 +208,8 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
       const direction = ends && foreignKeyDirection(doc, ends);
       if (!ends || !direction || direction[0].entity.id !== entity.id || weakParent?.rel.id === rel.id) continue;
       const [source, target] = direction;
-      if (!target.leg.columnId && parentKeyColumns(doc, target.entity).length !== 1) {
-        if (source.leg.columnId) throw new SqlError(`${rel.name}: a single connection attribute cannot reference a composite key. Choose a single-column primary key or use Automatic.`);
+      if (!target.leg.columnId && parentKeyColumns(crowTables, target.entity).length !== 1) {
+        if (source.leg.columnId) selectedKey(target, rel.name);
         continue;
       }
       const targetCol = selectedKey(target, rel.name);
@@ -280,17 +278,13 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
   return tables.map((t) => renderTable(t, options.dropFirst ?? false)).join('\n\n') + '\n';
 }
 
-function parentKeyColumns(doc: ErdDocument, entity: Entity): Column[] {
-  const keyAttrs = attributesOf(doc, entity.id).filter((a) => a.kind === 'key');
-  if (keyAttrs.length > 0) {
-    return keyAttrs.map((a) => ({
-      name: toSqlName(a.name),
-      type: columnTypeFor(a),
-      pk: true,
-      nullable: false,
-    }));
-  }
-  return [{ name: 'id', type: 'INTEGER', pk: true, nullable: false }];
+function parentKeyColumns(tables: CrowTable[], entity: Entity): Column[] {
+  return tables.find((table) => table.entityId === entity.id)!.rows.filter((row) => row.pk).map((row) => ({
+    name: toSqlName(row.name),
+    type: sqlDataType(row.type),
+    pk: true,
+    nullable: false,
+  }));
 }
 
 function renderTable(table: Table, dropFirst: boolean): string {

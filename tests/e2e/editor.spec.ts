@@ -1,4 +1,5 @@
-import { documentAction, openBuild, inspectSelection } from './actions';
+import { documentAction, openBuild, inspectSelection, snapshotShareLink } from './actions';
+import { ROOM_ID_LENGTH } from '../../src/model/snapshot';
 /**
  * End-to-end tests.
  *
@@ -995,7 +996,7 @@ test.describe('export', () => {
     await importDiagram(alice, connectedDiagram('attribute:c-key'));
 
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
 
     const bob = await context.newPage();
@@ -1210,7 +1211,7 @@ test.describe('share links', () => {
     await addNamedEntity(page, 'Order');
 
     await documentAction(page, 'Share');
-    const link = await page.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(page);
     expect(link).toContain('#room=');
     expect(link).toContain('&d=');
 
@@ -1231,7 +1232,7 @@ test.describe('share links', () => {
     }
 
     await documentAction(page, 'Share');
-    const link = await page.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(page);
 
     const fresh = await page.context().newPage();
     await fresh.goto(link);
@@ -1246,7 +1247,7 @@ test.describe('share links', () => {
     await documentAction(page, 'Share');
 
     const room = await page.getByLabel('Room code').inputValue();
-    expect(room).toMatch(/^[a-z2-9]{12}$/);
+    expect(room).toMatch(new RegExp('^[a-z2-9]{' + ROOM_ID_LENGTH + '}$'));
     // The confusable characters must never appear, since the room code is
     // meant to be read off one screen and typed into another.
     expect(room).not.toMatch(/[lo01]/);
@@ -1269,7 +1270,7 @@ test.describe('multiplayer', () => {
     await addNamedEntity(alice, 'Customer');
 
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.keyboard.press('Escape');
 
     // Bob joins through the same link.
@@ -1310,7 +1311,7 @@ test.describe('multiplayer', () => {
     await addNamedEntity(alice, 'Shared');
 
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.keyboard.press('Escape');
 
     await bob.goto(link);
@@ -1337,7 +1338,7 @@ test.describe('multiplayer', () => {
     await addNamedEntity(alice, 'Temporary');
 
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.keyboard.press('Escape');
 
     await bob.goto(link);
@@ -1362,7 +1363,7 @@ test.describe('multiplayer', () => {
     await addNamedEntity(alice, 'Alpha');
 
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.keyboard.press('Escape');
 
     await bob.goto(link);
@@ -1395,7 +1396,7 @@ test.describe('multiplayer', () => {
     await addNamedEntity(first, 'Archived');
 
     await documentAction(first, 'Share');
-    const link = await first.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(first);
     await firstContext.close();
 
     // A brand-new context opens the link with nobody online. The diagram must
@@ -1417,7 +1418,7 @@ test.describe('multiplayer', () => {
     await addNamedEntity(alice, 'Shared');
 
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.keyboard.press('Escape');
 
     await bob.goto(link);
@@ -1455,7 +1456,7 @@ test.describe('live presence', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Shared');
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
     const bob = await context.newPage();
     await openApp(bob);
@@ -2014,7 +2015,7 @@ test.describe('multi-select', () => {
     await openApp(alice);
     await addNamedEntity(alice, 'Shared');
     await documentAction(alice, 'Share');
-    const link = await alice.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(alice);
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
     const bob = await context.newPage();
     await openApp(bob);
@@ -2435,7 +2436,7 @@ test.describe('groups', () => {
     await expect(page.locator('.group-frame')).toHaveCount(1);
 
     await documentAction(page, 'Share');
-    const link = await page.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(page);
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await page.goto(link);
     await expect(page.getByTestId('canvas')).toBeVisible();
