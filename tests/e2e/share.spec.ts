@@ -209,7 +209,10 @@ test('Save a copy downloads the diagram for offline handoff', async ({ page, bro
     await restored.locator('input[type=file]').setInputFiles({
       name: file.suggestedFilename(), mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(saved)),
     });
-    await expect(shape(restored, 'Entity Customer')).toBeVisible();
+    // A longer budget than the default here, deliberately: this context has every
+    // WebSocket closed, so it boots with no transport at all, and the suite runs
+    // three workers. It failed once at the 10s default while passing 4/4 alone.
+    await expect(shape(restored, 'Entity Customer')).toBeVisible({ timeout: 30_000 });
     await expect(shape(restored, 'Entity Order')).toBeVisible();
   } finally {
     await offline.close();

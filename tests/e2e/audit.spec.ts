@@ -1,4 +1,4 @@
-import { addShape, documentAction, inspectSelection } from './actions';
+import { addShape, documentAction, inspectSelection, readDownload } from './actions';
 /**
  * Feature audit.
  *
@@ -80,10 +80,7 @@ async function readSvg(page: Page): Promise<string> {
   const downloadPromise = page.waitForEvent('download');
   await documentAction(page, 'Export');
   await page.getByRole('button', { name: 'Download SVG' }).click();
-  const file = await downloadPromise;
-  const stream = await file.createReadStream();
-  let text = '';
-  for await (const chunk of stream) text += String(chunk);
+  const text = await readDownload(await downloadPromise);
   await page.keyboard.press('Escape');
   return text;
 }

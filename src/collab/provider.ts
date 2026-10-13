@@ -29,6 +29,14 @@ export interface PeerState {
   cursor: { x: number; y: number } | null;
   /** Every shape this peer has selected; may be empty. */
   selectedIds: string[];
+  /**
+   * Which notation the peer is looking at.
+   *
+   * Published so a cursor is only drawn for a peer who is looking at the same
+   * thing. The two notations place the same schema at different coordinates, so
+   * a peer's arrow in the other one points at a shape that is not there.
+   */
+  view: 'chen' | 'crowfoot';
 }
 
 export interface RoomHandle {
@@ -124,6 +132,8 @@ export interface LocalPresence {
   color: string;
   cursor: { x: number; y: number } | null;
   selectedIds: string[];
+  /** Which notation this browser is looking at. */
+  view: 'chen' | 'crowfoot';
 }
 
 export function createRoom(room: string, options: RoomOptions = {}): RoomHandle {
@@ -205,6 +215,9 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
       // Accepts the older single `selectedId` so a peer on a previous build
       // still shows its selection rather than nothing.
       selectedIds: readSelectedIds(raw),
+      // A peer on an older build never published a view. Chen was the default
+      // then, so assuming Chen keeps them visible instead of silently gone.
+      view: raw.view === 'crowfoot' ? 'crowfoot' : 'chen',
     });
   });
   return peers.sort((a, b) => a.clientId - b.clientId);

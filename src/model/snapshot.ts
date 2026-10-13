@@ -20,7 +20,7 @@ export interface ShareLink {
   doc: ErdDocument;
 }
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /**
  * Characters in a room id.
@@ -61,7 +61,7 @@ function toRows(doc: ErdDocument): unknown[] {
   return [
     doc.name,
     doc.view,
-    entities.map((e) => [e.id, e.name, e.x, e.y, e.kind]),
+    entities.map((e) => [e.id, e.name, e.x, e.y, e.kind, e.crowX ?? '', e.crowY ?? '']),
     attributes.map((a) => [a.id, a.name, a.x, a.y, a.kind, a.ownerId, a.dataType ?? '']),
     list(doc.relationships).map((r) => [r.id, r.name, r.x, r.y, r.kind]),
     list(doc.isas).map((i) => [i.id, i.x, i.y, i.parentId, i.childIds]),
@@ -84,7 +84,10 @@ function fromRows(rows: unknown[]): unknown {
   return {
     name,
     view,
-    entities: rowsOf(entities).map((r) => ({ id: r[0], name: r[1], x: r[2], y: r[3], kind: r[4] })),
+    entities: rowsOf(entities).map((r) => ({ id: r[0], name: r[1], x: r[2], y: r[3], kind: r[4],
+      // Empty string means "this browser had not placed the table", which is
+      // different from a placement at zero, so it must survive as absent.
+      ...(r[5] !== '' && r[6] !== '' ? { crowX: r[5], crowY: r[6] } : {}) })),
     attributes: rowsOf(attributes).map((r) => ({
       id: r[0], name: r[1], x: r[2], y: r[3], kind: r[4], ownerId: r[5], dataType: r[6],
     })),
@@ -115,7 +118,10 @@ export function decodeSnapshot(encoded: string): ErdDocument | null {
     const parsed = JSON.parse(json) as unknown;
     if (Array.isArray(parsed)) {
       const [version, ...rows] = parsed;
-      if (version !== SCHEMA_VERSION) return null;
+      // Schema 2 is the same columns without the Crow's-foot positions, so it
+      // decodes with those absent rather than being rejected: a link somebody
+      // bookmarked before this change has to keep opening.
+      if (version !== 3 && version !== 2) return null;
       return normalizeDocument(fromRows(rows));
     }
     // Schema 1: an object carrying the document.
@@ -197,6 +203,9 @@ export function parseShareHash(hash: string): Partial<ShareLink> {
  * hand-edited. Every field is coerced to a valid value so a bad link degrades
  * to a partial diagram instead of crashing the app.
  */
+const numberOrAbsent = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
 export function normalizeDocument(input: unknown): ErdDocument {
   const base = emptyDocument();
   if (!input || typeof input !== 'object') return base;
@@ -208,12 +217,16 @@ export function normalizeDocument(input: unknown): ErdDocument {
     entities: asArray(raw.entities).flatMap((e) => {
       const o = asObject(e);
       if (!o || typeof o.id !== 'string') return [];
+      const crowX = numberOrAbsent(o.crowX);
+      const crowY = numberOrAbsent(o.crowY);
       return [
         {
           id: o.id,
           name: asString(o.name, 'Entity'),
           x: asNumber(o.x),
           y: asNumber(o.y),
+          // Both or neither: half a position is not a position.
+          ...(crowX !== undefined && crowY !== undefined ? { crowX, crowY } : {}),
           kind: o.kind === 'weak' ? 'weak' : 'strong',
         },
       ];

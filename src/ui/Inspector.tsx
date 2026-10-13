@@ -13,7 +13,38 @@
 import { useEffect, useRef } from 'react';
 import type { EditorState } from '../state/useEditor';
 import type { AttributeKind, ErdDocument } from '../model/types';
-import { attributeType, DATA_TYPES, normalizeDataType } from '../model/dataTypes';
+import {
+  attributeType,
+  BASE_TYPES,
+  makeDataType,
+  MAX_LENGTH,
+  MAX_PRECISION,
+  splitDataType,
+  type BaseType,
+} from '../model/dataTypes';
+
+/**
+ * The number inputs a base needs, and the bounds each accepts.
+ *
+ * `DECIMAL(12, 4)` has two numbers because the database type does, so the form
+ * asks for two. A scale may be zero — `DECIMAL(12, 0)` is a real type — while a
+ * precision of zero is not.
+ */
+function lengthFields(base: BaseType): Array<{ id: string; base: BaseType; label: string; min: number; max: number; fallback: number }> {
+  if (base === 'VARCHAR' || base === 'CHAR') {
+    return [{ id: 'attr-type-length', base, label: `${base} length`, min: 1, max: MAX_LENGTH, fallback: 255 }];
+  }
+  if (base === 'FLOAT') {
+    return [{ id: 'attr-type-precision', base, label: 'FLOAT precision', min: 1, max: MAX_PRECISION, fallback: 53 }];
+  }
+  if (base === 'NUMERIC' || base === 'DECIMAL') {
+    return [
+      { id: 'attr-type-precision', base, label: `${base} total digits`, min: 1, max: MAX_PRECISION, fallback: 10 },
+      { id: 'attr-type-scale', base, label: `${base} decimal places`, min: 0, max: MAX_PRECISION, fallback: 2 },
+    ];
+  }
+  return [];
+}
 import { deriveTables } from '../model/crowfoot';
 import { ParticipationFields, RelationshipParticipants } from './RelationshipParticipants';
 
@@ -234,16 +265,47 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
         </div>
         {doc.view === 'crowfoot' ? <div className="field">
           <label className="field__label" htmlFor="attr-data-type">Data type</label>
-          <select id="attr-data-type" className="field__select"
-            aria-describedby="attr-data-type-help"
-            value={row?.fk ? 'inherited' : attribute.dataType ?? ''}
-            disabled={row?.fk}
-            onChange={(event) => state.updateAttribute(attribute.id, { dataType: normalizeDataType(event.target.value) })}>
-            {row?.fk ? <option value="inherited">{row.type} (inherited)</option> : <>
-              <option value="">Automatic ({attributeType({ name: attribute.name })})</option>
-              {DATA_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
-            </>}
-          </select>
+          {/*
+            A base and, for the bases that have one, its numbers — because
+            `VARCHAR` and `VARCHAR(64)` are different columns and a list of
+            fixed presets can only ever offer a few of each. The number inputs
+            appear only for bases that take them, so `INT` is not asked for a
+            length it does not have.
+          */}
+          <div className="type-fields">
+            <select id="attr-data-type" className="field__select"
+              aria-describedby="attr-data-type-help"
+              value={row?.fk ? 'inherited' : (attribute.dataType ? splitDataType(attribute.dataType).base : '')}
+              disabled={row?.fk}
+              onChange={(event) => {
+                const base = event.target.value as BaseType;
+                state.updateAttribute(attribute.id, { dataType: makeDataType(base) });
+              }}>
+              {row?.fk ? <option value="inherited">{row.type} (inherited)</option> : <>
+                <option value="">Automatic ({attributeType({ name: attribute.name })})</option>
+                {BASE_TYPES.map((base) => <option key={base} value={base}>{base}</option>)}
+              </>}
+            </select>
+            {!row?.fk && lengthFields(splitDataType(attribute.dataType).base).map((field, index) =>
+              <input key={field.id} id={field.id} className="field__input field__input--number"
+                type="number" inputMode="numeric" aria-label={field.label}
+                min={field.min} max={field.max}
+                value={splitDataType(attribute.dataType).args[index] ?? field.fallback}
+                disabled={splitDataType(attribute.dataType).base !== field.base}
+                onChange={(event) => {
+                  const current = splitDataType(attribute.dataType);
+                  const next = [...current.args];
+                  next[index] = event.target.value === '' ? Number.NaN : Number(event.target.value);
+                  const made = makeDataType(current.base, next);
+                  // Half-typed input holds no number yet. Writing that through
+                  // would delete the column's type on the way to a valid one —
+                  // clearing `12` and typing `4` passes through 0, and
+                  // NUMERIC(12, 0) plus a `4` is a scale wider than its
+                  // precision, which is not a type. The last good one stands
+                  // until there is a replacement.
+                  if (made) state.updateAttribute(attribute.id, { dataType: made });
+                }} />)}
+          </div>
           <p id="attr-data-type-help" className="field__help">{row?.fk ?
             'Inherited from ' + row.references?.label + '. Change the referenced attribute’s data type to keep this foreign key compatible.' :
             attribute.kind === 'derived' ? 'Derived attributes are calculated and omitted from tables and SQL.' :

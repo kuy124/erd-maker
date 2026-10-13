@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
-import { createLocalIdentity, type Identity } from '../collab/identity';
+import { createLocalIdentity, rememberIdentity, type Identity } from '../collab/identity';
 import {
   connectColumns,
   connectNodes,
@@ -46,6 +46,8 @@ export interface Viewport {
 export interface EditorState {
   room: string;
   identity: Identity;
+  /** Renames you for other collaborators, and remembers it in this browser. */
+  setIdentityName: (name: string) => void;
   doc: ErdDocument;
   view: ErdDocument['view'];
   canUndo: boolean;
@@ -115,6 +117,10 @@ export interface EditorState {
   ungroup: (id: string) => void;
   replaceDocument: (doc: ErdDocument) => void;
   applyPositions: (positions: Map<string, { x: number; y: number }>) => void;
+  /** Moves Crow's-foot tables, writing the shared position that Chen does not use. */
+  applyTablePositions: (positions: Map<string, { x: number; y: number }>) => void;
+  /** Places tables the person did not move. Not undoable; see the implementation. */
+  placeTables: (positions: Map<string, { x: number; y: number }>) => void;
   ydoc: Y.Doc;
   awareness: RoomHandle['awareness'];
 }
@@ -157,7 +163,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   const [tool, setTool] = useState<Tool>('select');
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
-  const [identity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
+  const [identity, setIdentity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
   const visibleDoc = useMemo(() => ({ ...doc, view }), [doc, view]);
 
   // Seed the shared document from the share link, but only if it is empty —
@@ -233,6 +239,13 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   useEffect(() => {
     room.awareness.setLocalStateField('selectedIds', selection);
   }, [room, selection]);
+
+  // Publish which notation we are looking at, so a peer's cursor is only drawn
+  // for somebody reading the same drawing. The two notations place one schema at
+  // different coordinates, so an arrow from the other one points at nothing.
+  useEffect(() => {
+    room.awareness.setLocalStateField('view', view);
+  }, [room, view]);
 
   // Track whether the WebRTC transport actually has peers. This is a second
   // signal on top of awareness: awareness can be populated by BroadcastChannel
@@ -525,7 +538,60 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
         }
       }, true);
     },
-  }), [room, mutate]);
+
+    /**
+     * Moves tables in the Crow's-foot view.
+     *
+     * Written to `crowX`/`crowY` rather than `x`/`y`, so a table dragged here
+     * never moves its entity in Chen, and a collaborator sees the move — the
+     * two notations are arranged separately, not separately *privately*.
+     */
+    applyTablePositions: (positions: Map<string, { x: number; y: number }>) => {
+      mutate(() => {
+        for (const [id, pos] of positions) {
+          const map = room.ydoc.getMap('entities').get(id) as Y.Map<unknown> | undefined;
+          if (!map) continue;
+          map.set('crowX', pos.x);
+          map.set('crowY', pos.y);
+        }
+      }, true);
+    },
+
+    /**
+     * Places tables the person did not move, and is deliberately not undoable.
+     *
+     * This is the app finding somewhere sensible for a table it has just seen
+     * for the first time, not an edit anybody made. Transaction origin matters
+     * here: the UndoManager tracks the null origin, so going through `mutate`
+     * put an automatic placement on the undo stack, and the first Undo after an
+     * import then reverted the arrangement instead of the import.
+     */
+    placeTables: (positions: Map<string, { x: number; y: number }>) => {
+      room.ydoc.transact(() => {
+        for (const [id, pos] of positions) {
+          const map = room.ydoc.getMap('entities').get(id) as Y.Map<unknown> | undefined;
+          if (!map) continue;
+          map.set('crowX', pos.x);
+          map.set('crowY', pos.y);
+        }
+      }, 'auto-place');
+    },
+
+    /**
+     * Renames you, for the people you are drawing with.
+     *
+     * Generated names like "Swift Otter" are fine until two people in a room
+     * both get one and nobody can say which is which. The choice is stored per
+     * browser rather than per room, because a person is the same person in
+     * every room they open.
+     */
+    setIdentityName: (name: string) => {
+      const trimmed = name.trim().slice(0, 32);
+      if (trimmed.length === 0) return;
+      setIdentity((current) => ({ ...current, name: trimmed }));
+      rememberIdentity({ name: trimmed, color: identity.color });
+    },
+  }), [room, mutate, identity.color]);
 
   return {
     room: room.room,

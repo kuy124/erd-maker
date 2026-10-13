@@ -5,11 +5,15 @@ import { documentAction, importDocument, inspectSelection, shape, signalingConte
 /**
  * Crow's-foot tables.
  *
- * Two behaviours here are about other people rather than about pixels: where a
- * table sits is a local reading of the schema, while what is on it is shared
- * content. Getting that backwards either syncs noise or breaks collaboration.
+ * Two rules, both easy to state and easy to break by accident:
  *
- * Everything is measured in SVG user units, not screen pixels. Each browser has
+ *   1. Placement syncs. Two people in one room are looking at the same tables,
+ *      so a table moved here moves for everybody.
+ *   2. Placement is separate from Chen. It is stored in its own fields, so
+ *      tidying one notation never rearranges the other, and Chen's arrangement
+ *      never becomes Crow's-foot's.
+ *
+ * Everything is measured in SVG user units, not screen pixels: each browser has
  * its own zoom and pan, so a screen coordinate compares nothing.
  */
 
@@ -40,6 +44,12 @@ async function tableWidth(page: Page, name: string): Promise<number> {
   return Number(await table(page, name).locator('.node__body').getAttribute('width'));
 }
 
+/** The same, for a Chen shape, read from the transform it renders at. */
+async function nodeX(page: Page, name: string): Promise<number> {
+  const transform = await shape(page, name).getAttribute('transform');
+  return Number(/translate\(([-\d.]+)/.exec(transform ?? '')?.[1] ?? NaN);
+}
+
 /** Presses a table header and drags it, the only way a table is moved. */
 async function dragTable(page: Page, name: string, dx: number, dy: number) {
   const box = (await table(page, name).locator('.crow-row__hit').first().boundingBox())!;
@@ -52,10 +62,16 @@ async function dragTable(page: Page, name: string, dx: number, dy: number) {
   await page.mouse.up();
 }
 
+/** Switches to Chen and back, so a view change is exercised. */
+async function switchNotation(page: Page) {
+  await page.getByRole('button', { name: 'Chen', exact: true }).click();
+  await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+}
+
 test.describe('crow tables', () => {
   test.describe.configure({ timeout: 120_000 });
 
-  test('a table moved here does not move for anyone else, and attributes still sync', async ({ browser }) => {
+  test('a table moved here moves for everybody, and content syncs', async ({ browser }) => {
     const owner = await signalingContext(browser);
     const other = await signalingContext(browser);
     const alice = await owner.newPage();
@@ -79,29 +95,104 @@ test.describe('crow tables', () => {
       await bob.getByRole('button', { name: "Crow's-foot", exact: true }).click();
       await expect(table(bob, 'Customer')).toBeVisible();
       const bobBefore = await tableX(bob, 'Customer');
+      const aliceBefore = await tableX(alice, 'Customer');
 
       await dragTable(alice, 'Customer', 300, 0);
 
       // The table moved here...
-      expect(await tableX(alice, 'Customer')).toBeGreaterThan(bobBefore + 250);
-      // ...and not in the other browser. Position is a local reading of the
-      // schema; syncing it would slide the diagram out from under a reader.
-      await bob.waitForTimeout(1500);
-      expect(await tableX(bob, 'Customer')).toBe(bobBefore);
+      expect(await tableX(alice, 'Customer')).toBeGreaterThan(aliceBefore + 200);
+      // ...and in the other browser, because both people are looking at the same
+      // tables. This is the rule that is easy to get backwards: keeping the
+      // arrangement private was what made the room read as out of sync.
+      await expect.poll(async () => tableX(bob, 'Customer'), { timeout: 30_000 })
+        .toBeGreaterThan(bobBefore + 200);
+      expect(await tableX(bob, 'Customer')).toBe(await tableX(alice, 'Customer'));
 
-      // Content still syncs: the whole point of not syncing position.
+      // Content keeps syncing too.
       await alice.locator('[data-column-id="attribute:note"]').click();
       await inspectSelection(alice);
       await alice.getByLabel('Attribute name').fill('billing_memo');
-      // The row is identified by the attribute's id, so the visible proof is
-      // the name it now renders.
-      await expect(bob.locator('[data-column-id="attribute:note"]')).toHaveAccessibleName('Edit attribute billing_memo');
-      // And the position this browser chose survived the remote edit.
-      expect(await tableX(bob, 'Customer')).toBe(bobBefore);
+      await expect(bob.locator('[data-column-id="attribute:note"]'))
+        .toHaveAccessibleName('Edit attribute billing_memo');
     } finally {
       await owner.close();
       await other.close();
     }
+  });
+
+  test('a table and its entity sit at different places, and both are shared', async ({ browser }) => {
+    const owner = await signalingContext(browser);
+    const other = await signalingContext(browser);
+    const alice = await owner.newPage();
+    const bob = await other.newPage();
+    try {
+      await alice.goto('/');
+      await expect(alice.getByLabel('Diagram name')).toBeEnabled();
+      await importDocument(alice, schema());
+      await documentAction(alice, 'Share');
+      const link = await alice.getByLabel('Share link').inputValue();
+      await alice.getByRole('button', { name: 'Done', exact: true }).click();
+
+      await bob.goto(link);
+      await bob.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+      await expect(table(bob, 'Customer')).toBeVisible();
+
+      // Alice arranges the table.
+      await dragTable(alice, 'Customer', 240, 0);
+      const crowX = await tableX(alice, 'Customer');
+
+      // Then arranges the very same entity, in Chen, somewhere else entirely.
+      await alice.getByRole('button', { name: 'Chen', exact: true }).click();
+      await expect(shape(alice, 'Entity Customer')).toBeVisible();
+      const entityBox = (await shape(alice, 'Entity Customer').boundingBox())!;
+      await alice.mouse.move(entityBox.x + entityBox.width / 2, entityBox.y + entityBox.height / 2);
+      await alice.mouse.down();
+      await alice.mouse.move(entityBox.x + entityBox.width / 2 - 120, entityBox.y + 200, { steps: 8 });
+      await alice.mouse.up();
+
+      // Two different numbers for one entity, and Bob has both.
+      await bob.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+      await expect(table(bob, 'Customer')).toBeVisible();
+      await expect.poll(async () => tableX(bob, 'Customer'), { timeout: 30_000 }).toBe(crowX);
+
+      await bob.getByRole('button', { name: 'Chen', exact: true }).click();
+      await expect(shape(bob, 'Entity Customer')).toBeVisible();
+      // World coordinates, not screen ones: each browser frames the drawing its
+      // own way, so a bounding box compares nothing across two of them.
+      await expect.poll(async () => nodeX(bob, 'Entity Customer'), { timeout: 30_000 })
+        .toBe(await nodeX(alice, 'Entity Customer'));
+    } finally {
+      await owner.close();
+      await other.close();
+    }
+  });
+
+  test('arranging Chen does not move the tables, and moving a table does not move Chen', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByLabel('Diagram name')).toBeEnabled();
+    await importDocument(page, schema());
+    await expect(table(page, 'Customer')).toBeVisible();
+
+    // Crow's-foot placed these itself rather than inheriting the entity's Chen
+    // coordinates, which is the carry-over this test exists to catch.
+    const arranged = await tableX(page, 'Customer');
+
+    await dragTable(page, 'Customer', 280, 0);
+    const dragged = await tableX(page, 'Customer');
+    expect(dragged).not.toBe(arranged);
+
+    await page.getByRole('button', { name: 'Chen', exact: true }).click();
+    await expect(shape(page, 'Entity Customer')).toBeVisible();
+    // Arrange Chen deliberately: dragging there must not reach the tables.
+    const entityBox = (await shape(page, 'Entity Customer').boundingBox())!;
+    await page.mouse.move(entityBox.x + entityBox.width / 2, entityBox.y + entityBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(entityBox.x + entityBox.width / 2 + 160, entityBox.y + 40, { steps: 6 });
+    await page.mouse.up();
+
+    await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    await expect(table(page, 'Customer')).toBeVisible();
+    expect(await tableX(page, 'Customer')).toBe(dragged);
   });
 
   test('a table position survives a reload', async ({ page }) => {
@@ -111,13 +202,11 @@ test.describe('crow tables', () => {
     await expect(table(page, 'Customer')).toBeVisible();
     await dragTable(page, 'Customer', 260, 0);
     const moved = await tableX(page, 'Customer');
-    expect(moved).not.toBe(120);
 
     await page.reload();
     await expect(table(page, 'Customer')).toBeVisible();
-    // Stored positions are whole pixels, so the drag's fractional end lands on
-    // the same pixel it did before the reload.
-    expect(await tableX(page, 'Customer')).toBe(Math.round(moved));
+    // Shared placement is in the document, so it survives a reload exactly.
+    expect(await tableX(page, 'Customer')).toBe(moved);
   });
 
   test('long names are drawn in full inside a table that grew to hold them', async ({ page }) => {
@@ -155,20 +244,16 @@ test.describe('crow tables', () => {
     expect(await tableWidth(page, 'Invoice')).toBe(280);
   });
 
-  test('the Chen view is unaffected by the table layout', async ({ page }) => {
+  test('switching notation does not lose the attribute or its row', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByLabel('Diagram name')).toBeEnabled();
     await importDocument(page, schema());
     await expect(table(page, 'Customer')).toBeVisible();
-    await dragTable(page, 'Customer', 300, 0);
 
-    await page.getByRole('button', { name: 'Chen', exact: true }).click();
-    // Chen draws entities as diamonds at their shared positions, which the
-    // table drag never touched.
-    await expect(shape(page, 'Entity Customer')).toBeVisible();
-    await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    await switchNotation(page);
     await expect(table(page, 'Customer')).toBeVisible();
-    // The attribute stayed attached to its owner across the notation change.
+    await expect(table(page, 'Customer').locator('.crow-row__name', { hasText: 'billing_note' })).toBeVisible();
+
     await page.locator('[data-column-id="attribute:note"]').click();
     await inspectSelection(page);
     await expect(page.getByLabel('Attribute name')).toHaveValue('billing_note');

@@ -1,4 +1,4 @@
-import { documentAction, openBuild, inspectSelection, snapshotShareLink } from './actions';
+import { documentAction, openBuild, inspectSelection, readDownload, snapshotShareLink } from './actions';
 import { ROOM_ID_LENGTH } from '../../src/model/snapshot';
 /**
  * End-to-end tests.
@@ -300,6 +300,73 @@ test.describe('editor basics', () => {
     const overlapTop = Math.max(entity.y, attribute.y);
     const overlapBottom = Math.min(entity.y + entity.height, attribute.y + attribute.height);
     expect(overlapBottom - overlapTop, 'attribute should share a row with its owner').toBeGreaterThan(0);
+  });
+
+  test('dragging an entity carries the attributes it owns', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    // Two attributes, so a rule that carries only the first one still fails.
+    // The entity stays selected between them, so both belong to it.
+    for (let i = 0; i < 2; i += 1) {
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('a');
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('canvas').locator('[data-node-id^="attr_"]')).toHaveCount(2);
+
+    const attributeBox = () => page.getByTestId('canvas').locator('[data-node-id^="attr_"]').first().boundingBox();
+    const entityBox = () => node(page, /Entity Customer/i).boundingBox();
+    const boxes = async () => {
+      const [entity, first, second] = await Promise.all([
+        entityBox(),
+        attributeBox(),
+        page.getByTestId('canvas').locator('[data-node-id^="attr_"]').nth(1).boundingBox(),
+      ]);
+      return { entity: entity!, first: first!, second: second! };
+    };
+    // Offsets rather than deltas: "still attached" is the claim, and measuring
+    // it relative to the owner holds at any zoom level.
+    const offset = (box: { x: number; y: number }, owner: { x: number; y: number }) =>
+      ({ x: box.x - owner.x, y: box.y - owner.y });
+    // Select the entity before measuring, because the selection ring grows its box
+    // by 5px on each axis. Measuring it selected both before and after is the
+    // only way the two boxes are comparable.
+    await node(page, /Entity Customer/i).click();
+    const before = await boxes();
+
+    const box = before.entity;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 180, y + 90, { steps: 8 });
+    await page.mouse.up();
+
+    const after = await boxes();
+    // The entity moved, so the drag reached the model rather than only the view.
+    expect(Math.abs(after.entity.x - before.entity.x)).toBeGreaterThan(150);
+    // Every attribute is still exactly where it was relative to its owner.
+    expect(offset(after.first, after.entity)).toEqual(offset(before.first, before.entity));
+    expect(offset(after.second, after.entity)).toEqual(offset(before.second, before.entity));
+  });
+
+  test('dragging an attribute leaves its owner alone', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    await addShape(page, 'attribute');
+    await page.keyboard.press('Escape');
+
+    const entityBefore = (await node(page, /Entity Customer/i).boundingBox())!;
+    const attribute = (await page.getByTestId('canvas').locator('[data-node-id^="attr_"]').boundingBox())!;
+    await page.mouse.move(attribute.x + attribute.width / 2, attribute.y + attribute.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(attribute.x + attribute.width / 2 + 120, attribute.y + 120, { steps: 6 });
+    await page.mouse.up();
+
+    // Ownership runs one way: an attribute belongs to the shape, not the reverse.
+    const entityAfter = (await node(page, /Entity Customer/i).boundingBox())!;
+    expect(Math.abs(entityAfter.x - entityBefore.x)).toBeLessThan(2);
+    expect(Math.abs(entityAfter.y - entityBefore.y)).toBeLessThan(2);
   });
 
   test('a second attribute stacks below the first', async ({ page }) => {
@@ -689,9 +756,7 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Download SVG' }).click();
     const file = await downloadPromise;
 
-    const stream = await file.createReadStream();
-    let svg = '';
-    for await (const chunk of stream) svg += String(chunk);
+    const svg = await readDownload(file);
     expect(svg).not.toContain('connect-preview');
   });
 
@@ -864,9 +929,7 @@ test.describe('export', () => {
     await page.getByRole('button', { name: 'Download JSON' }).click();
     const file = await downloadPromise;
 
-    const stream = await file.createReadStream();
-    let text = '';
-    for await (const chunk of stream) text += String(chunk);
+    const text = await readDownload(file);
     const parsed = JSON.parse(text);
     expect(parsed.name).toBe('Untitled diagram');
     expect(parsed.entities).toHaveLength(1);
@@ -1114,6 +1177,7 @@ test.describe('everyday use', () => {
     const stream = await (await pending).createReadStream();
     const chunks: Buffer[] = [];
     for await (const part of stream) chunks.push(Buffer.from(part));
+    const json = Buffer.concat(chunks);
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await tidy(page);
 
@@ -1122,7 +1186,7 @@ test.describe('everyday use', () => {
     await expect(node(page, /Entity Customer/i)).toHaveCount(0);
 
     await page.locator('input[type=file]').setInputFiles({
-      name: 'round-trip.json', mimeType: 'application/json', buffer: Buffer.concat(chunks),
+      name: 'round-trip.json', mimeType: 'application/json', buffer: json,
     });
     await expect(node(page, /Entity Customer/i)).toBeVisible();
     await expect(node(page, /Entity Invoice/i)).toBeVisible();
@@ -1501,6 +1565,26 @@ test.describe('live presence', () => {
     await expect(alice.locator('.peer-cursor')).toHaveCount(1);
   });
 
+  test('a cursor is only drawn for a peer reading the same notation', async ({ context }) => {
+    const [alice, bob] = await pair(context);
+
+    // Both start in Chen, so the cursor is there to be found.
+    await bob.mouse.move(620, 380);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+
+    // Bob moves to Crow's-foot. The two notations place one schema at different
+    // coordinates, so his arrow would point at a shape that is not there.
+    await bob.getByRole('button', { name: /Crow/ }).click();
+    await expect(bob.getByTestId('table-Shared')).toBeVisible();
+    await bob.mouse.move(660, 400);
+    await bob.waitForTimeout(500);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(0);
+    // And back again, so this is about the notation and not about presence.
+    await bob.getByRole('button', { name: 'Chen', exact: true }).click();
+    await bob.mouse.move(700, 420);
+    await expect(alice.locator('.peer-cursor')).toHaveCount(1);
+  });
+
   test('a cursor never reaches an export', async ({ context }) => {
     const [alice, bob] = await pair(context);
     await bob.mouse.move(650, 420);
@@ -1511,10 +1595,7 @@ test.describe('live presence', () => {
     await alice.getByRole('tab', { name: 'SVG', exact: true }).click();
     const pending = alice.waitForEvent('download');
     await alice.getByRole('button', { name: 'Download SVG' }).click();
-    const stream = await (await pending).createReadStream();
-    const chunks: Buffer[] = [];
-    for await (const part of stream) chunks.push(Buffer.from(part));
-    const markup = Buffer.concat(chunks).toString();
+    const markup = await readDownload(await pending);
     expect(markup).not.toContain('peer-cursor');
     expect(markup).toContain('Entity Shared');
   });
@@ -2102,6 +2183,11 @@ test.describe('right-click menu', () => {
     await tidy(page);
     await connectWithTool(page, /Entity Customer/i, /Entity Order/i);
     await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    // Fit before reaching for the connector. Crow's-foot seeds this browser's
+    // own table layout on arrival, and framing it while Properties is open can
+    // land a connector under the panel; Fit is the app's own answer and the
+    // thing a person would press.
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
     await page.locator('.crow-link__ratio').click({ button: 'right' });
     await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
     await page.getByRole('menuitem', { name: 'Delete selection', exact: true }).click();
@@ -2451,9 +2537,7 @@ test.describe('groups', () => {
     await page.getByRole('tab', { name: 'SVG', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download SVG' }).click();
-    const stream = await (await pending).createReadStream();
-    let markup = '';
-    for await (const chunk of stream) markup += String(chunk);
+    let markup = await readDownload(await pending);
 
     // A frame is a working aid, not part of the drawing.
     expect(markup).not.toContain('group-frame');

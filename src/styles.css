@@ -112,6 +112,142 @@
   }
 }
 
+/*
+ * Themes.
+ *
+ * A theme is a sheet of paper and the ink on it, not a restyle: only the tokens
+ * that differ are redefined, so every rule written against a token works in
+ * every theme.
+ *
+ * These are palettes other tools already ship, using the values those projects
+ * publish — Solarized by Ethan Schoonover, Dracula, Nord, GitHub's dark, and
+ * Monokai. They are dark because they are dark: recolouring a palette people
+ * recognise would defeat the point of recognising it.
+ *
+ * Where a published palette's secondary ink would fall below 4.5:1 on its own
+ * paper, a darker or lighter step from the same ramp is used instead, because
+ * a theme is not worth choosing if its helper text cannot be read.
+ */
+[data-theme='solarized-light'] {
+  --paper: #eee8d5;
+  --paper-raised: #fdf6e3;
+  --grid-fine: #e6ddc7;
+  --grid-major: #ddd3ba;
+  --rule: #d3c8b0;
+  --rule-strong: #7f8f86;
+  --ink: #002b36;
+  --ink-secondary: #3f565c;
+  --ink-tertiary: #4b6167;
+  --ink-inverse: #fdf6e3;
+  --signal: #268bd2;
+  --signal-quiet: #d8e8f2;
+  --signal-strong: #0d6fa8;
+  --danger: #a3321f;
+  --danger-quiet: #f6e3dc;
+  --warn: #8a5a00;
+  color-scheme: light;
+}
+
+[data-theme='solarized-dark'] {
+  --paper: #002b36;
+  --paper-raised: #073642;
+  --grid-fine: #0a3d49;
+  --grid-major: #10485a;
+  --rule: #0f4451;
+  --rule-strong: #5c7d85;
+  --ink: #eee8d5;
+  --ink-secondary: #a3b4b5;
+  --ink-tertiary: #93a1a1;
+  --ink-inverse: #002b36;
+  --signal: #268bd2;
+  --signal-quiet: #0d4a5c;
+  --signal-strong: #6cb6d9;
+  --danger: #dc322f;
+  --danger-quiet: #4a1f1e;
+  --warn: #b58900;
+  color-scheme: dark;
+}
+
+[data-theme='dracula'] {
+  --paper: #282a36;
+  --paper-raised: #343746;
+  --grid-fine: #2f3242;
+  --grid-major: #3b3f52;
+  --rule: #44475a;
+  --rule-strong: #6f7391;
+  --ink: #f8f8f2;
+  --ink-secondary: #c3c9e0;
+  --ink-tertiary: #9aa5ce;
+  --ink-inverse: #282a36;
+  --signal: #bd93f9;
+  --signal-quiet: #3a3157;
+  --signal-strong: #d6b0ff;
+  --danger: #ff5555;
+  --danger-quiet: #4a2530;
+  --warn: #ffb86c;
+  color-scheme: dark;
+}
+
+[data-theme='nord'] {
+  --paper: #2e3440;
+  --paper-raised: #3b4252;
+  --grid-fine: #343b49;
+  --grid-major: #3f485a;
+  --rule: #434c5e;
+  --rule-strong: #7f8da3;
+  --ink: #eceff4;
+  --ink-secondary: #d5dbe6;
+  --ink-tertiary: #b9c2d3;
+  --ink-inverse: #2e3440;
+  --signal: #88c0d0;
+  --signal-quiet: #3f4c5c;
+  --signal-strong: #a3c9dd;
+  --danger: #bf616a;
+  --danger-quiet: #46262c;
+  --warn: #ebcb8b;
+  color-scheme: dark;
+}
+
+[data-theme='github-dark'] {
+  --paper: #0d1117;
+  --paper-raised: #161b22;
+  --grid-fine: #141a21;
+  --grid-major: #1c232c;
+  --rule: #21262d;
+  --rule-strong: #586069;
+  --ink: #e6edf3;
+  --ink-secondary: #bdc6d1;
+  --ink-tertiary: #9da7b3;
+  --ink-inverse: #0d1117;
+  --signal: #2f81f7;
+  --signal-quiet: #10243f;
+  --signal-strong: #6cb0ff;
+  --danger: #f85149;
+  --danger-quiet: #45191b;
+  --warn: #d29922;
+  color-scheme: dark;
+}
+
+[data-theme='monokai'] {
+  --paper: #272822;
+  --paper-raised: #1e1f1c;
+  --grid-fine: #2e2f29;
+  --grid-major: #3a3b33;
+  --rule: #3e3f37;
+  --rule-strong: #75715e;
+  --ink: #f8f8f2;
+  --ink-secondary: #d2d2c6;
+  --ink-tertiary: #b0aea0;
+  --ink-inverse: #272822;
+  --signal: #66d9ef;
+  --signal-quiet: #1d3a40;
+  --signal-strong: #a5f3fc;
+  --danger: #f92672;
+  --danger-quiet: #451f30;
+  --warn: #fd971f;
+  color-scheme: dark;
+}
+
 *,
 *::before,
 *::after {
@@ -620,6 +756,90 @@ body {
   dominant-baseline: middle;
 }
 
+/* A type is a base and, where the database type takes one, its numbers. */
+.type-fields {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.type-fields .field__select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.field__input--number {
+  flex: 0 0 auto;
+  width: 92px;
+  font-family: var(--font-mono);
+}
+
+.field__input--number:disabled {
+  opacity: 0.5;
+}
+
+/* Theme choice: a swatch of the real palette, not a name on its own. */
+.theme-picker {
+  border: 0;
+  padding: 0;
+  margin: var(--s5) 0 0;
+}
+
+.theme-picker__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+.theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2);
+  min-height: 44px;
+  text-align: left;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.theme-swatch[aria-checked='true'] {
+  border-color: var(--signal);
+  box-shadow: inset 0 0 0 1px var(--signal);
+}
+
+/* The chip carries the theme so the choice is recognisable before it is read. */
+.theme-swatch__chip {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  background: linear-gradient(135deg, var(--paper) 0 50%, var(--ink) 50% 68%, var(--signal) 68% 100%);
+}
+
+.theme-swatch__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.theme-swatch__text strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.theme-swatch__text span {
+  font-size: var(--text-xs);
+  color: var(--ink-tertiary);
+}
+
+/* Theme choice: a swatch of the real palette, not a name on its own. */
 .crow-row__key {
   fill: var(--ink-tertiary);
   font-family: var(--font-mono);
@@ -894,6 +1114,21 @@ body {
   margin: 0;
   max-width: 46ch;
   line-height: 1.55;
+}
+
+/* Naming the diagram comes before drawing it, so it is the first control on an
+   empty canvas. Full width, and the same tap target as every other control. */
+.starter-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  width: 100%;
+  max-width: 320px;
+}
+
+.starter-name .field__input {
+  width: 100%;
+  min-height: 44px;
 }
 
 .canvas-empty__hint {
@@ -1362,6 +1597,14 @@ kbd { font: 13px var(--font-mono); }
 /* Phones use scrollable sheets. Their height follows the visible viewport. */
 @media (max-width: 767px) {
   .topbar { top: 8px; left: 8px; right: 8px; }
+  /* The type row is a select and one or two number inputs; side by side they
+     cannot fit at 320px without the numbers being a few characters wide. */
+  .type-fields { flex-wrap: wrap; }
+  .type-fields .field__select { flex: 1 1 100%; }
+  .field__input--number { flex: 1 1 0; width: auto; min-height: 44px; }
+  /* One column: a two-column swatch grid leaves each option about 140px, which
+     cramps the palette name and shrinks the tap target. */
+  .theme-picker__options { grid-template-columns: 1fr; }
   .document-title { flex: 1; }
   .document-title .docname { width: 100%; min-width: 0; padding: 6px; font-size: 16px; }
   .topbar__spacer, .header-export, .header-share { display: none; }

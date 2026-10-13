@@ -259,10 +259,18 @@ export function CardinalityMarker({ origin, toward, many, required, className = 
  * The name always travels with the colour: colour alone is not something
  * everyone can tell apart, and an unnamed arrow says nothing.
  */
-export function PeerCursors({ peers }: { peers: PeerState[] }) {
+/**
+ * Other people's cursors, but only those reading the same drawing.
+ *
+ * Chen and Crow's-foot place one schema at different coordinates, so a cursor
+ * from somebody in the other notation points at a shape that is not there. It is
+ * filtered out rather than drawn in the wrong place: an arrow that lies about
+ * where somebody is pointing is worse than no arrow.
+ */
+export function PeerCursors({ peers, view }: { peers: PeerState[]; view: 'chen' | 'crowfoot' }) {
   return (
     <g className="layer-peers">
-      {peers.map((peer) =>
+      {peers.filter((peer) => peer.view === view).map((peer) =>
         peer.cursor ? (
           <g key={peer.clientId} className="peer-cursor" data-peer-id={peer.clientId}
             transform={`translate(${peer.cursor.x} ${peer.cursor.y})`}>

@@ -29,8 +29,14 @@ export interface CrowTable {
 const CHAR_SANS = 7.0;
 const CHAR_SANS_BOLD = 7.4;
 const CHAR_MONO = 8.0;
-/** Left edge of a row's name; the type is anchored to the right edge. */
-export const CROW_NAME_X = 46;
+/**
+ * Left edge of a row's name.
+ *
+ * Clear of the PK/FK badge on one line. This was 46 when a generated key also
+ * drew "gen" underneath, which pushed every name right for the sake of a marker
+ * that has since gone.
+ */
+export const CROW_NAME_X = 34;
 /** Gap between the longest text and the table border, each side. */
 const CROW_GUTTER = 12;
 
@@ -45,69 +51,7 @@ function widthFor(name: string, weak: boolean, rows: CrowRow[]): number {
   return Math.max(CROW_WIDTH, Math.ceil(needed));
 }
 
-/**
- * Where this browser has put each table, which is deliberately not in the
- * document.
- *
- * Two people reading the same schema do not need the same picture of it, and a
- * table that slides away under someone else's cursor while they are reading is
- * worse than a diagram that is laid out differently in each browser. The
- * attributes, keys, and relationships still sync — only the position on screen
- * is local.
- */
-export type CrowLayout = Map<string, { x: number; y: number }>;
 
-const CROW_LAYOUT_KEY = 'erd:crow:';
-
-/** Reads this browser's table positions for a room. Never throws. */
-export function loadCrowLayout(room: string): CrowLayout {
-  try {
-    const raw = localStorage.getItem(CROW_LAYOUT_KEY + room);
-    if (!raw) return new Map();
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const layout: CrowLayout = new Map();
-    for (const [id, value] of Object.entries(parsed)) {
-      const point = Array.isArray(value) ? value : null;
-      if (point && typeof point[0] === 'number' && typeof point[1] === 'number') {
-        layout.set(id, { x: point[0], y: point[1] });
-      }
-    }
-    return layout;
-  } catch {
-    return new Map();
-  }
-}
-
-/** Stores this browser's table positions for a room. Never throws. */
-export function saveCrowLayout(room: string, layout: CrowLayout): void {
-  try {
-    const plain: Record<string, [number, number]> = {};
-    for (const [id, point] of layout) plain[id] = [Math.round(point.x), Math.round(point.y)];
-    localStorage.setItem(CROW_LAYOUT_KEY + room, JSON.stringify(plain));
-  } catch {
-    // A full or disabled store costs the user their layout, not their diagram.
-  }
-}
-
-/**
- * The document as this browser's table layout shows it.
- *
- * Everything downstream — tables, links, `occupiedBoxes`, framing, and new-shape
- * placement — already takes a document, so applying the layout in one place
- * keeps the local positions out of the shared document without any of those
- * functions needing to know it exists.
- */
-export function withCrowLayout(doc: ErdDocument, layout: CrowLayout | null): ErdDocument {
-  if (!layout || layout.size === 0) return doc;
-  let changed = false;
-  const entities = doc.entities.map((entity) => {
-    const at = layout.get(entity.id);
-    if (!at) return entity;
-    changed = true;
-    return { ...entity, x: at.x, y: at.y };
-  });
-  return changed ? { ...doc, entities } : doc;
-}
 
 export interface CrowRow {
   /** Stable across renaming, moving, and changes to row order. */
@@ -179,10 +123,83 @@ export function foreignKeyDirection(doc: ErdDocument, [a, b]: [RelationshipEnd, 
   return isKey(b) && !isKey(a) ? [a, b] : [b, a];
 }
 
-/** Every entity's editable columns, plus foreign keys inferred from its relationships. */
+/**
+ * Where this browser has put each table.
+ *
+ * Deliberately not in the document, and deliberately not the entity's Chen
+ * position. Placement is a local reading of the schema: it belongs to the
+ * person looking, it is not part of what is being agreed on, and it must not
+ * leak sideways from one notation into the other. Everything that *is* the
+ * schema — attributes, keys, types, relationships — still travels.
+ */
+export type CrowLayout = Map<string, { x: number; y: number }>;
+
+const CROW_LAYOUT_KEY = 'erd:crow:';
+
+/** Reads this browser's table positions for a room. Never throws. */
+export function loadCrowLayout(room: string): CrowLayout {
+  try {
+    const raw = localStorage.getItem(CROW_LAYOUT_KEY + room);
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const layout: CrowLayout = new Map();
+    for (const [id, value] of Object.entries(parsed)) {
+      const point = Array.isArray(value) ? value : null;
+      if (point && typeof point[0] === 'number' && typeof point[1] === 'number') {
+        layout.set(id, { x: point[0], y: point[1] });
+      }
+    }
+    return layout;
+  } catch {
+    return new Map();
+  }
+}
+
+/** Stores this browser's table positions for a room. Never throws. */
+export function saveCrowLayout(room: string, layout: CrowLayout): void {
+  try {
+    const plain: Record<string, [number, number]> = {};
+    for (const [id, point] of layout) plain[id] = [Math.round(point.x), Math.round(point.y)];
+    localStorage.setItem(CROW_LAYOUT_KEY + room, JSON.stringify(plain));
+  } catch {
+    // A full or disabled store costs the user their layout, not their diagram.
+  }
+}
+
+/**
+ * The document as this browser's table layout shows it.
+ *
+ * Everything downstream — tables, links, `occupiedBoxes`, framing, and
+ * new-shape placement — already takes a document, so applying the layout in one
+ * place keeps the local positions out of the shared document without any of
+ * those functions needing to know it exists.
+ */
+export function withCrowLayout(doc: ErdDocument, layout: CrowLayout | null): ErdDocument {
+  if (!layout || layout.size === 0) return doc;
+  let changed = false;
+  const entities = doc.entities.map((entity) => {
+    const at = layout.get(entity.id);
+    if (!at) return entity;
+    changed = true;
+    return { ...entity, x: at.x, y: at.y };
+  });
+  return changed ? { ...doc, entities } : doc;
+}
+
+/**
+ * Every entity's editable columns, plus foreign keys inferred from its relationships.
+ *
+ * A table sits at the entity's Crow's-foot position, which is stored apart from
+ * its Chen position and shared like everything else. An entity with no
+ * Crow's-foot position yet falls back to Chen's, which is only ever what a person
+ * sees for the instant before this browser has arranged it — the view then
+ * places it from the schema and writes that back, so the two arrangements stop
+ * being related at all.
+ */
 export function deriveTables(doc: ErdDocument): CrowTable[] {
   const tables = doc.entities.map((entity) => ({ entityId: entity.id, name: entity.name,
-    x: entity.x, y: entity.y, weak: entity.kind === 'weak', width: CROW_WIDTH, rows: baseRows(doc, entity) }));
+    x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y,
+    weak: entity.kind === 'weak', width: CROW_WIDTH, rows: baseRows(doc, entity) }));
   const byId = new Map(tables.map((t) => [t.entityId, t]));
   // Inherited keys must exist before another table can reference the weak entity.
   for (const rel of [...doc.relationships].sort((a, b) => Number(b.kind === 'weak') - Number(a.kind === 'weak'))) {
@@ -296,26 +313,113 @@ export function rowCenter(table: CrowTable, columnId: string): number {
   return table.y + CROW_HEADER_HEIGHT + (index + 0.5) * CROW_ROW_HEIGHT;
 }
 
-/** Orthogonal paths leave the selected rows horizontally, including stacked/self links. */
-export function routeColumns(from: CrowTable, fromColumnId: string, to: CrowTable, toColumnId: string, lane = 0) {
+/** A rectangle a connector must not be drawn through. */
+export interface Obstacle { minX: number; minY: number; maxX: number; maxY: number }
+
+interface Point { x: number; y: number }
+
+/** Emits the orthogonal SVG path this router works in. */
+function polyline(points: Point[]): string {
+  const [first, ...rest] = points;
+  if (!first) return '';
+  return rest.map((point, index) => {
+    const previous = points[index]!;
+    return `${point.y === previous.y ? 'H' : 'V'}${point.x} ${point.y}`;
+  }).join(' ').replace(/^/, `M${first.x} ${first.y} `);
+}
+
+/** Horizontal run that leaves a row, kept clear of the table it comes from. */
+const EXIT_STUB = 36;
+/** Clearance above or below the drawing for a detour. */
+const DETOUR_CLEARANCE = 24;
+
+/** True when a straight segment passes through the interior of a box. */
+function crossesObstacle(a: Point, b: Point, rect: Obstacle): boolean {
+  const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
+  const y1 = Math.min(a.y, b.y), y2 = Math.max(a.y, b.y);
+  // Strictly inside, so leaving from a table's own edge counts as clear.
+  return x2 > rect.minX + 1 && x1 < rect.maxX - 1 && y2 > rect.minY + 1 && y1 < rect.maxY - 1;
+}
+
+/** The drawn shape of a table, for routing around it. */
+export function tableObstacle(table: CrowTable): Obstacle {
+  return { minX: table.x, minY: table.y, maxX: table.x + table.width, maxY: table.y + tableHeight(table) };
+}
+
+/**
+ * Routes an orthogonal connector from one row to another.
+ *
+ * The direct route is tried first and is what most diagrams get: leave the row,
+ * turn in the gap, arrive. It is kept only when it is actually clear.
+ *
+ * When tables sit close enough that the gap is smaller than the stub, or a third
+ * table is in the way, the connector detours through a channel above or below
+ * the whole drawing instead of crossing a table body. A line drawn over a table
+ * hides the rows under it, which is worse than an awkward detour, and this was
+ * measurable rather than theoretical: at a 60px gap the old route went straight
+ * through the neighbour.
+ *
+ * `lane` separates connectors that share the same pair of tables, so three
+ * relationships between two entities read as three lines rather than one.
+ */
+export function routeColumns(
+  from: CrowTable,
+  fromColumnId: string,
+  to: CrowTable,
+  toColumnId: string,
+  lane = 0,
+  obstacles: Obstacle[] = [],
+) {
   const ay = rowCenter(from, fromColumnId), by = rowCenter(to, toColumnId);
-  const gapRight = to.x - from.x - Math.max(from.width, to.width);
-  const gapLeft = from.x - to.x - Math.max(from.width, to.width);
-  const facing = Math.max(gapRight, gapLeft) >= 80;
+  const span = Math.max(from.width, to.width);
+  const gapRight = to.x - from.x - span;
+  const gapLeft = from.x - to.x - span;
+  const facing = Math.max(gapRight, gapLeft) >= EXIT_STUB + 44;
   const fromRight = facing ? gapRight >= gapLeft : to.x >= from.x;
   const toRight = facing ? !fromRight : fromRight;
   const a = { x: from.x + (fromRight ? from.width : 0), y: ay };
   const b = { x: to.x + (toRight ? to.width : 0), y: by };
+
+  // The direct route, plus the jog used to fan out parallel connectors.
   const bendX = facing ? (a.x + b.x) / 2 + lane * 12 :
     fromRight ? Math.max(a.x, b.x) + 48 + lane * 16 : Math.min(a.x, b.x) - 48 - lane * 16;
   const jogY = facing && lane > 0 ? Math.min(ay, by) - lane * 44 : ay;
-  const path = jogY === ay ? `M${a.x} ${ay} H${bendX} V${by} H${b.x}` :
-    `M${a.x} ${ay} H${a.x + (fromRight ? 36 : -36)} V${jogY} H${b.x + (toRight ? 36 : -36)} V${by} H${b.x}`;
-  const label = { x: facing ? (a.x + b.x) / 2 : bendX + (fromRight ? 12 : -12),
-    y: jogY !== ay || ay === by ? jogY - 20 : (ay + by) / 2 - (facing ? 0 : lane * 32) };
-  return { a, b, aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
+  const direct = jogY === ay
+    ? [a, { x: bendX, y: ay }, { x: bendX, y: by }, b]
+    : [a, { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: ay },
+      { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: jogY },
+      { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: jogY },
+      { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: by }, b];
+
+  const directPath = polyline(direct);
+  const clear = obstacles.every((rect) =>
+    direct.slice(1).every((point, index) => !crossesObstacle(direct[index]!, point, rect)));
+
+  if (clear || obstacles.length === 0) {
+    const label = { x: facing ? (a.x + b.x) / 2 : bendX + (fromRight ? 12 : -12),
+      y: jogY !== ay || ay === by ? jogY - 20 : (ay + by) / 2 - (facing ? 0 : lane * 32) };
+    return { a, b, aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
+      bToward: { x: b.x + (toRight ? 30 : -30), y: by },
+      path: directPath, label, labelAnchor: facing ? 'middle' as const : fromRight ? 'start' as const : 'end' as const,
+      bounds: { minX: Math.min(a.x, b.x, bendX), maxX: Math.max(a.x, b.x, bendX),
+        minY: Math.min(ay, by, jogY), maxY: Math.max(ay, by) } };
+  }
+
+  // Detour through a clear channel above or below everything, whichever is
+  // closer. The lane shifts the channel so parallel connectors do not coincide.
+  const above = Math.min(...obstacles.map((rect) => rect.minY)) - DETOUR_CLEARANCE - lane * 20;
+  const below = Math.max(...obstacles.map((rect) => rect.maxY)) + DETOUR_CLEARANCE + lane * 20;
+  const cost = (channel: number) => Math.abs(channel - ay) + Math.abs(channel - by);
+  const channel = cost(above) <= cost(below) ? above : below;
+  const path = polyline([a, { x: a.x, y: channel }, { x: b.x, y: channel }, b]);
+  return {
+    a, b,
+    aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
     bToward: { x: b.x + (toRight ? 30 : -30), y: by },
-    path, label, labelAnchor: facing ? 'middle' as const : fromRight ? 'start' as const : 'end' as const,
-    bounds: { minX: Math.min(a.x, b.x, bendX), maxX: Math.max(a.x, b.x, bendX),
-      minY: Math.min(ay, by, jogY), maxY: Math.max(ay, by) } };
+    path,
+    label: { x: (a.x + b.x) / 2, y: channel + (channel < Math.min(ay, by) ? -12 : 16) },
+    labelAnchor: 'middle' as const,
+    bounds: { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x),
+      minY: Math.min(ay, by, channel), maxY: Math.max(ay, by, channel) },
+  };
 }

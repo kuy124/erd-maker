@@ -23,6 +23,8 @@ import {
   routeColumns,
   rowCenter,
   tableHeight,
+  tableObstacle,
+  type Obstacle,
   type ColumnEndpoint,
   type CrowLink,
   type CrowTable,
@@ -44,7 +46,7 @@ interface Props {
    * Deliberately not `state.applyPositions`: a table's place on screen is a
    * local reading of the schema, and writing it to the shared document would
    * move the table under everyone else in the room. The attributes, keys, and
-   * types still sync — only where the table sits is personal.
+   * types still sync — only where the table sits is personal, and only here.
    */
   onTablePositions?: (positions: Map<string, { x: number; y: number }>) => void;
 }
@@ -168,6 +170,14 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
         if (entity) start.set(nodeId, { x: entity.x, y: entity.y });
       }
       if (!start.has(id)) return;
+      // A table's attributes are drawn as its rows, so they look like they
+      // travelled with it. Their stored positions have to agree, or switching to
+      // Chen would show them stranded wherever the table used to be.
+      for (const attribute of doc.attributes) {
+        if (attribute.ownerId === id && !start.has(attribute.id)) {
+          start.set(attribute.id, { x: attribute.x, y: attribute.y });
+        }
+      }
       pressedTable.current = id;
       const world = toWorld(event.clientX, event.clientY);
       drag.beginNodeDrag(start, world.x, world.y);
@@ -236,6 +246,8 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   }, [tables, drag.drag]);
 
   const byId = useMemo(() => new Map(positioned.map((t) => [t.entityId, t])), [positioned]);
+  // Where every table is drawn, so a connector can be kept off them.
+  const obstacles = useMemo(() => positioned.map(tableObstacle), [positioned]);
 
   const isEmpty = positioned.length === 0;
 
@@ -276,6 +288,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   to={to}
                   lane={link.lane}
                   selected={selection.includes(link.relId)}
+                  obstacles={obstacles}
                   onSelect={(event) => tool === 'pan' ? drag.beginPan(event.clientX, event.clientY) : state.setSelection([link.relId])}
                   onKeyboardSelect={() => state.setSelection([link.relId])}
                 />
@@ -363,10 +376,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                         {tool === 'connect' ? <g className="connection-ports" pointerEvents="none" aria-hidden="true">
                           <circle cx={0} cy={y} r={5} /><circle cx={table.width} cy={y} r={5} />
                         </g> : null}
-                        <text className="crow-row__key" x={10} y={row.attributeId && !row.generatedKey ? y : y - 7}>
+                        <text className="crow-row__key" x={10} y={y}>
                           <tspan style={row.pk && row.fk ? { fontSize: 10 } : undefined}>{row.pk && row.fk ? 'PK/FK' : row.pk ? 'PK' : row.fk ? 'FK' : ''}</tspan>
                         </text>
-                        {!row.attributeId || row.generatedKey ? <text className="crow-row__key" x={10} y={y + 9}>gen</text> : null}
                         <text
                           className={`crow-row__name${row.pk ? ' crow-row__name--pk' : ''}`}
                           x={CROW_NAME_X}
@@ -419,7 +431,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
             />
           ) : null}
 
-          <PeerCursors peers={peers} />
+          <PeerCursors peers={peers} view="crowfoot" />
         </g>
       </svg>
 
@@ -464,6 +476,7 @@ function CrowConnector({
   selected,
   onSelect,
   onKeyboardSelect,
+  obstacles,
 }: {
   link: CrowLink;
   from: CrowTable;
@@ -472,8 +485,15 @@ function CrowConnector({
   selected: boolean;
   onSelect: (event: React.PointerEvent) => void;
   onKeyboardSelect: () => void;
+  /** Every table in the drawing, so a connector can route around the others. */
+  obstacles: Obstacle[];
 }) {
-  const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, lane);
+  // The two tables this connector starts and ends at are not obstacles: leaving
+  // a row means crossing the table it belongs to, which is how a connector is
+  // drawn rather than a flaw.
+  const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, lane,
+    obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
+      !(rect.minX === to.x && rect.minY === to.y)));
 
   return (
     <g

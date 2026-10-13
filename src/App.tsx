@@ -6,7 +6,7 @@ import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
 import { findFreeSlot, occupiedBoxes } from './model/placement';
-import { deriveTables, deriveLinks, routeColumns, loadCrowLayout, saveCrowLayout, withCrowLayout, CROW_WIDTH, tableHeight } from './model/crowfoot';
+import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight } from './model/crowfoot';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
@@ -98,27 +98,23 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const isCrowFoot = state.view === 'crowfoot';
 
   /*
-   * Table positions are this browser's, not the document's.
+   * Crow's-foot placement is shared, and separate from Chen.
    *
-   * Two people reading one schema do not need the same picture of it, and a
-   * table that slides away under somebody else's cursor while they are reading
-   * it is worse than a diagram laid out differently in each browser. Everything
-   * else — attributes, keys, relationships, types — still syncs, because that is
-   * the content. Applying the layout in one place (`shown`) means the canvas,
-   * framing, and new-shape placement all agree without knowing why.
+   * Two people reading one schema are looking at the same tables, so a table
+   * moved here moves for everybody — that is what the notification column is
+   * for. It is stored as `crowX`/`crowY` rather than as the entity's `x`/`y`, so
+   * arranging one notation never rearranges the other. A table with no
+   * Crow's-foot position yet is given one by arranging the tables themselves
+   * rather than by inheriting where its entity sits in Chen; that inheritance is
+   * the carry-over that reads as "why did my diagram jump when I changed
+   * notation".
    */
-  const [crowLayout, setCrowLayout] = useState(() => loadCrowLayout(room.room));
-  const shown = useMemo(() => (isCrowFoot ? withCrowLayout(state.doc, crowLayout) : state.doc), [state.doc, crowLayout, isCrowFoot]);
-  const setTablePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
-    setCrowLayout((current) => {
-      const next = new Map(current);
-      // Absolute positions: the drag starts from where the table is drawn, which
-      // is already this layout, so there is no delta to apply.
-      for (const [id, point] of positions) next.set(id, point);
-      saveCrowLayout(room.room, next);
-      return next;
-    });
-  }, [room.room]);
+  const shown = state.doc;
+
+
+  // The name field is a draft so it can be emptied to be retyped; the identity
+  // only ever holds a name that was actually committed.
+  const [nameDraft, setNameDraft] = useState(state.identity.name);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileMenuTrigger = useRef<HTMLButtonElement>(null);
@@ -201,6 +197,44 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const fitToView = useCallback(() => fitToDoc(shown), [fitToDoc, shown]);
 
   useEffect(() => {
+    if (!isCrowFoot || !state.loaded) return;
+    const missing = state.doc.entities.filter((entity) => entity.crowX === undefined || entity.crowY === undefined);
+    if (missing.length === 0) return;
+    const crowPlaced = new Set(
+      state.doc.entities.filter((e) => e.crowX !== undefined).map((e) => e.id),
+    );
+    // Arrange the tables as tables. Positions already chosen are kept: this
+    // only fills gaps, so re-running cannot rearrange what is settled.
+    const arranged = applyLayout(state.doc);
+    const fresh = new Map<string, { x: number; y: number }>();
+    for (const entity of arranged.entities) {
+      if (!crowPlaced.has(entity.id)) fresh.set(entity.id, { x: entity.x, y: entity.y });
+    }
+    if (fresh.size === 0) return;
+    // Shared, like every other edit: two people in the room see the same tables.
+    // Untracked on purpose — see `placeTables`.
+    state.placeTables(fresh);
+    /*
+     * Frame the layout that was just placed, explicitly.
+     *
+     * Waiting for the automatic first frame does not work here. Switching
+     * notation clears `framed`, so a frame runs against the positions as they
+     * are *before* placing, claims the flag, and then blocks itself when the
+     * real positions arrive.
+     */
+    requestAnimationFrame(() => {
+      framed.current = false;
+      const placed = new Map(arranged.entities.map((entity) =>
+        [entity.id, { x: fresh.get(entity.id)?.x ?? entity.crowX ?? entity.x,
+          y: fresh.get(entity.id)?.y ?? entity.crowY ?? entity.y }] as const));
+      fitToDoc({ ...state.doc, entities: state.doc.entities.map((entity) => {
+        const at = placed.get(entity.id);
+        return at ? { ...entity, crowX: at.x, crowY: at.y } : entity;
+      }) });
+    });
+  }, [isCrowFoot, state.loaded, state.doc, fitToDoc]);
+
+  useEffect(() => {
     if (!state.justCreated || !state.selection.includes(state.justCreated)) return;
     showPanel('properties');
   }, [state.justCreated, showPanel]);
@@ -215,7 +249,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         item.entityId === node.id || item.rows.some((row) => row.attributeId === node.id)) : null;
       if (isCrowFoot && !table) { fitToDoc(shown); return; }
       const rowIndex = table?.rows.findIndex((row) => row.attributeId === node.id) ?? -1;
-      const dimensions = table ? { w: table.width, h: rowIndex < 0 ? tableHeight(table) : 44 } : sizeOf(shown, node.id);
+      const dimensions = table ? { w: table.width, h: rowIndex < 0 ? tableHeight(table) : 44 } : sizeOf(state.doc, node.id);
       const x = table?.x ?? node.x;
       const y = table ? table.y + (rowIndex < 0 ? 0 : 44 + rowIndex * 44) : node.y;
       const area = canvasArea();
@@ -236,7 +270,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       });
     });
     return () => cancelAnimationFrame(frame);
-  }, [state.justCreated, openPanel, canvasArea, fitToDoc, shown, isCrowFoot]);
+  }, [state.justCreated, openPanel, canvasArea, fitToDoc, state.doc, isCrowFoot]);
 
   useEffect(() => {
     if (!openPanel || !focusPanel.current) return;
@@ -252,7 +286,11 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     // A room-only link starts empty; frame its first incoming content. Local
     // creation keeps its pointer placement and has its own visibility check.
     if (!state.justCreated) fitToDoc(shown);
-  }, [state.loaded, state.doc, state.justCreated, isEmpty, fitToDoc, shown]);
+    // `shown`, not `state.doc`: framing has to follow the layout actually being
+    // drawn, and in Crow's-foot that is this browser's own. `view` is here
+    // because the two notations frame different drawings, and on a switch the
+    // layout can be identical while the drawing is not.
+  }, [state.loaded, state.doc, state.justCreated, isEmpty, fitToDoc, shown, state.view]);
 
   const zoomBy = (factor: number) => {
     framed.current = true;
@@ -303,19 +341,16 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const tidy = useCallback(() => {
     const arranged = applyLayout(shown);
     if (isCrowFoot) {
-      /*
-       * Tables are positioned locally, so Tidy arranges them here and nowhere
-       * else. Writing the result to the shared document would move the tables
-       * under everybody else, which is the one thing this layout is for.
-       */
-      const positions = new Map(arranged.entities.map((entity) => [entity.id, { x: entity.x, y: entity.y }]));
+      // Tables are arranged in the Crow's-foot positions, so Tidy writes those
+      // and leaves Chen's alone. Shared, so everybody sees the result.
       const before = new Map(shown.entities.map((entity) => [entity.id, entity]));
-      const moved = new Map([...positions].filter(([id, point]) => {
-        const old = before.get(id);
-        return old && (old.x !== point.x || old.y !== point.y);
-      }));
-      if (moved.size) setTablePositions(moved);
-      fitToDoc(moved.size ? withCrowLayout(shown, new Map([...crowLayout, ...moved])) : shown);
+      const moved = new Map(arranged.entities
+        .map((entity) => [entity.id, { x: entity.x, y: entity.y }] as const)
+        .filter(([id, point]) => {
+          const old = before.get(id);
+          return old && (old.crowX !== point.x || old.crowY !== point.y);
+        }));
+      if (moved.size) state.applyTablePositions(moved);
       return;
     }
     const positions = new Map<string, { x: number; y: number }>();
@@ -326,7 +361,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     }
     if (positions.size) state.applyPositions(positions);
     fitToDoc(arranged);
-  }, [state, fitToDoc, shown, isCrowFoot, setTablePositions, crowLayout]);
+  }, [state, fitToDoc, shown, isCrowFoot]);
 
   const focusShape = (id: string) => {
     let view = state.view;
@@ -340,10 +375,10 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     showPanel('properties');
     let node = allNodes(shown).find((item) => item.id === id);
     if (!node) {
-      const leg = shown.legs.find((item) => item.id === id);
+      const leg = state.doc.legs.find((item) => item.id === id);
       node = allNodes(shown).find((item) => item.id === leg?.fromId);
     }
-    let point = node ? { x: node.x + sizeOf(shown, node.id).w / 2, y: node.y + sizeOf(shown, node.id).h / 2 } : null;
+    let point = node ? { x: node.x + sizeOf(state.doc, node.id).w / 2, y: node.y + sizeOf(state.doc, node.id).h / 2 } : null;
     if (view === 'crowfoot' && table) {
       const row = table.rows.findIndex((item) => item.attributeId === id);
       point = { x: table.x + table.width / 2, y: table.y + (row < 0 ? tableHeight(table) / 2 : 44 + (row + 0.5) * 44) };
@@ -553,10 +588,31 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     { label: 'Share', onSelect: () => setDialog('share') },
     { label: 'Help', separated: true, onSelect: () => showPanel('help') },
   ];
-  const emptyActions = isEmpty ? <div className="starter-actions">
-    <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
-    <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
-  </div> : null;
+  const emptyActions = isEmpty ? <>
+    <div className="starter-name">
+      <label className="field__label" htmlFor="start-name">Your name</label>
+      <input
+        id="start-name"
+        className="field__input"
+        value={nameDraft}
+        onChange={(event) => {
+          setNameDraft(event.target.value);
+          state.setIdentityName(event.target.value);
+        }}
+        // Blurring puts back the last name that was actually committed, so
+        // emptying the field to retype it does not leave a nameless person.
+        onBlur={() => setNameDraft(state.identity.name)}
+        placeholder="Your name"
+        autoComplete="off"
+        maxLength={32}
+      />
+      <p className="field__help">Collaborators see this beside your cursor. It stays in this browser.</p>
+    </div>
+    <div className="starter-actions">
+      <button type="button" className="btn btn--primary" disabled={!state.loaded} onClick={() => addShape('entity')}>Add your first entity</button>
+      <button type="button" className="btn" onClick={() => setDialog('examples')}>Open an example</button>
+    </div>
+  </> : null;
 
   /*
    * A short link carries no diagram, so an empty canvas after following one is
@@ -605,7 +661,14 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         </div>
         <div className="seg notation" role="group" aria-label="Notation">
           {(['chen', 'crowfoot'] as const).map((view) => <button key={view} type="button" className="seg__btn" aria-pressed={state.view === view}
-            onClick={() => { state.setView(view); requestAnimationFrame(() => fitToDoc({ ...state.doc, view })); }}>{view === 'chen' ? 'Chen' : "Crow's-foot"}</button>)}
+            onClick={() => {
+              state.setView(view);
+              // Reframe through the one effect that knows about this browser's
+              // Crow's-foot layout. Fitting the shared document here would put
+              // the new view where the *other* notation had its shapes, and
+              // could land it under an open panel.
+              framed.current = false;
+            }}>{view === 'chen' ? 'Chen' : "Crow's-foot"}</button>)}
         </div>
         <span className="topbar__spacer" />
         {state.peers.length > 0 ? <div className="presence" title={peerSummary} aria-label={peerSummary}>
@@ -655,7 +718,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="canvas-stage" onContextMenu={openMenu} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={setTablePositions} /> :
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} /> :
             <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
