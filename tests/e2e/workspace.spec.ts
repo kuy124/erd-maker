@@ -397,7 +397,7 @@ test('Chen endpoints match ERDPlus and keep legacy leg orientations and exported
   expect(restored.legs).toEqual(doc.legs);
 });
 
-test('crow’s-foot draws two many ends for Student–Course and two one ends for one-to-one', async ({ page }) => {
+test('crow’s-foot shows endpoint symbols alongside clear relationship ratios', async ({ page }) => {
   await page.goto('/'); await ready(page);
   await importDocument(page, createExample('courses'));
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
@@ -412,4 +412,18 @@ test('crow’s-foot draws two many ends for Student–Course and two one ends fo
   await expect(page.locator('.layer-links [data-cardinality="many"]')).toHaveCount(0);
   await expect(page.locator('.layer-links [data-cardinality="one"]')).toHaveCount(2);
   await expect(page.locator('.crow-link__ratio')).toHaveText('1:1');
+  await importDocument(page, createExample('orders'));
+  await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+  await expect(page.locator('.crow-link__ratio')).toHaveText('1:N');
+  await expect(page.locator('.layer-links [data-cardinality="many"]')).toHaveCount(1);
+  await expect(page.locator('.layer-links [data-cardinality="one"]')).toHaveCount(1);
+  await expect(page.locator('.layer-links [data-participation]')).toHaveCount(2);
+  await documentAction(page, 'Export');
+  await page.getByRole('tab', { name: 'SVG', exact: true }).click();
+  const pending = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download SVG', exact: true }).click();
+  const svg = (await readDownload(await pending)).toString();
+  expect(svg).toContain('1:N');
+  expect(svg).toContain('data-cardinality=');
+  expect(svg).toContain('data-participation=');
 });

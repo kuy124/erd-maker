@@ -2,7 +2,7 @@ import { legsFor, type ErdDocument, type Entity, type Leg, type RouteSide } from
 import { foreignKeyColumnName, toSqlName } from './columnNames';
 import { attributeType } from './dataTypes';
 import { leafAttributesOf } from './attributes';
-import { normalizeRoutePoints, simplifyRoute, type RoutePoint } from './connectorRouting';
+import { ENDPOINT_STUB, findSafeRoute, isRouteSafe, normalizeRoutePoints, simplifyRoute, type RoutePoint } from './connectorRouting';
 
 export interface CrowTable {
   entityId: string;
@@ -341,7 +341,7 @@ function polyline(points: Point[]): string {
 }
 
 /** Horizontal run that leaves a row, kept clear of the table it comes from. */
-const EXIT_STUB = 36;
+const EXIT_STUB = ENDPOINT_STUB;
 /** Clearance above or below the drawing for a detour. */
 const DETOUR_CLEARANCE = 24;
 
@@ -396,10 +396,30 @@ export function routeColumns(
   const gapLeft = from.x - to.x - span;
   const facing = Math.max(gapRight, gapLeft) >= EXIT_STUB + 44;
   const saved = normalizeRoutePoints(routePoints);
-  const fromRight = saved ? saved[0]!.x >= from.x + from.width / 2 : facing ? gapRight >= gapLeft : to.x >= from.x;
-  const toRight = saved ? saved.at(-1)!.x >= to.x + to.width / 2 : facing ? !fromRight : fromRight;
+  let fromRight = saved ? saved[0]!.x >= from.x + from.width / 2 : facing ? gapRight >= gapLeft : to.x >= from.x;
+  let toRight = from.entityId === to.entityId && ay === by ? !fromRight :
+    saved ? saved.at(-1)!.x >= to.x + to.width / 2 : facing ? !fromRight : fromRight;
+  const allObstacles = [...obstacles, tableObstacle(from), tableObstacle(to)];
+  const port = (table: CrowTable, right: boolean, y: number) => ({ x: table.x + (right ? table.width : 0), y });
+  // Reserve the whole marker's height, including a neighbour just above/below its row.
+  const available = (point: Point, right: boolean) => Math.min(Infinity, ...allObstacles
+    .filter(rect => point.y + 12 > rect.minY && point.y - 12 < rect.maxY)
+    .map(rect => right ? rect.minX - point.x : point.x - rect.maxX).filter(gap => gap >= 0));
+  if (available(port(from, fromRight, ay), fromRight) < EXIT_STUB &&
+    available(port(from, !fromRight, ay), !fromRight) >= EXIT_STUB) fromRight = !fromRight;
+  if (available(port(to, toRight, by), toRight) < EXIT_STUB &&
+    available(port(to, !toRight, by), !toRight) >= EXIT_STUB) toRight = !toRight;
+  if (from.entityId === to.entityId && ay === by) toRight = !fromRight;
   const a = { x: from.x + (fromRight ? from.width : 0), y: ay };
   const b = { x: to.x + (toRight ? to.width : 0), y: by };
+  // In a narrow table gap, reserve the available space rather than entering a neighbour.
+  const stub = (port: Point, right: boolean) => {
+    const gap = available(port, right);
+    const length = Math.min(EXIT_STUB, Math.max(gap / 2, gap - 1));
+    return { x: port.x + (right ? length : -length), y: port.y };
+  };
+  const aStub = stub(a, fromRight), bStub = stub(b, toRight);
+  const guard = { a, b, aStub, bStub, obstacles: allObstacles };
 
   // The direct route, plus the jog used to fan out parallel connectors.
   const bendX = facing ? (a.x + b.x) / 2 + lane * 12 :
@@ -407,31 +427,23 @@ export function routeColumns(
   const jogY = facing && lane > 0 ? Math.min(ay, by) - lane * 44 : ay;
   const direct = jogY === ay
     ? [a, { x: bendX, y: ay }, { x: bendX, y: by }, b]
-    : [a, { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: ay },
-      { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: jogY },
-      { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: jogY },
-      { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: by }, b];
+    : [a, aStub, { x: aStub.x, y: jogY }, { x: bStub.x, y: jogY }, bStub, b];
 
   const directPoints = simplifyRoute(direct);
   const directPath = polyline(directPoints);
-  const clear = obstacles.every((rect) =>
-    direct.slice(1).every((point, index) => !crossesObstacle(direct[index]!, point, rect)));
+  const clear = isRouteSafe(directPoints, guard);
 
   /*
-   * A hand-placed bend wins over every automatic rule below.
-   *
-   * Once someone has dragged the corner of a line, that corner is the answer.
-   * Obstacles, shorter sides, and lanes are all guesses about where a line
-   * should go; a dragged point is not a guess. Only "automatic" or a missing
-   * point lets the router decide again.
+   * Respect a manual route while it keeps ports, symbols and table bodies clear.
+   * Old routes invalidated by table movement fall back to the automatic router.
    */
   if (saved) {
     const first = saved[0]!, last = saved.at(-1)!;
     const points = simplifyRoute([a, { x: first.x, y: ay }, ...saved, { x: last.x, y: by }, b]);
     const middle = points[Math.floor(points.length / 2)]!;
-    return {
-      a, b, points, path: polyline(points),
-      aToward: points[1] ?? b, bToward: points.at(-2) ?? a,
+    if (isRouteSafe(points, guard)) return {
+      a, b, guard, manualAccepted: true, points, path: polyline(points),
+      aToward: aStub, bToward: bStub,
       handle: middle, label: { x: middle.x + 26, y: middle.y }, labelAnchor: 'start' as const,
       bounds: { minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)),
         minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)) },
@@ -439,15 +451,12 @@ export function routeColumns(
   }
   if (bend) {
     const corner = { x: bend.x, y: bend.y };
-    const aStub = { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: ay };
-    const bStub = { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: by };
     const points = simplifyRoute([a, aStub, { x: corner.x, y: ay }, corner,
       { x: bStub.x, y: corner.y }, bStub, b]);
     const path = polyline(points);
-    return {
-      a, b,
-      aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
-      bToward: { x: b.x + (toRight ? 30 : -30), y: by },
+    if (isRouteSafe(points, guard)) return {
+      a, b, guard, manualAccepted: true,
+      aToward: aStub, bToward: bStub,
       path, points,
       /*
        * The label sits beside the corner, never on it.
@@ -472,11 +481,10 @@ export function routeColumns(
    * have fitted straight through. A control that silently does nothing is worse
    * than no control, and this is the reason someone reaches for the menu.
    */
-  if ((clear || obstacles.length === 0) && preferred === 'auto') {
+  if (clear && preferred === 'auto') {
     const label = { x: facing ? (a.x + b.x) / 2 : bendX + (fromRight ? 12 : -12),
       y: jogY !== ay || ay === by ? jogY - 20 : (ay + by) / 2 - (facing ? 0 : lane * 32) };
-    return { a, b, aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
-      bToward: { x: b.x + (toRight ? 30 : -30), y: by },
+    return { a, b, guard, manualAccepted: false, aToward: aStub, bToward: bStub,
       path: directPath, points: directPoints, label, labelAnchor: facing ? 'middle' as const : fromRight ? 'start' as const : 'end' as const,
       handle: { x: bendX, y: jogY === ay ? by : jogY },
       bounds: { minX: Math.min(a.x, b.x, bendX), maxX: Math.max(a.x, b.x, bendX),
@@ -493,7 +501,7 @@ export function routeColumns(
    * broken rather than busy. An unrelated table far above must not move this
    * line past it.
    */
-  const blocking = obstacles.filter((rect) =>
+  const blocking = allObstacles.filter((rect) =>
     direct.slice(1).some((point, index) => crossesObstacle(direct[index]!, point, rect)));
   /*
    * With nothing in the way the direct route is already the answer, so the
@@ -509,17 +517,27 @@ export function routeColumns(
   // line off the edge of the drawing is worse than a longer one.
   const forced = preferred === 'above' ? above : preferred === 'below' ? below : undefined;
   const channel = forced ?? (cost(above) <= cost(below) ? above : below);
-  const points = simplifyRoute([a, { x: a.x, y: channel }, { x: b.x, y: channel }, b]);
+  const detour = simplifyRoute([a, aStub, { x: aStub.x, y: channel }, { x: bStub.x, y: channel }, bStub, b]);
+  const points = isRouteSafe(detour, guard) ? detour : findSafeRoute(guard) ?? detour;
+  // A repaired route may use another channel. Keep its caption and handle on the drawn line.
+  let longest = 0;
+  for (let i = 1; i < points.length - 1; i++) {
+    const length = (index: number) => Math.abs(points[index + 1]!.x - points[index]!.x) +
+      Math.abs(points[index + 1]!.y - points[index]!.y);
+    if (length(i) > length(longest)) longest = i;
+  }
+  const middle = { x: (points[longest]!.x + points[longest + 1]!.x) / 2,
+    y: (points[longest]!.y + points[longest + 1]!.y) / 2 };
   const path = polyline(points);
   return {
-    a, b,
-    aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
-    bToward: { x: b.x + (toRight ? 30 : -30), y: by },
+    a, b, guard, manualAccepted: false,
+    aToward: aStub, bToward: bStub,
     path, points,
-    label: { x: (a.x + b.x) / 2, y: channel + (channel < Math.min(ay, by) ? -12 : 16) },
+    label: points === detour ? { x: (a.x + b.x) / 2, y: channel + (channel < Math.min(ay, by) ? -12 : 16) } :
+      { x: middle.x, y: middle.y - 20 },
     labelAnchor: 'middle' as const,
-    handle: { x: (a.x + b.x) / 2, y: channel },
-    bounds: { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x),
-      minY: Math.min(ay, by, channel), maxY: Math.max(ay, by, channel) },
+    handle: points === detour ? { x: (a.x + b.x) / 2, y: channel } : middle,
+    bounds: { minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)),
+      minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)) },
   };
 }

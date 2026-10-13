@@ -236,11 +236,11 @@ export const IsaShape = memo(function IsaShape({
 });
 
 /** ERDPlus-style endpoint symbols, also used by the table renderer. */
-export function CardinalityMarker({ origin, toward, many, required, className = 'leg' }: {
-  origin: Point; toward: Point; many: boolean; required: boolean; className?: string;
+export function CardinalityMarker({ origin, toward, many, required, className = 'leg', scale = 1 }: {
+  origin: Point; toward: Point; many: boolean; required: boolean; className?: string; scale?: number;
 }) {
   const angle = Math.atan2(toward.y - origin.y, toward.x - origin.x) * 180 / Math.PI;
-  return <g transform={`translate(${origin.x} ${origin.y}) rotate(${angle})`} pointerEvents="none">
+  return <g transform={`translate(${origin.x} ${origin.y}) rotate(${angle})${scale === 1 ? '' : ` scale(${scale})`}`} pointerEvents="none">
     <path className={className} data-cardinality={many ? 'many' : 'one'}
       d={many ? 'M14 0 L1 9 M14 0 L1 -9' : 'M10 -9 L10 9'} />
     {required ? <path className={className} data-participation="required" d="M22 -9 L22 9" /> :

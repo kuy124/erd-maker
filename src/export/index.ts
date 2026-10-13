@@ -25,6 +25,7 @@ const EXPORT_VARS = [
   '--ink-tertiary',
   '--signal',
   '--rule',
+  '--rule-strong',
   '--font-sans',
   '--font-mono',
 ] as const;
@@ -125,6 +126,9 @@ export function serializeSvg(
   });
   clone.querySelectorAll<SVGElement>('.crow-link--selected .crow-link__ratio').forEach((node) => {
     node.style.fill = vars['--ink'] ?? '#16181a';
+  });
+  clone.querySelectorAll<SVGElement>('.crow-link--selected .crow-link__ratio-background').forEach((node) => {
+    node.style.stroke = vars['--rule-strong'] ?? '#697078';
   });
   clone.querySelectorAll<SVGElement>('.node--connecting .node__body, .node--connectable .node__body').forEach((node) => {
     node.style.stroke = vars['--ink'] ?? '#16181a';

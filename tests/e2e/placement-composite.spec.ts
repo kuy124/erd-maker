@@ -141,7 +141,8 @@ test('cancelled bends leave saved geometry unchanged and pan works on their hand
 });
 
 test('route controls clear manual bends and SVG export includes their bounds', async ({ page }) => {
-  const doc = schema(); doc.relationships[0]!.bendX = 400; doc.relationships[0]!.bendY = -700;
+  // Keep the exported bend outside Alpha's protected 36-unit symbol stub.
+  const doc = schema(); doc.relationships[0]!.bendX = 500; doc.relationships[0]!.bendY = -700;
   await importDocument(page, doc);
   const link = page.getByTestId('crow-link-r');
   await link.focus(); await page.keyboard.press('Enter');

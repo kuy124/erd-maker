@@ -86,9 +86,44 @@ test('a click and tiny pointer jitter select the line without changing its route
   await expect(path).toHaveAttribute('d', before!);
 });
 
-for (const edge of ['source', 'target']) test(`an automatic vertical segment can align with its ${edge} port and persist`, async ({ page }) => {
+test('symbol stubs select the relationship without moving its geometry', async ({ page }) => {
+  const link = page.getByTestId('crow-link-r'), path = link.locator('.crow-link__path');
+  const before = await path.getAttribute('d');
+  const point = await link.locator('[data-route-fixed]').first().evaluate(el => {
+    const path = el as SVGPathElement, p = path.getPointAtLength(path.getTotalLength() / 2);
+    const c = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM()!);
+    return { x: c.x, y: c.y };
+  });
+  await page.mouse.move(point.x, point.y); await page.mouse.down();
+  await page.mouse.move(point.x + 40, point.y + 40, { steps: 4 }); await page.mouse.up();
+  await expect(link).toHaveClass(/crow-link--selected/);
+  await expect(path).toHaveAttribute('d', before!);
+});
+
+test('an invalid drag keeps the last safe preview and commits only that route', async ({ page }) => {
+  const link = page.getByTestId('crow-link-r'), path = link.locator('.crow-link__path');
+  const before = await path.getAttribute('d'), point = await grabPoint(page);
+  await page.mouse.move(point.x, point.y); await page.mouse.down();
+  await page.mouse.move(point.x + 40 * point.scale, point.y);
+  await expect(path).not.toHaveAttribute('d', before!);
+  const safe = await path.getAttribute('d');
+  // Crossing the fixed return segment would make a loop and enter table B.
+  await page.mouse.move(point.x + 240 * point.scale, point.y);
+  await expect(link).toHaveClass(/crow-link--blocked/);
+  await expect(path).toHaveAttribute('d', safe!);
+  await page.mouse.up();
+  await expect(link).not.toHaveClass(/crow-link--blocked/);
+  await expect(path).toHaveAttribute('d', safe!);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', before!);
+});
+
+for (const edge of ['source', 'target']) test(`dragging past the ${edge} port preserves the symbol stub and persists`, async ({ page }) => {
   await open(page, false);
   const path = page.getByTestId('crow-link-r').locator('.crow-link__path');
+  const symbols = page.getByTestId('crow-link-r').locator('[data-cardinality]');
+  await expect(symbols).toHaveCount(2);
+  const beforeSymbols = await symbols.evaluateAll(els => els.map(el => el.parentElement!.getAttribute('transform')));
   const point = await path.evaluate(el => {
     const matrix = (el as SVGPathElement).getScreenCTM()!;
     // Grab the short vertical run where its ratio label is rendered.
@@ -99,12 +134,23 @@ for (const edge of ['source', 'target']) test(`an automatic vertical segment can
   expect(await page.evaluate(({ x, y }) => getComputedStyle(document.elementFromPoint(x, y)!).cursor,
     { x: point.x, y: point.y })).toBe('ew-resize');
   await page.mouse.down();
-  await page.mouse.move(point.x + (edge === 'source' ? -160 : 160) * point.scale, point.y, { steps: 5 });
+  await page.mouse.move(point.x + (edge === 'source' ? -500 : 500) * point.scale, point.y, { steps: 5 });
   await page.mouse.up();
   const points = orthogonalPoints((await path.getAttribute('d'))!);
   expect(points).toEqual(edge === 'source' ? [
-    { x: 380, y: 166 }, { x: 380, y: 210 }, { x: 700, y: 210 },
-  ] : [{ x: 380, y: 166 }, { x: 700, y: 166 }, { x: 700, y: 210 }]);
+    { x: 380, y: 166 }, { x: 416, y: 166 }, { x: 416, y: 210 }, { x: 700, y: 210 },
+  ] : [{ x: 380, y: 166 }, { x: 664, y: 166 }, { x: 664, y: 210 }, { x: 700, y: 210 }]);
+  expect(await symbols.evaluateAll(els => els.map(el => el.parentElement!.getAttribute('transform')))).toEqual(beforeSymbols);
+  const captionsClear = await page.getByTestId('crow-link-r').evaluate(el => {
+    const tables = [...document.querySelectorAll('[data-node-id] .node__body')].map(table => table.getBoundingClientRect());
+    return [...el.querySelectorAll('.crow-link__ratio-background, .crow-link__label')].every(caption => {
+      const box = caption.getBoundingClientRect();
+      return tables.every(table => box.right <= table.left || box.left >= table.right ||
+        box.bottom <= table.top || box.top >= table.bottom);
+    });
+  });
+  expect(captionsClear).toBe(true);
+  if (edge === 'target') await page.screenshot({ path: 'output/playwright/protected-crow-final.png' });
   const saved = await path.getAttribute('d');
   await page.reload(); await expect(page.getByLabel('Diagram name')).toBeEnabled();
   await expect(path).toHaveAttribute('d', saved!);

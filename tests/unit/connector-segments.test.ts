@@ -23,9 +23,18 @@ it('rejects malformed, diagonal and non-finite saved routes', () => {
     [{ x: Infinity, y: 0 }, { x: 1, y: 0 }]]) expect(normalizeRoutePoints(value)).toBeUndefined();
 });
 
-it('aligns a vertical segment with the source without leaving its old backtrack', () => {
+it('stops a vertical segment before it collapses the source symbol space', () => {
   expect(moveRouteSegment([{ x: 380, y: 166 }, { x: 540, y: 166 },
     { x: 540, y: 210 }, { x: 700, y: 210 }], 1, -160)).toEqual([
-    { x: 380, y: 166 }, { x: 380, y: 210 }, { x: 700, y: 210 },
+    { x: 380, y: 166 }, { x: 416, y: 166 }, { x: 416, y: 210 }, { x: 700, y: 210 },
   ]);
+});
+
+it('keeps both endpoint stubs when a central segment is dragged far beyond either table', () => {
+  const points = [{ x: 380, y: 166 }, { x: 540, y: 166 }, { x: 540, y: 210 }, { x: 700, y: 210 }];
+  for (const [delta, x] of [[-1000, 416], [1000, 664]]) {
+    expect(moveRouteSegment(points, 1, delta!)).toEqual([
+      { x: 380, y: 166 }, { x, y: 166 }, { x, y: 210 }, { x: 700, y: 210 },
+    ]);
+  }
 });

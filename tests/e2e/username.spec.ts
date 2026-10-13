@@ -34,6 +34,32 @@ test('a name can be given before anything is drawn', async ({ page }) => {
   await expect(name).toHaveValue('Priya');
 });
 
+for (const view of ['Chen', "Crow's-foot"]) test(`clicking the starter name allows real typing in ${view}`, async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByLabel('Diagram name')).toBeEnabled();
+  await page.getByRole('button', { name: view, exact: true }).click();
+  const name = page.getByLabel('Your name');
+  const viewport = page.locator('[data-viewport]');
+  const before = await viewport.getAttribute('transform');
+  await name.click();
+  await expect(name).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('Budi Satria');
+  await expect(name).toHaveValue('Budi Satria');
+  await expect(page.getByLabel('Enter Focus view')).toBeVisible();
+  await expect(page.locator('[data-node-id]')).toHaveCount(0);
+  await expect(viewport).toHaveAttribute('transform', before!);
+  // Selecting text with the Pan tool must not start a canvas drag either.
+  await page.getByRole('button', { name: 'Pan tool', exact: true }).click();
+  const box = (await name.boundingBox())!;
+  await page.mouse.move(box.x + 25, box.y + box.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + 100, box.y + box.height / 2, { steps: 4 }); await page.mouse.up();
+  await expect(name).toBeFocused();
+  await expect(viewport).toHaveAttribute('transform', before!);
+  await page.reload();
+  await expect(page.getByLabel('Your name')).toHaveValue('Budi Satria');
+});
+
 test('the name survives a reload and applies in another room', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByLabel('Diagram name')).toBeEnabled();
