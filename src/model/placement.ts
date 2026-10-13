@@ -97,8 +97,15 @@ function ownerBox(doc: ErdDocument, ownerId: string): Box | null {
   return null;
 }
 
-/** Vertical gap between stacked attributes, and the gap out to the side. */
-const ROW_GAP = 18;
+/**
+ * Vertical gap between stacked attributes, and the gap out to the side.
+ *
+ * Exported because the layout has to reserve the same space when it stacks
+ * shapes: if the two drift apart, auto-arrange can put a shape on top of the
+ * attributes belonging to the one above it.
+ */
+export const ATTRIBUTE_ROW_GAP = 18;
+const ROW_GAP = ATTRIBUTE_ROW_GAP;
 const COLUMN_GAP = 60;
 
 /**

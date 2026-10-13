@@ -1,4 +1,4 @@
-import { documentAction, inspectSelection, snapshotShareLink } from './actions';
+import { documentAction, inspectSelection, readDownloadBytes, snapshotShareLink } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import AxeBuilder from '@axe-core/playwright';
@@ -44,10 +44,9 @@ async function exported(page: Page, format: 'JSON' | 'SVG' | 'PNG' | 'SQL') {
   await page.getByRole('tab', { name: format, exact: true }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download ' + format }).click();
-  const file = await pending, stream = await file.createReadStream();
-  const chunks: Buffer[] = []; for await (const part of stream) chunks.push(Buffer.from(part));
+  const bytes = await readDownloadBytes(await pending);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  return Buffer.concat(chunks);
+  return bytes;
 }
 async function json(page: Page): Promise<ErdDocument> { return JSON.parse((await exported(page, 'JSON')).toString()); }
 async function anchored(page: Page, source: string, target: string) {

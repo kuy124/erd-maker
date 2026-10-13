@@ -1,6 +1,29 @@
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import type { Browser, BrowserContext, Download, Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import type { ErdDocument } from '../../src/model/types';
+
+/**
+ * Raw bytes of a downloaded file.
+ *
+ * `createReadStream` races the download and fails with "canceled" when the
+ * stream is opened before the body is ready, which it does occasionally under
+ * three parallel workers. The saved path is already complete when `path()`
+ * resolves, so this does not.
+ *
+ * Bytes rather than a string: a PNG read as utf8 comes back corrupted, with
+ * every byte above 0x7F replaced.
+ */
+export async function readDownloadBytes(download: Download): Promise<Buffer> {
+  const path = await download.path();
+  if (!path) throw new Error('the download produced no file');
+  return readFile(path);
+}
+
+/** The same file as text, for SVG, JSON, and SQL exports. */
+export async function readDownload(download: Download): Promise<string> {
+  return (await readDownloadBytes(download)).toString('utf8');
+}
 
 /** Loads a document through the file picker, the way a person would. */
 export async function importDocument(page: Page, doc: ErdDocument, name = 'schema.json') {

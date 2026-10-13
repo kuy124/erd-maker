@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 import { parseShareHash } from '../../src/model/snapshot';
-import { documentAction, inspectSelection, snapshotShareLink } from './actions';
+import { documentAction, inspectSelection, readDownload, snapshotShareLink } from './actions';
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
@@ -54,10 +54,9 @@ async function exported(page: Page, format: 'JSON' | 'SQL' | 'SVG') {
   await page.getByRole('tab', { name: format, exact: true }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download ' + format }).click();
-  const stream = await (await download).createReadStream();
-  const chunks: Buffer[] = []; for await (const part of stream) chunks.push(Buffer.from(part));
+  const text = await readDownload(await download);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  return Buffer.concat(chunks).toString();
+  return text;
 }
 
 test('edits table and SQL types, inherits FK types, and restores inference with Undo and Automatic', async ({ page }) => {

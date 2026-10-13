@@ -19,6 +19,7 @@
 
 import { NODE_SIZE, type ErdDocument, type Positioned } from './types';
 import { deriveTables, tableHeight } from './crowfoot';
+import { ATTRIBUTE_ROW_GAP, findAttributeSlot } from './placement';
 
 const V_GAP = 120;
 const LAYER_GAP = 240;
@@ -217,11 +218,30 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
     for (const id of bucket) {
       const size = renderedSize(id);
       positions.set(id, { x: columnCenters[layerIndex]! - size.w / 2, y });
-      y += size.h + V_GAP;
+      /*
+       * Reserve room for the attributes hanging off this shape.
+       *
+       * Attributes are placed in a column beside their owner, so two shapes
+       * stacked in the same column can collide through their attributes even
+       * though the shapes themselves do not touch. Counting the block here is
+       * what makes "no overlap" true of the drawing rather than only of the
+       * nodes. Crow's-foot tables are exempt: a table already contains its
+       * attributes as rows, so `renderedSize` has counted them.
+       */
+      y += size.h + attributeBlock(doc, id) + V_GAP;
     }
   }
 
   return { positions };
+}
+
+/** Vertical space the attributes owned by `id` occupy beside it, in Chen. */
+function attributeBlock(doc: ErdDocument, id: string): number {
+  if (doc.view === 'crowfoot') return 0;
+  const owned = doc.attributes.filter((attribute) => attribute.ownerId === id).length;
+  if (owned === 0) return 0;
+  // One gap between the owner and the first attribute, then one between each.
+  return owned * NODE_SIZE.attribute.h + owned * ATTRIBUTE_ROW_GAP;
 }
 
 function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } {
@@ -256,13 +276,42 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     if (after) entityDelta.set(before.id, { dx: after.x - before.x, dy: after.y - before.y });
   }
 
-  // An attribute shifts by its owner's delta, so it keeps its chosen offset.
-  const movedAttributes = doc.attributes.map((attr) => {
-    if (!attr.ownerId) return attr;
-    const delta = entityDelta.get(attr.ownerId);
-    if (!delta) return attr;
-    return { ...attr, x: attr.x + delta.dx, y: attr.y + delta.dy };
-  });
+  /*
+   * Attributes move with their owner, and then get placed.
+   *
+   * Keeping the old offset alone looked respectful and was wrong: an offset
+   * chosen when the entity was somewhere else lands the attribute on top of its
+   * owner, or on top of a sibling attribute, once the owner has been rearranged
+   * into a column. Measured on a three-table schema, that was 30 overlapping
+   * pairs. So the shift is still the owner's delta — the arrangement the person
+   * chose is preserved as a *group* — and then each attribute is placed beside
+   * its owner by the same routine that positions a new one, in the same order.
+   */
+  const movedEntitiesById = new Map(movedEntities.map((e) => [e.id, e]));
+  const movedRelationshipsById = new Map(movedRelationships.map((r) => [r.id, r]));
+  const movedIsasById = new Map(movedIsas.map((i) => [i.id, i]));
+  const ownerAt = (ownerId: string): ErdDocument['entities'][number] | ErdDocument['relationships'][number] | ErdDocument['isas'][number] | undefined =>
+    movedEntitiesById.get(ownerId) ?? movedRelationshipsById.get(ownerId) ?? movedIsasById.get(ownerId);
+
+  const movedAttributes: ErdDocument['attributes'] = [];
+  let placed: ErdDocument = { ...doc, entities: movedEntities, relationships: movedRelationships, isas: movedIsas };
+  for (const attr of doc.attributes) {
+    const delta = attr.ownerId ? entityDelta.get(attr.ownerId) : undefined;
+    const shifted = delta && attr.ownerId
+      ? { ...attr, x: attr.x + delta.dx, y: attr.y + delta.dy }
+      : attr;
+    const owner = attr.ownerId ? ownerAt(attr.ownerId) : undefined;
+    if (!owner) {
+      movedAttributes.push(shifted);
+      continue;
+    }
+    // Place against what has been arranged so far, so siblings stack rather
+    // than each claiming the same slot.
+    const slot = findAttributeSlot({ ...placed, attributes: movedAttributes }, owner.id);
+    const next = slot ? { ...shifted, x: slot.x, y: slot.y } : shifted;
+    movedAttributes.push(next);
+    placed = { ...placed, attributes: movedAttributes };
+  }
 
   return {
     ...doc,

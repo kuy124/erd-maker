@@ -1,4 +1,4 @@
-import { documentAction, openBuild, inspectSelection, snapshotShareLink } from './actions';
+import { documentAction, openBuild, inspectSelection, readDownload, snapshotShareLink } from './actions';
 import { ROOM_ID_LENGTH } from '../../src/model/snapshot';
 /**
  * End-to-end tests.
@@ -756,9 +756,7 @@ test.describe('connections', () => {
     await page.getByRole('button', { name: 'Download SVG' }).click();
     const file = await downloadPromise;
 
-    const stream = await file.createReadStream();
-    let svg = '';
-    for await (const chunk of stream) svg += String(chunk);
+    const svg = await readDownload(file);
     expect(svg).not.toContain('connect-preview');
   });
 
@@ -931,9 +929,7 @@ test.describe('export', () => {
     await page.getByRole('button', { name: 'Download JSON' }).click();
     const file = await downloadPromise;
 
-    const stream = await file.createReadStream();
-    let text = '';
-    for await (const chunk of stream) text += String(chunk);
+    const text = await readDownload(file);
     const parsed = JSON.parse(text);
     expect(parsed.name).toBe('Untitled diagram');
     expect(parsed.entities).toHaveLength(1);
@@ -1181,6 +1177,7 @@ test.describe('everyday use', () => {
     const stream = await (await pending).createReadStream();
     const chunks: Buffer[] = [];
     for await (const part of stream) chunks.push(Buffer.from(part));
+    const json = Buffer.concat(chunks);
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await tidy(page);
 
@@ -1189,7 +1186,7 @@ test.describe('everyday use', () => {
     await expect(node(page, /Entity Customer/i)).toHaveCount(0);
 
     await page.locator('input[type=file]').setInputFiles({
-      name: 'round-trip.json', mimeType: 'application/json', buffer: Buffer.concat(chunks),
+      name: 'round-trip.json', mimeType: 'application/json', buffer: json,
     });
     await expect(node(page, /Entity Customer/i)).toBeVisible();
     await expect(node(page, /Entity Invoice/i)).toBeVisible();
@@ -1598,10 +1595,7 @@ test.describe('live presence', () => {
     await alice.getByRole('tab', { name: 'SVG', exact: true }).click();
     const pending = alice.waitForEvent('download');
     await alice.getByRole('button', { name: 'Download SVG' }).click();
-    const stream = await (await pending).createReadStream();
-    const chunks: Buffer[] = [];
-    for await (const part of stream) chunks.push(Buffer.from(part));
-    const markup = Buffer.concat(chunks).toString();
+    const markup = await readDownload(await pending);
     expect(markup).not.toContain('peer-cursor');
     expect(markup).toContain('Entity Shared');
   });
@@ -2189,6 +2183,11 @@ test.describe('right-click menu', () => {
     await tidy(page);
     await connectWithTool(page, /Entity Customer/i, /Entity Order/i);
     await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+    // Fit before reaching for the connector. Crow's-foot seeds this browser's
+    // own table layout on arrival, and framing it while Properties is open can
+    // land a connector under the panel; Fit is the app's own answer and the
+    // thing a person would press.
+    await page.getByRole('button', { name: 'Fit', exact: true }).click();
     await page.locator('.crow-link__ratio').click({ button: 'right' });
     await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
     await page.getByRole('menuitem', { name: 'Delete selection', exact: true }).click();
@@ -2538,9 +2537,7 @@ test.describe('groups', () => {
     await page.getByRole('tab', { name: 'SVG', exact: true }).click();
     const pending = page.waitForEvent('download');
     await page.getByRole('button', { name: 'Download SVG' }).click();
-    const stream = await (await pending).createReadStream();
-    let markup = '';
-    for await (const chunk of stream) markup += String(chunk);
+    let markup = await readDownload(await pending);
 
     // A frame is a working aid, not part of the drawing.
     expect(markup).not.toContain('group-frame');

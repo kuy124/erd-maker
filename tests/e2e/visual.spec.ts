@@ -1,4 +1,4 @@
-import { addShape, documentAction, inspectSelection } from './actions';
+import { addShape, documentAction, inspectSelection, readDownload } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 
 /**
@@ -75,9 +75,7 @@ test('capture the exported SVG', async ({ page }) => {
   await documentAction(page, 'Export');
   await page.getByRole('button', { name: 'Download SVG' }).click();
   const file = await downloadPromise;
-  const stream = await file.createReadStream();
-  let svg = '';
-  for await (const chunk of stream) svg += String(chunk);
+  const svg = await readDownload(file);
 
   const viewer = await page.context().newPage();
   await viewer.setViewportSize({ width: 900, height: 700 });

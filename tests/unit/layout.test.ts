@@ -107,17 +107,29 @@ describe('applyLayout', () => {
     expect(next.entities.find((e) => e.id === 'e1')!.x).toBe(positions.get('e1')!.x);
   });
 
-  it('carries an attribute along with its owner, preserving the offset', () => {
+  it('carries an attribute along with its owner, and places it beside it', () => {
     const doc = chain();
     doc.attributes.push({ id: 'a1', name: 'email', x: -120, y: 40, kind: 'simple', ownerId: 'e1' });
-    const offsetX = doc.attributes[0]!.x - doc.entities.find((e) => e.id === 'e1')!.x;
-    const offsetY = doc.attributes[0]!.y - doc.entities.find((e) => e.id === 'e1')!.y;
 
     const next = applyLayout(doc);
     const owner = next.entities.find((e) => e.id === 'e1')!;
     const attr = next.attributes[0]!;
-    expect(attr.x - owner.x).toBeCloseTo(offsetX);
-    expect(attr.y - owner.y).toBeCloseTo(offsetY);
+
+    // Beside, not on top: the old contract kept whatever offset the attribute
+    // happened to have, which once the owner had been rearranged put it straight
+    // back on the owner. Measured at 30 overlapping pairs on a three-table
+    // schema before this changed.
+    expect(attr.x).toBeGreaterThan(owner.x);
+    const overlapBottom = Math.min(owner.y + 72, attr.y + 42);
+    expect(overlapBottom - Math.max(owner.y, attr.y)).toBeGreaterThan(0);
+
+    // Two attributes owned by the same shape stack rather than share a slot.
+    doc.attributes.push({ id: 'a2', name: 'phone', x: -120, y: 100, kind: 'simple', ownerId: 'e1' });
+    const both = applyLayout(doc);
+    const first = both.attributes.find((a) => a.id === 'a1')!;
+    const second = both.attributes.find((a) => a.id === 'a2')!;
+    expect(Math.abs(first.x - second.x)).toBeLessThan(1);
+    expect(Math.abs(first.y - second.y)).toBeGreaterThan(42);
   });
 
   it('leaves a floating attribute untouched', () => {
