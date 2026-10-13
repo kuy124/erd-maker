@@ -18,7 +18,7 @@
  */
 
 import { NODE_SIZE, type ErdDocument, type Positioned } from './types';
-import { CROW_WIDTH, deriveTables, tableHeight } from './crowfoot';
+import { deriveTables, tableHeight } from './crowfoot';
 
 const V_GAP = 120;
 const LAYER_GAP = 240;
@@ -154,7 +154,7 @@ function orderLayers(
 export function autoArrange(doc: ErdDocument): LayoutResult {
   const tableSizes = new Map(
     (doc.view === 'crowfoot' ? deriveTables(doc) : []).map((table) =>
-      [table.entityId, { w: CROW_WIDTH, h: tableHeight(table) }] as const),
+      [table.entityId, { w: table.width, h: tableHeight(table) }] as const),
   );
   const renderedSize = (id: string) => tableSizes.get(id) ?? sizeFor(doc, id);
   const graph = buildGraph(doc);

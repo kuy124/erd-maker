@@ -150,6 +150,21 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     persistence.destroy();
   }
 
+  /*
+   * Leave loudly.
+   *
+   * Awareness drops a silent client only after `outdatedTimeout`, which is 30
+   * seconds in y-protocols. Without this, closing a tab parks the departing
+   * collaborator's cursor and name on the diagram for half a minute, and
+   * `Editing with` keeps claiming someone is there. Clearing the local state
+   * while the transports are still open turns that into an instant removal.
+   *
+   * `pagehide` rather than `unload` because the latter blocks navigation and is
+   * unreliable on mobile, and because a bfcache restore re-fires it.
+   */
+  const announceLeave = () => provider.awareness.setLocalState(null);
+  window.addEventListener('pagehide', announceLeave);
+
   return {
     room,
     ydoc,
@@ -158,6 +173,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     persistence,
     whenLoaded: persistence.whenSynced.then(() => undefined),
     destroy: () => {
+      window.removeEventListener('pagehide', announceLeave);
       provider.destroy();
       persistence.destroy();
       ydoc.destroy();

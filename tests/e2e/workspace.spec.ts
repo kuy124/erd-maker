@@ -1,4 +1,4 @@
-import { addShape, documentAction, openBuild, inspectSelection } from './actions';
+import { addShape, documentAction, openBuild, inspectSelection, snapshotShareLink } from './actions';
 import { expect, test, type Page, type Download } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import { createExample } from '../../src/model/examples';
@@ -96,7 +96,7 @@ test.describe('phone editing', () => {
     await page.locator('.feedback').getByRole('button', { name: 'Undo', exact: true }).tap();
 
     await documentAction(page, 'Share');
-    const link = await page.getByLabel('Share link').inputValue();
+    const link = await snapshotShareLink(page);
     expect(parseShareHash(new URL(link).hash).doc?.entities).toHaveLength(2);
     await page.getByRole('button', { name: 'Done', exact: true }).tap();
     const saved = await json(page);
@@ -111,7 +111,7 @@ test.describe('phone editing', () => {
   });
 });
 
-test('new diagrams, examples, and legacy imports open separately and Back restores persisted edits and notation', async ({ page }) => {
+test('new diagrams and examples open separately; an import replaces the current room', async ({ page }) => {
   await page.goto('/');
   await ready(page);
   await addShape(page, 'entity');
@@ -140,11 +140,18 @@ test('new diagrams, examples, and legacy imports open separately and Back restor
   await page.getByLabel('Entity name').fill('Edited example');
   const exampleRoom = page.url();
   await importDocument(page, { view: 'crowfoot', name: 'Legacy file', entities: [{ id: 'old', name: 'Legacy entity', x: 9000, y: 8000 }] });
+  // An import is an edit to the room you are in: same URL, same room, and it
+  // replaces what was there rather than quietly leaving collaborators behind.
+  expect(page.url()).toBe(exampleRoom);
+  await expect(page.getByLabel('Diagram name')).toHaveValue('Legacy file');
+  // Importing adopts the file's notation: it is the first content of this
+  // import, and a file shown in the wrong notation is a file nobody can read.
+  // A collaborator's edit still never changes anybody else's notation.
   await expect(page.getByTestId('table-Legacy entity')).toBeVisible();
-  expect(page.url()).not.toBe(exampleRoom);
-  await page.goBack();
-  await ready(page);
-  await expect(canvas(page).getByRole('button', { name: 'Entity Edited example', exact: true })).toBeVisible();
+  await expect(page.getByTestId('table-Edited example')).toHaveCount(0);
+  // One Undo step, because the whole import is one transaction.
+  await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByTestId('table-Edited example')).toBeVisible();
 });
 
 test('invalid imports explain recovery and keep the current room intact', async ({ page }) => {
@@ -195,7 +202,7 @@ test('table rows distinguish editable attributes, generated keys, and inferred t
   await canvas(page).getByRole('button', { name: /Generated foreign key/ }).click();
   await inspectSelection(page);
   await expect(page.getByLabel('Entity name')).toHaveValue('Order');
-  await expect(properties(page)).toContainText('SQL types are inferred');
+  await expect(properties(page)).toContainText('foreign keys inherit the referenced type');
   const svg = (await exportDocument(page, 'SVG')).toString();
   expect(svg).not.toMatch(/selection-ring|hit-target|crow-link--selected/);
   const doc = await json(page);
@@ -234,7 +241,7 @@ test('collaborators keep independent views and undo local changes alongside remo
   await ready(alice);
   await importDocument(alice, createExample('orders'));
   await documentAction(alice, 'Share');
-  const link = await alice.getByLabel('Share link').inputValue();
+  const link = await snapshotShareLink(alice);
   await alice.getByRole('button', { name: 'Done', exact: true }).click();
   const other = await browser.newContext();
   await other.addInitScript(() => {

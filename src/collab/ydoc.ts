@@ -32,6 +32,7 @@ import type {
   Relationship,
 } from '../model/types';
 import { emptyDocument } from '../model/types';
+import { normalizeDataType } from '../model/dataTypes';
 import { canConnect, findRelationshipSlot } from '../model/placement';
 import { deriveTables, type ColumnEndpoint } from '../model/crowfoot';
 
@@ -153,12 +154,17 @@ export function upsertEntity(ydoc: Y.Doc, entity: Entity): void {
 export function upsertAttribute(ydoc: Y.Doc, attribute: Attribute): void {
   const map = ydoc.getMap(ATTRIBUTES);
   const existing = map.get(attribute.id) as Y.Map<unknown> | undefined;
+  const { dataType: rawType, ...fields } = attribute;
+  const dataType = normalizeDataType(rawType);
   if (existing) {
-    setFields(existing, { ...attribute });
+    setFields(existing, fields);
+    if (dataType) existing.set('dataType', dataType);
+    else existing.delete('dataType');
     return;
   }
   const next = new Y.Map<unknown>();
-  setFields(next, { ...attribute });
+  setFields(next, fields);
+  if (dataType) next.set('dataType', dataType);
   map.set(attribute.id, next);
 }
 
@@ -330,6 +336,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
     const m = value as Y.Map<unknown>;
     const kind = readString(m, 'kind', 'simple');
     const kinds = ['simple', 'key', 'multivalued', 'derived', 'composite'] as const;
+    const dataType = normalizeDataType(m.get('dataType'));
     doc.attributes.push({
       id: key,
       name: readString(m, 'name', 'attribute'),
@@ -337,6 +344,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
       y: readNumber(m, 'y'),
       kind: kinds.find((k) => k === kind) ?? 'simple',
       ownerId: typeof m.get('ownerId') === 'string' ? (m.get('ownerId') as string) : null,
+      ...(dataType ? { dataType } : {}),
     });
   });
 

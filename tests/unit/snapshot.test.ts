@@ -7,6 +7,7 @@ import {
   newRoomId,
   normalizeDocument,
   parseShareHash,
+  ROOM_ID_LENGTH,
 } from '../../src/model/snapshot';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 
@@ -36,10 +37,57 @@ function richDocument(): ErdDocument {
 }
 
 describe('encodeSnapshot / decodeSnapshot', () => {
+  /** The schema 1 payload: the document as a plain JSON object. */
+  const legacyEncode = (doc: ErdDocument) =>
+    LZString.compressToEncodedURIComponent(JSON.stringify({ v: 1, d: doc }));
+
   it('round-trips a full document losslessly', () => {
     const doc = richDocument();
     const decoded = decodeSnapshot(encodeSnapshot(doc));
     expect(decoded).toEqual(doc);
+  });
+
+  it('round-trips the fields the row format adds columns for', () => {
+    // Data types, groups, and bound columns are the fields a positional
+    // encoding is most likely to drop, so they get their own document rather
+    // than riding along in `richDocument`.
+    const doc = richDocument();
+    doc.attributes[0]!.dataType = 'UUID';
+    doc.attributes[1]!.dataType = 'VARCHAR(255)';
+    doc.legs[0]!.columnId = 'attribute:a1';
+    doc.groups.push({ id: 'g1', name: 'Cohort', memberIds: ['e1', 'r1'] });
+    const decoded = decodeSnapshot(encodeSnapshot(doc));
+    expect(decoded).toEqual(doc);
+    expect(decoded!.legs[0]!.columnId).toBe('attribute:a1');
+    expect(decoded!.groups).toEqual([{ id: 'g1', name: 'Cohort', memberIds: ['e1', 'r1'] }]);
+  });
+
+  it('still reads a schema 1 link produced by an older build', () => {
+    // Schema 1 payloads are objects where schema 2 is an array. A link someone
+    // bookmarked has to keep opening after this ships.
+    const doc = richDocument();
+    doc.attributes[0]!.dataType = 'UUID';
+    expect(decodeSnapshot(legacyEncode(doc))).toEqual(doc);
+  });
+
+  it('is materially smaller than the schema 1 encoding it replaced', () => {
+    // The whole point of the row format. Without this, a change that quietly
+    // reverts to objects would pass every other test here.
+    const doc = emptyDocument('Warehouse');
+    for (let t = 0; t < 10; t += 1) {
+      doc.entities.push({ id: `e${t}`, name: `Table ${t}`, x: t * 420, y: 140, kind: 'strong' });
+      for (let a = 0; a < 8; a += 1) {
+        doc.attributes.push({
+          id: `a${t}_${a}`, name: `column_${a}`, kind: a === 0 ? 'key' : 'simple', ownerId: `e${t}`, x: 0, y: 0,
+        });
+      }
+    }
+    expect(encodeSnapshot(doc).length).toBeLessThan(legacyEncode(doc).length * 0.65);
+  });
+
+  it('rejects an unknown array schema rather than guessing at it', () => {
+    const future = LZString.compressToEncodedURIComponent(JSON.stringify([99, 'name', 'chen']));
+    expect(decodeSnapshot(future)).toBeNull();
   });
 
   it('round-trips an empty document', () => {
@@ -87,9 +135,12 @@ describe('encodeSnapshot / decodeSnapshot', () => {
 });
 
 describe('newRoomId', () => {
-  it('is 12 characters from an unambiguous alphabet', () => {
+  it('is eight characters from an unambiguous alphabet', () => {
+    // Pinned explicitly: this is the length of a share link, so changing it
+    // should be a decision rather than an accident.
+    expect(ROOM_ID_LENGTH).toBe(8);
     const id = newRoomId();
-    expect(id).toHaveLength(12);
+    expect(id).toHaveLength(ROOM_ID_LENGTH);
     // No l, o, 0, or 1 — easy to misread when typed from a screen.
     expect(id).not.toMatch(/[lo01]/);
   });
@@ -102,7 +153,7 @@ describe('newRoomId', () => {
     for (let i = 0; i < 60; i += 1) {
       const id = newRoomId(() => i / 60);
       seen.add(id[0]!);
-      expect(id).toHaveLength(12);
+      expect(id).toHaveLength(ROOM_ID_LENGTH);
       expect(id).not.toMatch(/[lo01]/);
       expect(id).toMatch(/^[a-z2-9]+$/);
     }
@@ -111,7 +162,7 @@ describe('newRoomId', () => {
   });
 
   it('is deterministic given a fixed random source', () => {
-    expect(newRoomId(() => 0)).toBe('aaaaaaaaaaaa');
+    expect(newRoomId(() => 0)).toBe('a'.repeat(ROOM_ID_LENGTH));
     expect(newRoomId(() => 0.999999)).toBe(newRoomId(() => 0.999999));
   });
 
@@ -122,6 +173,25 @@ describe('newRoomId', () => {
 });
 
 describe('buildShareUrl / parseShareHash', () => {
+  it('can build a short live room URL without embedding the document', () => {
+    const url = buildShareUrl('https://example.com/app/?old=test#old', richDocument(), 'abc234', false);
+    expect(url).toBe('https://example.com/app/#room=abc234');
+    expect(parseShareHash(new URL(url).hash)).toEqual({ room: 'abc234' });
+  });
+
+  it('preserves a custom signaling server in live and snapshot links', () => {
+    for (const includeSnapshot of [false, true]) {
+      const url = buildShareUrl('https://example.com/app/?signaling=ws%3A%2F%2Flocalhost%3A4444&old=1#stale', richDocument(), 'abc234', includeSnapshot);
+      expect(new URL(url).searchParams.get('signaling')).toBe('ws://localhost:4444');
+      expect(new URL(url).searchParams.has('old')).toBe(false);
+    }
+  });
+
+  it('keeps room identifiers URL-safe in short links', () => {
+    const url = buildShareUrl('https://example.com/', emptyDocument(), 'room&with space', false);
+    expect(parseShareHash(new URL(url).hash)).toEqual({ room: 'room&with space' });
+    expect(url).not.toContain('&d=');
+  });
   it('round-trips a room and document through a URL', () => {
     const doc = richDocument();
     const url = buildShareUrl('https://example.com/app/', doc, 'abc123xyz789');

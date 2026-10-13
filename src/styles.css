@@ -1350,6 +1350,8 @@ kbd { font: 13px var(--font-mono); }
 .connection-guidance { position: absolute; z-index: 10; top: 76px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: var(--s2); background: var(--paper-raised); border: 1px solid var(--rule); padding-left: var(--s3); white-space: nowrap; }
 .connection-guidance .btn { min-height: 44px; }
 .loading-editor { display: grid; place-content: center; height: 100dvh; }
+.snapshot-option { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.snapshot-option input { width: 18px; height: 18px; accent-color: var(--signal); }
 
 /* Panels open over the canvas at every size; closing them never shifts it. */
 @media (max-width: 1099px) {

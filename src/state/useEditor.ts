@@ -31,6 +31,7 @@ import { validParticipation } from '../model/issues';
 import { findAttributeSlot } from '../model/placement';
 import { emptyDocument, type ErdDocument } from '../model/types';
 import type { ColumnEndpoint } from '../model/crowfoot';
+import { normalizeDataType, type DataType } from '../model/dataTypes';
 
 export type Tool = 'select' | 'pan' | 'connect';
 
@@ -92,7 +93,7 @@ export interface EditorState {
   setDocName: (name: string) => void;
   setView: (view: 'chen' | 'crowfoot') => void;
   updateEntity: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
-  updateAttribute: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: string; ownerId: string | null }>) => void;
+  updateAttribute: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: string; ownerId: string | null; dataType: DataType }>) => void;
   updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
   updateLeg: (id: string, patch: Partial<{ cardinality: '1' | 'N' | 'M'; min: number; max: number | 'N' }>) => void;
   setParticipants: (relationshipId: string, participants: RelationshipParticipant[]) => void;
@@ -296,7 +297,13 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       mutate(() => {
         const map = room.ydoc.getMap('attributes').get(id) as Y.Map<unknown> | undefined;
         if (!map) return;
-        for (const [key, value] of Object.entries(patch)) map.set(key, value as never);
+        for (const [key, value] of Object.entries(patch)) {
+          if (key === 'dataType') {
+            const dataType = normalizeDataType(value);
+            if (dataType) map.set(key, dataType);
+            else map.delete(key);
+          } else map.set(key, value as never);
+        }
       }),
 
     updateRelationship: (id, patch) =>
@@ -481,12 +488,27 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
 
     replaceDocument: (next: ErdDocument) => {      mutate(() => {
         const { ydoc } = room;
-        for (const key of ['entities', 'attributes', 'relationships', 'isas', 'legs'] as const) {
+        // Groups are listed because importing now happens *in* the current room:
+        // leaving them behind would strand groups whose members are gone.
+        for (const key of ['entities', 'attributes', 'relationships', 'isas', 'legs', 'groups'] as const) {
           ydoc.getMap(key).clear();
         }
         seedDocument(ydoc, next);
         setMeta(ydoc, { name: next.name, view: next.view });
-      });
+        /*
+         * Adopt the file's notation. This is the only caller of
+         * `replaceDocument`, and it is *my* import, not a collaborator's edit —
+         * a collaborator changing the document never reaches this path, so
+         * their notation choice is still untouched. Import used to land in a
+         * fresh room, where the file's view won because no preference existed
+         * there yet; importing in place must not quietly keep showing the file
+         * in the wrong notation.
+         */
+        setLocalView(next.view);
+      // `separate` because an import is one deliberate, whole-document act: without
+      // it the 400ms capture window merges the import into whatever the person
+      // did just before, and a single Undo takes both away.
+      }, true);
     },
 
     applyPositions: (positions: Map<string, { x: number; y: number }>) => {

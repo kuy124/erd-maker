@@ -56,7 +56,9 @@ A weak entity’s partial key identifies it within its parent; SQL export combin
 
 Chen relationships use ERDPlus-style symbols at the entity endpoints: two bars for required one, a circle and bar for optional one, a bar and fork for required many, and a circle and fork for optional many. N and M both use the fork. Advanced numeric ranges remain visible beside the line. Click an endpoint symbol to edit its constraints.
 
-Crow’s-foot tables show source attributes as editable rows. **gen** identifies generated keys or foreign keys; an existing `id` attribute stays editable when its primary-key role is generated. Column types come from attribute names or referenced keys. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
+Crow’s-foot tables show source attributes as editable rows. **gen** identifies generated keys or foreign keys; an existing `id` attribute stays editable when its primary-key role is generated. Tables are as wide as their longest name or column, so nothing is truncated. Select an attribute and open Properties to choose its **Data type**. **Automatic** infers the type from its name. Foreign-key types follow the referenced field. Choices include integers, text, numeric, boolean, date/time, UUID, JSON, BLOB, VARCHAR(255), and DECIMAL(10,2); they persist through edits, collaboration, JSON, snapshot links, and SQL export. One-to-one relationships use bars; many ends use a fan; optional participation uses a circle.
+
+Where a Crow’s-foot table sits on screen is **yours alone**, stored per room in that browser. Two people reading one schema do not need the same picture of it, and a table that slid away under somebody else’s cursor while they were reading it would be worse than a diagram laid out differently in each browser. Everything on the table — names, keys, types, relationships — still syncs. Tidy rearranges only your own tables, and Chen positions are shared as before.
 
 Create relationships through Properties in either view. In Chen, you can also use Connect. Concepts absent from the table view, including specializations and attributes on relationships, remain in Diagram; selecting one switches your view to Chen.
 
@@ -64,11 +66,13 @@ Each collaborator chooses a notation independently. The choice is stored locally
 
 ## Documents and sharing
 
-New diagrams, examples, and imported JSON files open in separate rooms. Browser Back returns to the previous room and restores its saved work. An invalid import shows a recovery message and leaves the current room intact.
+New diagrams and examples open in separate rooms. Browser Back returns to the previous room and restores its saved work. Importing a JSON file replaces the diagram **in the room you are already in**, so anyone else in that room receives it too; Undo brings the previous diagram back in one step. An invalid import shows a recovery message and leaves the current room intact.
 
-A share link contains the room code and a compressed diagram snapshot, so it can open with nobody online. People with the link can edit the room. If copying is blocked, select the link and copy it manually.
+Share defaults to a short URL containing only the room code. Keep the diagram open until the other person joins; live peers send them the document. Someone who opens that link before you are online sees **Waiting for the diagram** and your room code rather than an empty canvas, so the difference between "not arrived yet" and "your link is broken" is obvious. Select **Include diagram snapshot** for a longer portable link that opens a copy even with nobody online. Snapshot links carry the diagram as compressed rows rather than objects, which is roughly 40% shorter than earlier links. People with either link can edit the room. If copying is blocked, select the link and copy it manually.
 
-Same-browser tabs sync over BroadcastChannel. Separate browsers use WebRTC; a signaling server introduces peers. Presence comes from connected peers and is shown separately from browser storage.
+Same-browser tabs sync over BroadcastChannel. Separate browsers use WebRTC; a signaling server introduces peers. Presence comes from connected peers and is shown separately from browser storage. Closing a tab announces the departure, so a collaborator's cursor and name disappear at once instead of lingering.
+
+**Keeping a copy.** Because there is no server, a diagram lives in the room it was made in and in this browser. **Save a copy** in the Share dialog writes it as a JSON file: it needs nobody online, it is not a link that a chat app can truncate, and whoever receives it opens it with Import. Ctrl+S and Export do the same thing. A short link plus someone staying online is the only way to collaborate live.
 
 The default signaling server is `wss://signaling.fly.dev`. Override it using `?signaling=`, `window.__ERD_SIGNALING__`, or `VITE_SIGNALING`. If the network blocks direct connections, the editor and snapshot links still work, but cross-device live edits will not arrive.
 
@@ -76,7 +80,7 @@ The default signaling server is `wss://signaling.fly.dev`. Override it using `?s
 
 Download SVG, PNG, JSON, or SQL. Image exports use the complete drawing bounds and remove selection, hover, connection, and presence overlays.
 
-SQL follows the existing textbook mapping: entities become tables, weak entities borrow their parent’s key, many-to-many relationships become junction tables, and one-to-many relationships add foreign keys. Selected connection attributes supply the actual foreign-key columns; explicit one-to-one connections also enforce uniqueness. SQL export explains when a chosen reference needs a single-column primary key, or an endpoint is no longer available. Foreign-key types follow the referenced key; other types are inferred from names. Custom database types and SQL/DBML import are outside this editor’s current scope.
+SQL follows the existing textbook mapping: entities become tables, weak entities borrow their parent’s key, many-to-many relationships become junction tables, and one-to-many relationships add foreign keys. Selected connection attributes supply the actual foreign-key columns; explicit one-to-one connections also enforce uniqueness. SQL export explains when a chosen reference needs a single-column primary key, or an endpoint is no longer available. Foreign-key types follow the referenced key; other types use the chosen Data type or infer it from the name. Arbitrary database types and SQL/DBML import are outside this editor’s current scope.
 
 ## Keyboard
 

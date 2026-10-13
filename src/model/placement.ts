@@ -13,7 +13,7 @@
  */
 
 import { NODE_SIZE, type ErdDocument } from './types';
-import { CROW_WIDTH, deriveTables, tableHeight } from './crowfoot';
+import { deriveTables, tableHeight } from './crowfoot';
 
 export interface Box {
   x: number;
@@ -76,7 +76,7 @@ export function findFreeSlot(
 /** Every shape currently on the canvas, as a box. */
 export function occupiedBoxes(doc: ErdDocument): Box[] {
   if (doc.view === 'crowfoot') {
-    return deriveTables(doc).map((table) => ({ x: table.x, y: table.y, w: CROW_WIDTH, h: tableHeight(table) }));
+    return deriveTables(doc).map((table) => ({ x: table.x, y: table.y, w: table.width, h: tableHeight(table) }));
   }
   return [
     ...doc.entities.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.entity })),

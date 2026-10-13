@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import { createExample } from '../../src/model/examples';
+import { ROOM_ID_LENGTH } from '../../src/model/snapshot';
 
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
@@ -56,11 +57,22 @@ test('selecting after naming a new shape preserves the canvas position', async (
   await page.getByLabel('Entity name').fill('Invoice');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
   const viewport = page.getByTestId('canvas').locator('[data-viewport]');
   const before = await viewport.getAttribute('transform');
   await page.getByTestId('canvas').getByRole('button', { name: 'Entity Customer', exact: true }).click();
   await expect(page.getByLabel('Entity name')).toHaveValue('Customer');
   await expect(viewport).toHaveAttribute('transform', before!);
+});
+
+test('opening Build with the keyboard enters the panel and closing returns focus', async ({ page }) => {
+  await openDiagram(page);
+  const build = page.getByRole('navigation', { name: 'Workspace panels' }).getByRole('button', { name: 'Build', exact: true });
+  await build.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('add-entity')).toBeFocused();
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await expect(build).toBeFocused();
 });
 
 test('the phone starter stays clear of the floating navigation', async ({ page }) => {
@@ -231,5 +243,5 @@ test('document actions remain reachable from the compact phone header', async ({
   await page.getByRole('button', { name: 'Diagram actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Share', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByLabel('Share link')).toHaveValue(/#room=/);
+  await expect(page.getByLabel('Share link')).toHaveValue(new RegExp('#room=[a-z2-9]{' + ROOM_ID_LENGTH + '}$'));
 });

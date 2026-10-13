@@ -1,4 +1,4 @@
-import { documentAction, inspectSelection } from './actions';
+import { documentAction, inspectSelection, snapshotShareLink } from './actions';
 import { expect, test, type Page } from '@playwright/test';
 import { Buffer } from 'node:buffer';
 import AxeBuilder from '@axe-core/playwright';
@@ -127,7 +127,7 @@ test('keyboard connection, cancellation, generated columns, and JSON/share resto
   await expect(page.getByLabel('Relationship name')).toBeFocused();
   await anchored(page, 'key:c', 'attribute:o2');
   await documentAction(page, 'Share');
-  const link = await page.getByLabel('Share link').inputValue();
+  const link = await snapshotShareLink(page);
   expect(parseShareHash(new URL(link).hash).doc?.legs.map((l) => l.columnId)).toEqual(['key:c', 'attribute:o2']);
   const offline = await browser.newContext();
   await offline.addInitScript(() => { (window as unknown as { __ERD_SIGNALING__: string[] }).__ERD_SIGNALING__ = []; });
@@ -182,7 +182,7 @@ test('identifying relationships keep the chosen weak-entity field as an editable
 test('collaborators share endpoints while retaining personal views and remote work during Undo', async ({ page: alice, browser }) => {
   await open(alice); await connect(alice); await alice.getByLabel('Relationship name').fill('places');
   await documentAction(alice, 'Share');
-  const link = await alice.getByLabel('Share link').inputValue();
+  const link = await snapshotShareLink(alice);
   await alice.getByRole('button', { name: 'Done', exact: true }).click();
   const other = await browser.newContext();
   await other.addInitScript(() => { (window as unknown as { __ERD_SIGNALING__: string[] }).__ERD_SIGNALING__ = ['ws://127.0.0.1:4444']; });
@@ -219,7 +219,7 @@ test.describe('phone attribute connections', () => {
     await page.locator('.feedback').getByRole('button', { name: 'Undo', exact: true }).tap();
     await anchored(page, 'attribute:c1', 'attribute:o3');
     await documentAction(page, 'Share');
-    expect(parseShareHash(new URL(await page.getByLabel('Share link').inputValue()).hash).doc?.legs.some((l) => l.columnId === 'attribute:o3')).toBe(true);
+    expect(parseShareHash(new URL(await snapshotShareLink(page)).hash).doc?.legs.some((l) => l.columnId === 'attribute:o3')).toBe(true);
     await page.getByRole('button', { name: 'Done', exact: true }).tap();
     expect((await json(page)).legs.find((l) => l.toId === 'o')).toMatchObject({ cardinality: 'M', columnId: 'attribute:o3' });
     expect((await exported(page, 'PNG')).byteLength).toBeGreaterThan(500);
