@@ -15,6 +15,7 @@ import LZString from 'lz-string';
 import { emptyDocument, ROUTE_SIDES, type ErdDocument, type RouteSide } from './types';
 import { normalizeDataType } from './dataTypes';
 import { normalizeAttributeOwners } from './attributes';
+import { normalizeRoutePoints } from './connectorRouting';
 
 export interface ShareLink {
   room: string;
@@ -64,7 +65,7 @@ function toRows(doc: ErdDocument): unknown[] {
     doc.view,
     entities.map((e) => [e.id, e.name, e.x, e.y, e.kind, e.crowX ?? '', e.crowY ?? '']),
     attributes.map((a) => [a.id, a.name, a.x, a.y, a.kind, a.ownerId, a.dataType ?? '']),
-    list(doc.relationships).map((r) => [r.id, r.name, r.x, r.y, r.kind, r.route ?? '', r.bendX ?? '', r.bendY ?? '']),
+    list(doc.relationships).map((r) => [r.id, r.name, r.x, r.y, r.kind, r.route ?? '', r.bendX ?? '', r.bendY ?? '', r.routePoints ?? '']),
     list(doc.isas).map((i) => [i.id, i.x, i.y, i.parentId, i.childIds]),
     list(doc.legs).map((l) => [
       l.id, l.fromId, l.toId, l.columnId ?? '', l.cardinality, l.participation.min, l.participation.max,
@@ -95,7 +96,8 @@ function fromRows(rows: unknown[]): unknown {
     relationships: rowsOf(relationships).map((r) => ({ id: r[0], name: r[1], x: r[2], y: r[3], kind: r[4],
       // Absent is automatic, so an older snapshot reads without the field.
       ...(r[5] ? { route: r[5] } : {}),
-      ...(typeof r[6] === 'number' && typeof r[7] === 'number' ? { bendX: r[6], bendY: r[7] } : {}) })),
+      ...(typeof r[6] === 'number' && typeof r[7] === 'number' ? { bendX: r[6], bendY: r[7] } : {}),
+      ...(normalizeRoutePoints(r[8]) ? { routePoints: normalizeRoutePoints(r[8]) } : {}) })),
     isas: rowsOf(isas).map((r) => ({ id: r[0], x: r[1], y: r[2], parentId: r[3], childIds: r[4] })),
     legs: rowsOf(legs).map((r) => ({
       id: r[0], fromId: r[1], toId: r[2], columnId: r[3], cardinality: r[4],
@@ -268,6 +270,7 @@ export function normalizeDocument(input: unknown): ErdDocument {
           ...(ROUTE_SIDES.includes(o.route as RouteSide) ? { route: o.route as RouteSide } : {}),
           ...(typeof o.bendX === 'number' && Number.isFinite(o.bendX) &&
             typeof o.bendY === 'number' && Number.isFinite(o.bendY) ? { bendX: o.bendX, bendY: o.bendY } : {}),
+          ...(normalizeRoutePoints(o.routePoints) ? { routePoints: normalizeRoutePoints(o.routePoints) } : {}),
         },
       ];
     }),

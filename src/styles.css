@@ -690,10 +690,26 @@ body {
 
 .crow-link__hit {
   stroke: transparent;
-  stroke-width: 16;
+  stroke-width: 24;
+  vector-effect: non-scaling-stroke;
   fill: none;
   pointer-events: stroke;
 }
+
+.crow-link:hover .crow-link__path {
+  stroke: var(--signal);
+}
+
+.crow-link__path { pointer-events: none; }
+/* Text over a short run must not block its double-arrow drag target. */
+.crow-link__ratio, .crow-link__label { pointer-events: none; }
+.crow-link__hit--horizontal { cursor: ns-resize; }
+.crow-link__hit--vertical { cursor: ew-resize; }
+.crow-link--dragging[data-drag-axis='horizontal'],
+.crow-link--dragging[data-drag-axis='horizontal'] * { cursor: ns-resize; }
+.crow-link--dragging[data-drag-axis='vertical'],
+.crow-link--dragging[data-drag-axis='vertical'] * { cursor: ew-resize; }
+.canvas-wrap[data-tool='pan'] .crow-link__hit { cursor: grab; }
 
 .crow-link__ratio {
   fill: var(--ink);

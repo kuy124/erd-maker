@@ -442,8 +442,8 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
                 type="button"
                 className="seg__btn"
                 data-testid={`rel-route-${side}`}
-                aria-pressed={relationship.bendX === undefined && (relationship.route ?? 'auto') === side}
-                onClick={() => state.updateRelationship(relationship.id, { route: side, bendX: undefined, bendY: undefined }, true)}
+                aria-pressed={relationship.bendX === undefined && !relationship.routePoints && (relationship.route ?? 'auto') === side}
+                onClick={() => state.updateRelationship(relationship.id, { route: side, bendX: undefined, bendY: undefined, routePoints: undefined }, true)}
               >
                 {label}
               </button>

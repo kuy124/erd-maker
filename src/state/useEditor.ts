@@ -33,6 +33,7 @@ import { emptyDocument, ROUTE_SIDES, type ErdDocument, type RouteSide } from '..
 import type { ColumnEndpoint } from '../model/crowfoot';
 import { normalizeDataType, type DataType } from '../model/dataTypes';
 import { canOwnAttribute } from '../model/attributes';
+import { normalizeRoutePoints, type RoutePoint } from '../model/connectorRouting';
 
 export type Tool = 'select' | 'pan' | 'connect';
 
@@ -97,7 +98,7 @@ export interface EditorState {
   setView: (view: 'chen' | 'crowfoot') => void;
   updateEntity: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
   updateAttribute: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: string; ownerId: string | null; dataType: DataType }>) => void;
-  updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak'; route: RouteSide; bendX: number | undefined; bendY: number | undefined }>, separateUndo?: boolean) => void;
+  updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak'; route: RouteSide; bendX: number | undefined; bendY: number | undefined; routePoints: RoutePoint[] | undefined }>, separateUndo?: boolean) => void;
   updateLeg: (id: string, patch: Partial<{ cardinality: '1' | 'N' | 'M'; min: number; max: number | 'N' }>) => void;
   setParticipants: (relationshipId: string, participants: RelationshipParticipant[]) => void;
   updateIsaParent: (id: string, parentId: string | null) => void;
@@ -338,6 +339,14 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
           // would leave the connector falling back to automatic anyway — but as
           // a stored value nobody can see or undo.
           if (key === 'route' && !ROUTE_SIDES.includes(value as RouteSide)) continue;
+          if (key === 'routePoints') {
+            if (value === undefined) map.delete(key);
+            else {
+              const points = normalizeRoutePoints(value);
+              if (points) map.set(key, points);
+            }
+            continue;
+          }
           // A corner is two finite numbers or nothing. `undefined` clears the
           // half, which is how dragging back to automatic works.
           if ((key === 'bendX' || key === 'bendY')) {

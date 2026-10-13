@@ -395,7 +395,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     if (view === 'crowfoot' && link) {
       const a = tables.find((item) => item.entityId === link.fromEntityId)!;
       const b = tables.find((item) => item.entityId === link.toEntityId)!;
-      point = routeColumns(a, link.fromColumnId, b, link.toColumnId, link.lane).label;
+      point = routeColumns(a, link.fromColumnId, b, link.toColumnId, link.lane, [], link.route, link.bend, link.routePoints).label;
     }
     if (point) requestAnimationFrame(() => {
       const area = canvasArea();
@@ -585,19 +585,19 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
          */
         ...(isCrowFoot && selectedRelationship ? [
           { label: 'Route line above', separated: true,
-            disabled: selectedRelationship.route === 'above' && selectedRelationship.bendX === undefined,
-            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'above', bendX: undefined, bendY: undefined }) },
+            disabled: selectedRelationship.route === 'above' && selectedRelationship.bendX === undefined && !selectedRelationship.routePoints,
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'above', bendX: undefined, bendY: undefined, routePoints: undefined }, true) },
           { label: 'Route line below',
-            disabled: selectedRelationship.route === 'below' && selectedRelationship.bendX === undefined,
-            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'below', bendX: undefined, bendY: undefined }) },
+            disabled: selectedRelationship.route === 'below' && selectedRelationship.bendX === undefined && !selectedRelationship.routePoints,
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'below', bendX: undefined, bendY: undefined, routePoints: undefined }, true) },
           { label: 'Route line automatically',
             disabled: (!selectedRelationship.route || selectedRelationship.route === 'auto') &&
-              selectedRelationship.bendX === undefined,
-            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'auto', bendX: undefined, bendY: undefined }) },
-          { label: 'Clear dragged corner',
-            disabled: selectedRelationship.bendX === undefined && selectedRelationship.bendY === undefined,
-            disabledReason: 'This line has no dragged corner.',
-            onSelect: () => state.updateRelationship(selectedRelationship.id, { bendX: undefined, bendY: undefined }) },
+              selectedRelationship.bendX === undefined && !selectedRelationship.routePoints,
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'auto', bendX: undefined, bendY: undefined, routePoints: undefined }, true) },
+          { label: 'Clear manual route',
+            disabled: selectedRelationship.bendX === undefined && selectedRelationship.bendY === undefined && !selectedRelationship.routePoints,
+            disabledReason: 'This line has no manual route.',
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { bendX: undefined, bendY: undefined, routePoints: undefined }, true) },
         ] : []),
         { label: selection.length > 1 ? `Delete ${selection.length} shapes` : 'Delete selection',
           tone: 'danger' as const, separated: true, shortcut: 'Delete',
