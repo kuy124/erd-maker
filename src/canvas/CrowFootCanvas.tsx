@@ -2,19 +2,13 @@
  * The crow's-foot canvas.
  *
  * A second renderer over the same document, not a second model. Entities become
- * tables with PK/FK rows; relationships become connectors whose foot is drawn
- * at the many end.
- *
- * The connector shapes are the part that has to be right: a crow's foot is
- * three short lines fanning out, a "one" end is a single perpendicular bar, and
- * a mandatory (min ≥ 1) end adds a second bar. Getting the geometry wrong here
- * is the difference between a diagram a database course accepts and one it does
- * not.
+ * tables with PK/FK rows; relationships use crow's-foot symbols and explicit
+ * ratios such as 1:N, 1:1, and N:M. Endpoint stubs stay protected during dragging.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { moveRouteSegment, type RoutePoint } from '../model/connectorRouting';
+import { ENDPOINT_STUB, isRouteSafe, moveRouteSegment, placeRouteCaption, type RoutePoint } from '../model/connectorRouting';
 import { useCanvasZoom } from './useCanvasZoom';
 import {
   CROW_HEADER_HEIGHT,
@@ -244,7 +238,6 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
       className="canvas-wrap"
       data-tool={tool}
       ref={containerRef}
-      onPointerDown={handleBackgroundPointerDown}
     >
       <svg
         ref={svgRef}
@@ -254,6 +247,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
         role="application"
         aria-label="Crow's-foot table diagram canvas"
         data-testid="canvas"
+        onPointerDown={handleBackgroundPointerDown}
         tabIndex={-1}
       >
         {/* `data-viewport` marks the pan and zoom group; the exporter resets it. */}
@@ -457,8 +451,7 @@ function shorten(value: string, length: number): string {
 }
 
 /**
- * Draws one relationship line between two tables, with a crow's foot at the
- * many end, a single bar at the one end, and the ratio written on the line.
+ * Draws one relationship line between two tables with its ratio written clearly.
  *
  * The connector is selectable so it can be deleted. A crow's-foot view where a
  * relationship can be created but never removed is a trap: the only way out is
@@ -499,6 +492,7 @@ function CrowConnector({
   const [previewPoints, setPreviewPoints] = useState<RoutePoint[] | null>(null);
   const [dragAxis, setDragAxis] = useState<'horizontal' | 'vertical' | null>(null);
   const [showCorner, setShowCorner] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const cancelDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelDrag.current?.(), []);
   useEffect(() => { if (!selected || tool !== 'select') cancelDrag.current?.(); }, [selected, tool]);
@@ -510,6 +504,11 @@ function CrowConnector({
     obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
       !(rect.minX === to.x && rect.minY === to.y)), link.route, preview ?? link.bend ?? null,
     previewPoints ?? link.routePoints);
+  const ratioWidth = link.ratio.length * 10 + 20;
+  const caption = placeRouteCaption(route, link.label, link.ratio);
+  const ratioLeft = caption.x - (caption.labelAnchor === 'start' ? 10 :
+    caption.labelAnchor === 'end' ? ratioWidth - 10 : ratioWidth / 2);
+  const stubs = { start: Math.abs(route.guard.aStub.x - route.a.x), end: Math.abs(route.guard.bStub.x - route.b.x) };
 
   /** Move a segment along its normal, or the optional keyboard-selected corner. */
   const startBendDrag = (event: React.PointerEvent, handle?: Point, segmentIndex?: number) => {
@@ -539,7 +538,10 @@ function CrowConnector({
       const now = toWorld(moveEvent.clientX, moveEvent.clientY);
       if (segmentIndex !== undefined) {
         const points = moveRouteSegment(route.points, segmentIndex,
-          axis === 'horizontal' ? now.y - start.y : now.x - start.x);
+          axis === 'horizontal' ? now.y - start.y : now.x - start.x, stubs);
+        const safe = isRouteSafe(points, route.guard);
+        setBlocked(!safe);
+        if (!safe) return;
         finalPoints = points.slice(1, -1);
         if (finalPoints.length === 1) {
           // Keep a single L-shaped corner valid in the saved interior-vertex format.
@@ -552,8 +554,11 @@ function CrowConnector({
         setDragAxis(axis);
         return;
       }
-      final = { x: Math.round(now.x + offset.x), y: Math.round(now.y + offset.y) };
-      setPreview(final);
+      const bend = { x: Math.round(now.x + offset.x), y: Math.round(now.y + offset.y) };
+      const candidate = routeColumns(from, link.fromColumnId, to, link.toColumnId, lane,
+        obstacles, link.route, bend);
+      setBlocked(!candidate.manualAccepted);
+      if (candidate.manualAccepted) { final = bend; setPreview(final); }
     };
     const cancel = () => {
       window.removeEventListener('pointermove', move);
@@ -564,6 +569,7 @@ function CrowConnector({
       setPreview(null);
       setPreviewPoints(null);
       setDragAxis(null);
+      setBlocked(false);
     };
     const up = (upEvent: PointerEvent) => {
       if (upEvent.pointerId !== pointerId) return;
@@ -583,7 +589,7 @@ function CrowConnector({
 
   return (
     <g
-      className={`crow-link${selected ? ' crow-link--selected' : ''}${preview || previewPoints ? ' crow-link--dragging' : ''}`}
+      className={`crow-link${selected ? ' crow-link--selected' : ''}${preview || previewPoints ? ' crow-link--dragging' : ''}${blocked ? ' crow-link--blocked' : ''}`}
       data-drag-axis={dragAxis ?? undefined}
       role="button"
       tabIndex={0}
@@ -606,33 +612,43 @@ function CrowConnector({
       }}
     >
       <title>Drag a segment with the double-arrow cursor to move it. Click to select.</title>
+      {/* Symbol stubs can select the relationship but cannot be dragged. */}
+      <path className="crow-link__hit" data-route-fixed="true"
+        d={`M${route.a.x} ${route.a.y} L${route.guard.aStub.x} ${route.guard.aStub.y}`} />
+      <path className="crow-link__hit" data-route-fixed="true"
+        d={`M${route.guard.bStub.x} ${route.guard.bStub.y} L${route.b.x} ${route.b.y}`} />
       {/* A wide transparent band makes the thin line easy to hit, the same as
           the relationship lines in the Chen view. */}
       {route.points.slice(1).map((point, index) => {
         const previous = route.points[index]!;
         const axis = previous.y === point.y ? 'horizontal' : 'vertical';
+        const start = index === 0 ? route.guard.aStub : previous;
+        const end = index === route.points.length - 2 ? route.guard.bStub : point;
+        const fixed = start.x === end.x && start.y === end.y;
         return <path key={index} className={`crow-link__hit crow-link__hit--${axis}`}
-          data-route-axis={axis} d={`M${previous.x} ${previous.y} L${point.x} ${point.y}`}
+          data-route-axis={axis} d={`M${start.x} ${start.y} L${end.x} ${end.y}`}
           onPointerDown={(event) => {
             if (event.button !== 0) return;
             event.stopPropagation();
             event.currentTarget.closest<SVGGElement>('.crow-link')?.focus({ preventScroll: true });
             setShowCorner(false);
             onSelect(event);
-            if (tool === 'select') startBendDrag(event, undefined, index);
+            if (tool === 'select' && !fixed) startBendDrag(event, undefined, index);
           }} />;
       })}
       <path className="leg crow-link__path" d={route.path} />
-      <CardinalityMarker origin={route.a} toward={route.aToward}
-        many={link.fromMany} required={link.fromMandatory} />
-      <CardinalityMarker origin={route.b} toward={route.bToward}
-        many={link.toMany} required={link.toMandatory} />
+      <CardinalityMarker origin={route.a} toward={route.aToward} many={link.fromMany} required={link.fromMandatory}
+        scale={Math.min(1, stubs.start / ENDPOINT_STUB)} />
+      <CardinalityMarker origin={route.b} toward={route.bToward} many={link.toMany} required={link.toMandatory}
+        scale={Math.min(1, stubs.end / ENDPOINT_STUB)} />
       {/* The ratio, stated rather than implied. */}
+      <rect className="crow-link__ratio-background" x={ratioLeft} y={caption.y - 14}
+        width={ratioWidth} height={28} rx={4} />
       <text
         className="crow-link__ratio"
-        x={route.label.x}
-        y={route.label.y}
-        textAnchor={route.labelAnchor}
+        x={caption.x}
+        y={caption.y}
+        textAnchor={caption.labelAnchor}
         dominantBaseline="middle"
       >
         {link.ratio}
@@ -640,22 +656,16 @@ function CrowConnector({
       {link.label ? (
         <text
           className="crow-link__label"
-          x={route.label.x}
-          y={route.label.y - 16}
-          textAnchor={route.labelAnchor}
+          x={caption.x}
+          y={caption.y - 25}
+          textAnchor={caption.labelAnchor}
           dominantBaseline="middle"
         >
           {shorten(link.label, 24)}
         </text>
       ) : null}
       {/*
-        The corner, drawn last so it is on top.
-
-        It has to be: the ratio label sits at the corner and is itself
-        clickable, so a handle painted underneath it could never be grabbed —
-        the drag went to the text every time. Painting last keeps the label
-        selectable everywhere else while the corner takes the pointer where the
-        two overlap, which is exactly where a hand goes for it.
+        The optional keyboard-selected corner is above the tables and captions.
       */}
       {selected && showCorner && !link.routePoints && !previewPoints && onBendChange && handleLayer ? createPortal(
         <>

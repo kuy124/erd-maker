@@ -440,7 +440,6 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       className="canvas-wrap"
       data-tool={tool}
       ref={containerRef}
-      onPointerDown={handleBackgroundPointerDown}
       onPointerMove={handlePointerMove}
     >
       <svg
@@ -451,6 +450,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
         role="application"
         aria-label="Entity relationship diagram canvas"
         data-testid="canvas"
+        onPointerDown={handleBackgroundPointerDown}
         // Focusable so clicking the diagram can hand the keyboard back to it.
         // See `focusCanvas`.
         tabIndex={-1}

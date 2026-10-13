@@ -1,4 +1,23 @@
 export interface RoutePoint { x: number; y: number }
+export const ENDPOINT_STUB = 36;
+export interface RouteGuard {
+  a: RoutePoint; b: RoutePoint; aStub: RoutePoint; bStub: RoutePoint;
+  obstacles: Array<{ minX: number; minY: number; maxX: number; maxY: number }>;
+}
+type RouteBox = RouteGuard['obstacles'][number];
+
+function crossesBox(p: RoutePoint, q: RoutePoint, rect: RouteBox): boolean {
+  return Math.max(p.x, q.x) > rect.minX + 1 && Math.min(p.x, q.x) < rect.maxX - 1 &&
+    Math.max(p.y, q.y) > rect.minY + 1 && Math.min(p.y, q.y) < rect.maxY - 1;
+}
+
+function symbolBoxes({ a, b, aStub, bStub }: RouteGuard): RouteBox[] {
+  return [[a, aStub], [b, bStub]].map(([port, stub]) => {
+    const height = 12 * Math.min(1, Math.abs(stub!.x - port!.x) / ENDPOINT_STUB);
+    return { minX: Math.min(port!.x, stub!.x), maxX: Math.max(port!.x, stub!.x),
+      minY: port!.y - height, maxY: port!.y + height };
+  });
+}
 
 /** A saved route consists of finite, orthogonal interior vertices. */
 export function normalizeRoutePoints(value: unknown): RoutePoint[] | undefined {
@@ -36,17 +55,32 @@ export function simplifyRoute(points: RoutePoint[]): RoutePoint[] {
 }
 
 /** Move the grabbed segment along its normal, keeping the two ports fixed. */
-export function moveRouteSegment(points: RoutePoint[], index: number, delta: number): RoutePoint[] {
+export function moveRouteSegment(points: RoutePoint[], index: number, delta: number,
+  stubs?: { start: number; end: number }): RoutePoint[] {
   const a = points[index], b = points[index + 1];
   if (!a || !b || !Number.isFinite(delta)) return points;
   const horizontal = a.y === b.y;
   const first = index === 0, last = index + 1 === points.length - 1;
-  const movedA = horizontal ? { x: a.x, y: Math.round(a.y + delta) } : { x: Math.round(a.x + delta), y: a.y };
+  const start = points[0]!, end = points.at(-1)!;
+  const startDirection = Math.sign(points[1]!.x - start.x) || 1;
+  const endDirection = Math.sign(points.at(-2)!.x - end.x) || -1;
+  const startLength = stubs?.start ?? Math.min(ENDPOINT_STUB, Math.abs(points[1]!.x - start.x));
+  const endLength = stubs?.end ?? Math.min(ENDPOINT_STUB, Math.abs(points.at(-2)!.x - end.x));
+  let x = Math.round(a.x + delta);
+  if (!horizontal && index === 1) {
+    const limit = start.x + startDirection * startLength;
+    x = startDirection > 0 ? Math.max(x, limit) : Math.min(x, limit);
+  }
+  if (!horizontal && index === points.length - 3) {
+    const limit = end.x + endDirection * endLength;
+    x = endDirection > 0 ? Math.max(x, limit) : Math.min(x, limit);
+  }
+  const movedA = horizontal ? { x: a.x, y: Math.round(a.y + delta) } : { x, y: a.y };
   const movedB = horizontal ? { x: b.x, y: movedA.y } : { x: movedA.x, y: b.y };
   // A dragged outer run acquires a short horizontal stub at its anchored port.
   const direction = Math.sign(b.x - a.x) || 1;
-  if (horizontal && first) movedA.x = a.x + direction * Math.min(36, Math.abs(b.x - a.x) / 3);
-  if (horizontal && last) movedB.x = b.x - direction * Math.min(36, Math.abs(b.x - a.x) / 3);
+  if (horizontal && first) movedA.x = a.x + direction * startLength;
+  if (horizontal && last) movedB.x = b.x - direction * endLength;
   return simplifyRoute([
     ...points.slice(0, index + 1),
     ...(horizontal && first ? [{ x: movedA.x, y: a.y }] : []),
@@ -54,4 +88,114 @@ export function moveRouteSegment(points: RoutePoint[], index: number, delta: num
     ...(horizontal && last ? [{ x: movedB.x, y: b.y }] : []),
     ...points.slice(index + 1),
   ]);
+}
+
+/** A manual edit must leave symbols outside tables and cannot cross or double back. */
+export function isRouteSafe(points: RoutePoint[], guard: RouteGuard): boolean {
+  if (points.length < 2 || points.length > 130) return false;
+  const { a, b, aStub, bStub, obstacles } = guard;
+  const symbols = symbolBoxes(guard);
+  if (symbols.some(symbol => obstacles.some(rect => symbol.maxX > rect.minX && symbol.minX < rect.maxX &&
+    symbol.maxY > rect.minY && symbol.minY < rect.maxY))) return false;
+  const first = points[0]!, next = points[1]!, last = points.at(-1)!, previous = points.at(-2)!;
+  if (first.x !== a.x || first.y !== a.y || last.x !== b.x || last.y !== b.y ||
+    next.y !== a.y || previous.y !== b.y ||
+    (next.x - a.x) * Math.sign(aStub.x - a.x) < Math.abs(aStub.x - a.x) ||
+    (previous.x - b.x) * Math.sign(bStub.x - b.x) < Math.abs(bStub.x - b.x)) return false;
+  for (let i = 1; i < points.length; i++) {
+    const p = points[i - 1]!, q = points[i]!;
+    if (![p.x, p.y, q.x, q.y].every(Number.isFinite) ||
+      (p.x !== q.x && p.y !== q.y) || (p.x === q.x && p.y === q.y)) return false;
+    if (obstacles.some(rect => crossesBox(p, q, rect)) ||
+      (i !== 1 && crossesBox(p, q, symbols[0]!)) ||
+      (i !== points.length - 1 && crossesBox(p, q, symbols[1]!))) return false;
+    for (let j = i + 2; j < points.length; j++) {
+      const r = points[j - 1]!, s = points[j]!;
+      if (p.y === q.y && r.y === s.y) {
+        if (p.y === r.y && Math.max(Math.min(p.x, q.x), Math.min(r.x, s.x)) <=
+          Math.min(Math.max(p.x, q.x), Math.max(r.x, s.x))) return false;
+      } else if (p.x === q.x && r.x === s.x) {
+        if (p.x === r.x && Math.max(Math.min(p.y, q.y), Math.min(r.y, s.y)) <=
+          Math.min(Math.max(p.y, q.y), Math.max(r.y, s.y))) return false;
+      } else {
+        const h1 = p.y === q.y ? p : r, h2 = p.y === q.y ? q : s;
+        const v1 = p.y === q.y ? r : p, v2 = p.y === q.y ? s : q;
+        if (v1.x >= Math.min(h1.x, h2.x) && v1.x <= Math.max(h1.x, h2.x) &&
+          h1.y >= Math.min(v1.y, v2.y) && h1.y <= Math.max(v1.y, v2.y)) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/** Used only when the simple detour is blocked: join visible box corners by clear L-shaped runs. */
+export function findSafeRoute(guard: RouteGuard): RoutePoint[] | null {
+  const boxes = [...guard.obstacles, ...symbolBoxes(guard)];
+  const nodes: RoutePoint[] = [guard.aStub, guard.bStub];
+  for (const box of boxes) {
+    for (const x of [box.minX - 1, box.maxX + 1]) for (const y of [box.minY - 1, box.maxY + 1]) {
+      if (!boxes.some(rect => x > rect.minX + 1 && x < rect.maxX - 1 && y > rect.minY + 1 && y < rect.maxY - 1) &&
+        !nodes.some(point => point.x === x && point.y === y)) nodes.push({ x, y });
+    }
+  }
+  const distances = nodes.map(() => Infinity), visited = new Set<number>();
+  const parents: Array<{ from: number; bend: RoutePoint } | undefined> = [];
+  distances[0] = 0;
+  for (let step = 0; step < nodes.length; step++) {
+    let current = -1;
+    for (let i = 0; i < nodes.length; i++) if (!visited.has(i) && Number.isFinite(distances[i]) &&
+      (current < 0 || distances[i]! < distances[current]!)) current = i;
+    if (current < 0) return null;
+    if (current === 1) {
+      const path: RoutePoint[] = [guard.bStub];
+      for (let at = 1; at !== 0;) {
+        const parent = parents[at]!;
+        path.unshift(nodes[parent.from]!, parent.bend); at = parent.from;
+      }
+      const points = simplifyRoute([guard.a, ...path, guard.b]);
+      return isRouteSafe(points, guard) ? points : null;
+    }
+    visited.add(current);
+    const from = nodes[current]!;
+    for (let next = 0; next < nodes.length; next++) {
+      if (visited.has(next) || next === current) continue;
+      const to = nodes[next]!;
+      const bend = [{ x: to.x, y: from.y }, { x: from.x, y: to.y }].find(corner =>
+        boxes.every(box => !crossesBox(from, corner, box) && !crossesBox(corner, to, box)));
+      if (!bend) continue;
+      const turns = from.x !== to.x && from.y !== to.y ? 8 : 0;
+      const distance = distances[current]! + Math.abs(from.x - to.x) + Math.abs(from.y - to.y) + turns;
+      if (distance < distances[next]!) { distances[next] = distance; parents[next] = { from: current, bend }; }
+    }
+  }
+  return null;
+}
+
+/** Keep captions readable when a dragged corner approaches a table or endpoint symbol. */
+export function placeRouteCaption(route: {
+  points: RoutePoint[]; label: RoutePoint; labelAnchor: 'start' | 'middle' | 'end'; guard: RouteGuard;
+}, name: string, ratio: string) {
+  // Allow for wide uppercase glyphs in the 13px relationship name.
+  const width = Math.max(Math.min(name.length, 24) * 14, ratio.length * 10) + 20;
+  const boxes = [...route.guard.obstacles, ...symbolBoxes(route.guard)];
+  const at = (x: number, y: number, labelAnchor: 'start' | 'middle' | 'end') => {
+    const left = x - (labelAnchor === 'start' ? 10 : labelAnchor === 'end' ? width - 10 : width / 2);
+    return { x, y, labelAnchor, bounds: { minX: left, maxX: left + width, minY: y - 35, maxY: y + 14 } };
+  };
+  const clear = (caption: ReturnType<typeof at>) => boxes.every(box =>
+    caption.bounds.maxX <= box.minX || caption.bounds.minX >= box.maxX ||
+    caption.bounds.maxY <= box.minY || caption.bounds.minY >= box.maxY);
+  const preferred = at(route.label.x, route.label.y, route.labelAnchor);
+  if (clear(preferred)) return preferred;
+  const segments = route.points.slice(1).map((end, i) => ({ start: route.points[i]!, end }))
+    .sort((a, b) => (Math.abs(b.end.x - b.start.x) + Math.abs(b.end.y - b.start.y)) -
+      (Math.abs(a.end.x - a.start.x) + Math.abs(a.end.y - a.start.y)));
+  for (const { start, end } of segments) {
+    const x = (start.x + end.x) / 2, y = (start.y + end.y) / 2;
+    const candidates = start.y === end.y ? [at(x, y - 20, 'middle'), at(x, y + 40, 'middle')] :
+      [at(x + width / 2 + 12, y, 'middle'), at(x - width / 2 - 12, y, 'middle')];
+    const candidate = candidates.find(clear);
+    if (candidate) return candidate;
+  }
+  return at(route.label.x, Math.min(route.label.y, ...boxes.map(box => box.minY)) - 50, 'middle');
 }

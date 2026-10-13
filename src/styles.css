@@ -686,6 +686,7 @@ body {
 
 .crow-link {
   cursor: pointer;
+  outline: none;
 }
 
 .crow-link__hit {
@@ -702,24 +703,28 @@ body {
 
 .crow-link__path { pointer-events: none; }
 /* Text over a short run must not block its double-arrow drag target. */
-.crow-link__ratio, .crow-link__label { pointer-events: none; }
+.crow-link__ratio, .crow-link__label, .crow-link__ratio-background { pointer-events: none; }
 .crow-link__hit--horizontal { cursor: ns-resize; }
 .crow-link__hit--vertical { cursor: ew-resize; }
 .crow-link--dragging[data-drag-axis='horizontal'],
 .crow-link--dragging[data-drag-axis='horizontal'] * { cursor: ns-resize; }
 .crow-link--dragging[data-drag-axis='vertical'],
 .crow-link--dragging[data-drag-axis='vertical'] * { cursor: ew-resize; }
+.crow-link--blocked, .crow-link--blocked * { cursor: not-allowed !important; }
 .canvas-wrap[data-tool='pan'] .crow-link__hit { cursor: grab; }
 
 .crow-link__ratio {
   fill: var(--ink);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
-  paint-order: stroke;
-  stroke: var(--paper);
-  stroke-width: 4px;
-  stroke-linejoin: round;
+  stroke: none;
+}
+
+.crow-link__ratio-background {
+  fill: var(--paper);
+  stroke: var(--rule-strong);
+  stroke-width: 1;
 }
 
 .crow-link__label {
@@ -740,6 +745,8 @@ body {
 .crow-link--selected .crow-link__ratio {
   fill: var(--signal-strong);
 }
+
+.crow-link--selected .crow-link__ratio-background { stroke: var(--signal); }
 
 /* An invisible, wider band over each relationship line so the thin stroke is
    still easy to click. It must not appear in exports. */
