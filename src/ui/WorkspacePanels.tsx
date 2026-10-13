@@ -5,6 +5,7 @@ import { getDiagramIssues } from '../model/issues';
 import type { ErdDocument } from '../model/types';
 import type { EditorState } from '../state/useEditor';
 import { Modal } from './Modals';
+import { applyTheme, savedTheme, THEMES, type ThemeId } from './theme';
 
 export function DiagramOutline({ state, onSelect }: { state: EditorState; onSelect: (id: string) => void }) {
   const [search, setSearch] = useState('');
@@ -56,6 +57,39 @@ export function DiagramOutline({ state, onSelect }: { state: EditorState; onSele
   );
 }
 
+/**
+ * Theme choice.
+ *
+ * A radio group rather than a menu of buttons: these are exclusive options, and
+ * arrow-key navigation plus a single announced state comes free with a radiogroup
+ * that a row of toggles would have to be taught.
+ */
+function ThemePicker() {
+  const [theme, setTheme] = useState<ThemeId>(savedTheme);
+  const choose = (next: ThemeId) => {
+    setTheme(next);
+    applyTheme(next);
+  };
+  return (
+    <fieldset className="theme-picker">
+      <legend className="panel__title">Theme</legend>
+      <div role="radiogroup" aria-label="Theme" className="theme-picker__options">
+        {THEMES.map((option) => (
+          <button key={option.id} type="button" role="radio" aria-checked={theme === option.id}
+            className="theme-swatch" data-theme={option.id === 'system' ? undefined : option.id}
+            onClick={() => choose(option.id)}>
+            <span className="theme-swatch__chip" aria-hidden="true" />
+            <span className="theme-swatch__text">
+              <strong>{option.name}</strong>
+              <span>{option.note}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
 export function HelpPanel() {
   return (
     <section className="help-panel" aria-label="Modeling guide">
@@ -93,6 +127,7 @@ export function HelpPanel() {
         ))}
       </div>
       <p>The endpoint beside an entity describes that entity. Click its symbols to edit. N and M use a fork; advanced numeric limits are written beside the line.</p>
+      <ThemePicker />
       <p>Connect two entities to create a relationship diamond automatically. Connect an entity to an existing diamond to add a participant.</p>
       <h3>Chen and crow’s-foot</h3>
       <p>In crow’s-foot view, choose Connect (C) and click or tap two attribute rows, or drag from one row to another. A relationship is created with its endpoints on those rows. Use its Connection attribute selectors to change either end; Automatic follows the inferred key and foreign key.</p>

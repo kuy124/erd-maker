@@ -29,8 +29,14 @@ export interface CrowTable {
 const CHAR_SANS = 7.0;
 const CHAR_SANS_BOLD = 7.4;
 const CHAR_MONO = 8.0;
-/** Left edge of a row's name; the type is anchored to the right edge. */
-export const CROW_NAME_X = 46;
+/**
+ * Left edge of a row's name.
+ *
+ * Clear of the PK/FK badge on one line. This was 46 when a generated key also
+ * drew "gen" underneath, which pushed every name right for the sake of a marker
+ * that has since gone.
+ */
+export const CROW_NAME_X = 34;
 /** Gap between the longest text and the table border, each side. */
 const CROW_GUTTER = 12;
 
@@ -183,12 +189,17 @@ export function withCrowLayout(doc: ErdDocument, layout: CrowLayout | null): Erd
 /**
  * Every entity's editable columns, plus foreign keys inferred from its relationships.
  *
- * Positions come from whichever document is passed in, so the same function
- * serves the shared Chen layout and this browser's Crow's-foot one.
+ * A table sits at the entity's Crow's-foot position, which is stored apart from
+ * its Chen position and shared like everything else. An entity with no
+ * Crow's-foot position yet falls back to Chen's, which is only ever what a person
+ * sees for the instant before this browser has arranged it — the view then
+ * places it from the schema and writes that back, so the two arrangements stop
+ * being related at all.
  */
 export function deriveTables(doc: ErdDocument): CrowTable[] {
   const tables = doc.entities.map((entity) => ({ entityId: entity.id, name: entity.name,
-    x: entity.x, y: entity.y, weak: entity.kind === 'weak', width: CROW_WIDTH, rows: baseRows(doc, entity) }));
+    x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y,
+    weak: entity.kind === 'weak', width: CROW_WIDTH, rows: baseRows(doc, entity) }));
   const byId = new Map(tables.map((t) => [t.entityId, t]));
   // Inherited keys must exist before another table can reference the weak entity.
   for (const rel of [...doc.relationships].sort((a, b) => Number(b.kind === 'weak') - Number(a.kind === 'weak'))) {

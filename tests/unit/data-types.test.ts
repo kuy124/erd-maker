@@ -3,6 +3,9 @@ import * as Y from 'yjs';
 import { deriveTables } from '../../src/model/crowfoot';
 import { generateSql } from '../../src/model/sql';
 import { decodeSnapshot, encodeSnapshot, normalizeDocument } from '../../src/model/snapshot';
+import {
+  BASE_TYPES, makeDataType, normalizeDataType, splitDataType,
+} from '../../src/model/dataTypes';
 import { emptyDocument } from '../../src/model/types';
 import { ATTRIBUTES, seedDocument, snapshotFromYdoc, upsertAttribute } from '../../src/collab/ydoc';
 
@@ -43,6 +46,55 @@ function keyChain(length = 4) {
   }
   return doc;
 }
+
+describe('parameterised types', () => {
+  it('builds a type from a base and its numbers', () => {
+    expect(makeDataType('VARCHAR', [64])).toBe('VARCHAR(64)');
+    expect(makeDataType('CHAR', [2])).toBe('CHAR(2)');
+    expect(makeDataType('DECIMAL', [12, 4])).toBe('DECIMAL(12,4)');
+    expect(makeDataType('NUMERIC', [8, 0])).toBe('NUMERIC(8,0)');
+    // A base with no numbers takes none.
+    expect(makeDataType('INT')).toBe('INT');
+    expect(makeDataType('INT', [4])).toBeUndefined();
+  });
+
+  it('gives a bare parameterised base its usual default', () => {
+    expect(normalizeDataType('VARCHAR')).toBe('VARCHAR(255)');
+    expect(normalizeDataType('DECIMAL')).toBe('DECIMAL(10,2)');
+    // Lowercase and padding are the same type, not a different one.
+    expect(normalizeDataType('  varchar ( 64 )  ')).toBe('VARCHAR(64)');
+    expect(normalizeDataType('decimal(12, 4)')).toBe('DECIMAL(12,4)');
+  });
+
+  it('rejects a malformed number rather than repairing it into something plausible', () => {
+    // This is the point of parsing instead of passing through: a link carrying
+    // `VARCHAR(0)` must not become a column definition nobody chose.
+    for (const bad of ['VARCHAR(0)', 'VARCHAR(-1)', 'VARCHAR(abc)', 'VARCHAR()',
+      'VARCHAR(999999999)', 'DECIMAL(4,9)', 'DECIMAL(10,999999)', 'INT(4)', 'TEXT(4)']) {
+      expect(normalizeDataType(bad), bad).toBeUndefined();
+    }
+  });
+
+  it('rejects anything that is not a type at all', () => {
+    for (const bad of ['DROP TABLE users', 'VARCHAR; --', '', '   ', 42, null, undefined, {}]) {
+      expect(normalizeDataType(bad as unknown)).toBeUndefined();
+    }
+  });
+
+  it('reads a type back into the parts the form edits', () => {
+    expect(splitDataType('VARCHAR(64)')).toEqual({ base: 'VARCHAR', args: [64] });
+    expect(splitDataType('DECIMAL(12,4)')).toEqual({ base: 'DECIMAL', args: [12, 4] });
+    expect(splitDataType('UUID')).toEqual({ base: 'UUID', args: [] });
+    // Nothing chosen reads as TEXT with no arguments, not as a broken type.
+    expect(splitDataType(undefined)).toEqual({ base: 'TEXT', args: [] });
+  });
+
+  it('accepts the whole base list it offers', () => {
+    for (const base of BASE_TYPES) {
+      expect(normalizeDataType(base), base).toBeDefined();
+    }
+  });
+});
 
 describe('editable data types', () => {
   it('overrides inferred table types and exports the chosen parameterized SQL types', () => {

@@ -33,8 +33,23 @@ export interface Participation {
 export interface Entity {
   id: string;
   name: string;
+  /** Position in Chen. Shared with collaborators, and used by nothing else. */
   x: number;
   y: number;
+  /**
+   * Position in Crow's-foot, stored separately and shared separately.
+   *
+   * Arranging one notation must not rearrange the other, so this cannot be `x`
+   * and `y`. It is shared like everything else: two people reading one schema
+   * are looking at the same tables, and a table that slid away under a
+   * collaborator's cursor is the thing this separates *from* the Chen layout,
+   * not from each other.
+   *
+   * Absent until this browser has placed the table, at which point the Crow's-foot
+   * view arranges it from the schema rather than inheriting Chen's coordinates.
+   */
+  crowX?: number;
+  crowY?: number;
   kind: EntityKind;
 }
 

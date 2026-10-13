@@ -7,11 +7,11 @@ import { documentAction, importDocument, inspectSelection, shape, signalingConte
  *
  * Two rules, both easy to state and easy to break by accident:
  *
- *   1. The schema is shared. Attributes, keys, types, relationships, renames —
- *      everything a collaborator does arrives here.
- *   2. The arrangement is not. Where a table sits is a local reading, kept in
- *      this browser, and it is kept apart from the Chen positions so arranging
- *      one notation never rearranges the other.
+ *   1. Placement syncs. Two people in one room are looking at the same tables,
+ *      so a table moved here moves for everybody.
+ *   2. Placement is separate from Chen. It is stored in its own fields, so
+ *      tidying one notation never rearranges the other, and Chen's arrangement
+ *      never becomes Crow's-foot's.
  *
  * Everything is measured in SVG user units, not screen pixels: each browser has
  * its own zoom and pan, so a screen coordinate compares nothing.
@@ -44,6 +44,12 @@ async function tableWidth(page: Page, name: string): Promise<number> {
   return Number(await table(page, name).locator('.node__body').getAttribute('width'));
 }
 
+/** The same, for a Chen shape, read from the transform it renders at. */
+async function nodeX(page: Page, name: string): Promise<number> {
+  const transform = await shape(page, name).getAttribute('transform');
+  return Number(/translate\(([-\d.]+)/.exec(transform ?? '')?.[1] ?? NaN);
+}
+
 /** Presses a table header and drags it, the only way a table is moved. */
 async function dragTable(page: Page, name: string, dx: number, dy: number) {
   const box = (await table(page, name).locator('.crow-row__hit').first().boundingBox())!;
@@ -65,7 +71,7 @@ async function switchNotation(page: Page) {
 test.describe('crow tables', () => {
   test.describe.configure({ timeout: 120_000 });
 
-  test('a table moved here does not move for anyone else, and attributes still sync', async ({ browser }) => {
+  test('a table moved here moves for everybody, and content syncs', async ({ browser }) => {
     const owner = await signalingContext(browser);
     const other = await signalingContext(browser);
     const alice = await owner.newPage();
@@ -93,30 +99,28 @@ test.describe('crow tables', () => {
 
       await dragTable(alice, 'Customer', 300, 0);
 
-      // The table moved here. Measured against the position it started from, not
-      // a hard-coded distance: the drag is in screen pixels and the canvas is
-      // zoomed, so the world distance is whatever the zoom makes it.
+      // The table moved here...
       expect(await tableX(alice, 'Customer')).toBeGreaterThan(aliceBefore + 200);
-      // ...and not in the other browser. Placement is a local reading; without
-      // this rule a table slides out from under somebody who is reading it.
-      await bob.waitForTimeout(1500);
-      expect(await tableX(bob, 'Customer')).toBe(bobBefore);
+      // ...and in the other browser, because both people are looking at the same
+      // tables. This is the rule that is easy to get backwards: keeping the
+      // arrangement private was what made the room read as out of sync.
+      await expect.poll(async () => tableX(bob, 'Customer'), { timeout: 30_000 })
+        .toBeGreaterThan(bobBefore + 200);
+      expect(await tableX(bob, 'Customer')).toBe(await tableX(alice, 'Customer'));
 
-      // Content still syncs, which is the whole point of drawing that line.
+      // Content keeps syncing too.
       await alice.locator('[data-column-id="attribute:note"]').click();
       await inspectSelection(alice);
       await alice.getByLabel('Attribute name').fill('billing_memo');
       await expect(bob.locator('[data-column-id="attribute:note"]'))
         .toHaveAccessibleName('Edit attribute billing_memo');
-      // And the position this browser chose survived the remote edit.
-      expect(await tableX(bob, 'Customer')).toBe(bobBefore);
     } finally {
       await owner.close();
       await other.close();
     }
   });
 
-  test('a table a collaborator adds arrives here without disturbing this arrangement', async ({ browser }) => {
+  test('a table and its entity sit at different places, and both are shared', async ({ browser }) => {
     const owner = await signalingContext(browser);
     const other = await signalingContext(browser);
     const alice = await owner.newPage();
@@ -132,20 +136,31 @@ test.describe('crow tables', () => {
       await bob.goto(link);
       await bob.getByRole('button', { name: "Crow's-foot", exact: true }).click();
       await expect(table(bob, 'Customer')).toBeVisible();
-      const before = await tableX(bob, 'Customer');
 
-      // Alice adds a third table on her side.
-      const wider = schema();
-      wider.entities = [...wider.entities, { id: 'l', name: 'Ledger', kind: 'strong', x: 1400, y: 620 }];
-      wider.attributes = [...wider.attributes, { id: 'lid', name: 'ledger_id', kind: 'key', ownerId: 'l', x: 0, y: 0 }];
-      await alice.locator('input[type=file]').setInputFiles({
-        name: 'ledger.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(wider)),
-      });
+      // Alice arranges the table.
+      await dragTable(alice, 'Customer', 240, 0);
+      const crowX = await tableX(alice, 'Customer');
 
-      // Bob gets the new table, and his existing one has not moved: a shape
-      // arriving is not a reason to rearrange the picture around it.
-      await expect(table(bob, 'Ledger')).toBeVisible({ timeout: 30_000 });
-      expect(await tableX(bob, 'Customer')).toBe(before);
+      // Then arranges the very same entity, in Chen, somewhere else entirely.
+      await alice.getByRole('button', { name: 'Chen', exact: true }).click();
+      await expect(shape(alice, 'Entity Customer')).toBeVisible();
+      const entityBox = (await shape(alice, 'Entity Customer').boundingBox())!;
+      await alice.mouse.move(entityBox.x + entityBox.width / 2, entityBox.y + entityBox.height / 2);
+      await alice.mouse.down();
+      await alice.mouse.move(entityBox.x + entityBox.width / 2 - 120, entityBox.y + 200, { steps: 8 });
+      await alice.mouse.up();
+
+      // Two different numbers for one entity, and Bob has both.
+      await bob.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+      await expect(table(bob, 'Customer')).toBeVisible();
+      await expect.poll(async () => tableX(bob, 'Customer'), { timeout: 30_000 }).toBe(crowX);
+
+      await bob.getByRole('button', { name: 'Chen', exact: true }).click();
+      await expect(shape(bob, 'Entity Customer')).toBeVisible();
+      // World coordinates, not screen ones: each browser frames the drawing its
+      // own way, so a bounding box compares nothing across two of them.
+      await expect.poll(async () => nodeX(bob, 'Entity Customer'), { timeout: 30_000 })
+        .toBe(await nodeX(alice, 'Entity Customer'));
     } finally {
       await owner.close();
       await other.close();
@@ -157,10 +172,11 @@ test.describe('crow tables', () => {
     await expect(page.getByLabel('Diagram name')).toBeEnabled();
     await importDocument(page, schema());
     await expect(table(page, 'Customer')).toBeVisible();
+
+    // Crow's-foot placed these itself rather than inheriting the entity's Chen
+    // coordinates, which is the carry-over this test exists to catch.
     const arranged = await tableX(page, 'Customer');
 
-    // Crow's-foot seeded itself rather than inheriting the entity's Chen
-    // coordinates, which is the carry-over this test exists to catch.
     await dragTable(page, 'Customer', 280, 0);
     const dragged = await tableX(page, 'Customer');
     expect(dragged).not.toBe(arranged);
@@ -189,9 +205,8 @@ test.describe('crow tables', () => {
 
     await page.reload();
     await expect(table(page, 'Customer')).toBeVisible();
-    // Stored positions are whole pixels, so the drag's fractional end lands on
-    // the same pixel it did before the reload.
-    expect(await tableX(page, 'Customer')).toBe(Math.round(moved));
+    // Shared placement is in the document, so it survives a reload exactly.
+    expect(await tableX(page, 'Customer')).toBe(moved);
   });
 
   test('long names are drawn in full inside a table that grew to hold them', async ({ page }) => {

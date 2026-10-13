@@ -18,7 +18,7 @@ function properties(doc: ErdDocument, selected = 'a') {
 }
 
 describe('data type properties', () => {
-  it('offers automatic inference and supported types for editable Crow’s-foot attributes', () => {
+  it('offers automatic inference and a base per supported type', () => {
     const dom = properties(document());
     const label = [...dom.querySelectorAll('label')].find((label) => label.textContent === 'Data type');
     expect(label).toBeDefined();
@@ -26,7 +26,37 @@ describe('data type properties', () => {
     expect(select.disabled).toBe(false);
     expect(select.value).toBe('');
     expect(select.options[0]!.textContent).toContain('INT');
-    expect([...select.options].map((o) => o.value)).toContain('DECIMAL(10,2)');
+    // Bases, not fixed presets: `VARCHAR` and `VARCHAR(64)` are different
+    // columns, so the numbers are a separate control.
+    const bases = [...select.options].map((o) => o.value);
+    for (const base of ['TEXT', 'VARCHAR', 'INT', 'DECIMAL', 'NUMERIC', 'UUID', 'BOOLEAN']) {
+      expect(bases).toContain(base);
+    }
+  });
+
+  it('asks for the numbers a base needs, and only those', () => {
+    const doc = document();
+    doc.attributes[0]!.dataType = 'VARCHAR(64)';
+    const dom = properties(doc);
+    expect(dom.querySelector<HTMLSelectElement>('#attr-data-type')?.value).toBe('VARCHAR');
+    const length = dom.querySelector<HTMLInputElement>('#attr-type-length')!;
+    expect(length.type).toBe('number');
+    expect(length.value).toBe('64');
+    // A one-number base has no second input.
+    expect(dom.querySelector('#attr-type-scale')).toBeNull();
+
+    const money = document();
+    money.attributes[0]!.dataType = 'DECIMAL(12,4)';
+    const moneyDom = properties(money);
+    expect(moneyDom.querySelector<HTMLInputElement>('#attr-type-precision')?.value).toBe('12');
+    expect(moneyDom.querySelector<HTMLInputElement>('#attr-type-scale')?.value).toBe('4');
+
+    // And a base with no numbers asks for none.
+    const plain = document();
+    plain.attributes[0]!.dataType = 'INT';
+    const plainDom = properties(plain);
+    expect(plainDom.querySelector<HTMLSelectElement>('#attr-data-type')?.value).toBe('INT');
+    expect(plainDom.querySelector('#attr-type-length')).toBeNull();
   });
 
   it('shows the persisted chosen type instead of automatic inference', () => {

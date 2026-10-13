@@ -28,15 +28,19 @@ import { defineConfig, devices } from '@playwright/test';
  * single large spec file, and one slow file can no longer hold up the run.
  * `editor.spec.ts` alone was 6.9 of a 12.8 minute serial suite.
  *
- * Three workers is deliberate: the machine has four logical cores, and a
- * worker is a Chromium process plus a Node driver. Leaving a core for the OS
- * keeps the WebRTC handshakes the multiplayer tests wait on from being starved
- * by the rest of the suite.
+ * Three workers is measured, not guessed. Four was tried and was both slower
+ * (5.8m against 5.2m) and flakier: a worker is a Chromium process plus a Node
+ * driver on a four-core machine, and at four the WebRTC handshakes and the
+ * import that the focus spec waits on started losing their race with the rest
+ * of the suite. One worker short of the core count keeps the handshakes fed.
+ * Override with ERD_WORKERS where there are more cores.
  */
+const WORKERS = Number(process.env.ERD_WORKERS ?? (process.env.CI ? 2 : 3));
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
-  workers: 3,
+  workers: WORKERS,
   retries: 0,
   reporter: [['list']],
   timeout: 45_000,

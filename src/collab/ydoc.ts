@@ -66,6 +66,12 @@ function readNumber(map: Y.Map<unknown>, key: string, fallback = 0): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
+/** A number that is either a real value or absent, never silently zero. */
+function readOptionalNumber(map: Y.Map<unknown>, key: string): number | undefined {
+  const v = map.get(key);
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
 function readStringArray(map: Y.Map<unknown>, key: string): string[] {
   const v = map.get(key);
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -323,11 +329,16 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
 
   ydoc.getMap(ENTITIES).forEach((value, key) => {
     const m = value as Y.Map<unknown>;
+    const crowX = readOptionalNumber(m, 'crowX');
+    const crowY = readOptionalNumber(m, 'crowY');
     doc.entities.push({
       id: key,
       name: readString(m, 'name', 'Entity'),
       x: readNumber(m, 'x'),
       y: readNumber(m, 'y'),
+      // Absent stays absent: it means "this browser has not placed the table
+      // yet", which is different from a placement at the origin.
+      ...(crowX !== undefined && crowY !== undefined ? { crowX, crowY } : {}),
       kind: readString(m, 'kind', 'strong') === 'weak' ? 'weak' : 'strong',
     });
   });

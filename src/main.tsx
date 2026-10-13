@@ -14,7 +14,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ErrorBoundary } from './ui/ErrorBoundary';
+import { restoreTheme } from './ui/theme';
 import './styles.css';
+
+// Before the first render, so a chosen theme never shows the default first and
+// then swap. Reading storage this early is the one thing that has to happen
+// outside React.
+restoreTheme();
 
 const container = document.getElementById('root');
 if (!container) {

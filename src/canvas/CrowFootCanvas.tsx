@@ -376,10 +376,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                         {tool === 'connect' ? <g className="connection-ports" pointerEvents="none" aria-hidden="true">
                           <circle cx={0} cy={y} r={5} /><circle cx={table.width} cy={y} r={5} />
                         </g> : null}
-                        <text className="crow-row__key" x={10} y={row.attributeId && !row.generatedKey ? y : y - 7}>
+                        <text className="crow-row__key" x={10} y={y}>
                           <tspan style={row.pk && row.fk ? { fontSize: 10 } : undefined}>{row.pk && row.fk ? 'PK/FK' : row.pk ? 'PK' : row.fk ? 'FK' : ''}</tspan>
                         </text>
-                        {!row.attributeId || row.generatedKey ? <text className="crow-row__key" x={10} y={y + 9}>gen</text> : null}
                         <text
                           className={`crow-row__name${row.pk ? ' crow-row__name--pk' : ''}`}
                           x={CROW_NAME_X}

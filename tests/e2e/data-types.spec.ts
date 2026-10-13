@@ -75,19 +75,63 @@ test('edits table and SQL types, inherits FK types, and restores inference with 
   await expect(page.getByLabel('Data type', { exact: true })).toBeDisabled();
   await expect(page.locator('#attr-data-type-help')).toContainText('Customer.customer_id');
   await selectAttribute(page, 'email');
-  await page.getByLabel('Data type', { exact: true }).selectOption('VARCHAR(255)');
+  await page.getByLabel('Data type', { exact: true }).selectOption('VARCHAR');
   await expect(typeCell(page, 'email')).toHaveText('VARCHAR(255)');
+  await page.locator('#attr-type-length').fill('64');
+  await expect(typeCell(page, 'email')).toHaveText('VARCHAR(64)');
   const sql = await exported(page, 'SQL');
   expect(sql).toContain('"customer_id" UUID'); expect(sql).toContain('"buyer_ref" UUID');
-  expect(sql).toContain('"contact_email_address" VARCHAR(255)');
-  expect(await exported(page, 'SVG')).toContain('VARCHAR(255)');
+  expect(sql).toContain('"contact_email_address" VARCHAR(64)');
+  expect(await exported(page, 'SVG')).toContain('VARCHAR(64)');
   await page.getByLabel('Data type', { exact: true }).selectOption('');
   await expect(typeCell(page, 'email')).toHaveText('TEXT');
 });
 
+test('types are a base and its numbers, and out-of-range numbers are refused', async ({ page }) => {
+  await importDocument(page); await selectAttribute(page, 'email');
+  const base = page.getByLabel('Data type', { exact: true });
+
+  // The numbers belong to the base, so the inputs appear with the base and
+  // disappear without it.
+  await expect(page.locator('#attr-type-length')).toHaveCount(0);
+  await base.selectOption('NUMERIC');
+  await expect(page.locator('#attr-type-precision')).toHaveValue('10');
+  await expect(page.locator('#attr-type-scale')).toHaveValue('2');
+  await expect(typeCell(page, 'email')).toHaveText('NUMERIC(10,2)');
+
+  await page.locator('#attr-type-precision').fill('12');
+  await page.locator('#attr-type-scale').fill('4');
+  await expect(typeCell(page, 'email')).toHaveText('NUMERIC(12,4)');
+
+  // A scale wider than the precision is not a type any database has, so the
+  // last good value stands rather than the column becoming something unusable.
+  await page.locator('#attr-type-scale').fill('40');
+  await expect(typeCell(page, 'email')).toHaveText('NUMERIC(12,4)');
+
+  await base.selectOption('TEXT');
+  await expect(page.locator('#attr-type-length')).toHaveCount(0);
+  await expect(page.locator('#attr-type-precision')).toHaveCount(0);
+  await expect(typeCell(page, 'email')).toHaveText('TEXT');
+
+  await base.selectOption('VARCHAR');
+  await page.locator('#attr-type-length').fill('1');
+  await expect(typeCell(page, 'email')).toHaveText('VARCHAR(1)');
+  await page.locator('#attr-type-length').fill('0');
+  await expect(typeCell(page, 'email')).toHaveText('VARCHAR(1)');
+
+  // A long name and a long type both have to fit, at any length the model allows.
+  await page.locator('#attr-type-length').fill('4000');
+  await expect(typeCell(page, 'email')).toHaveText('VARCHAR(4000)');
+  expect(await exported(page, 'SQL')).toContain('"contact_email_address" VARCHAR(4000)');
+});
+
 test('chosen types survive JSON import, reload, and an offline snapshot link', async ({ page, browser }) => {
   await importDocument(page); await selectAttribute(page, 'price');
-  await page.getByLabel('Data type', { exact: true }).selectOption('DECIMAL(10,2)');
+  await page.getByLabel('Data type', { exact: true }).selectOption('DECIMAL');
+  // Choosing a base gives the usual precision and scale, so the type is usable
+  // without a second decision.
+  await expect(page.locator('#attr-type-precision')).toHaveValue('10');
+  await expect(page.locator('#attr-type-scale')).toHaveValue('2');
   const json = JSON.parse(await exported(page, 'JSON')) as ErdDocument;
   expect(json.attributes.find((a) => a.id === 'price')?.dataType).toBe('DECIMAL(10,2)');
   await page.reload(); await expect(typeCell(page, 'price')).toHaveText('DECIMAL(10,2)');
@@ -133,20 +177,30 @@ test.describe('phone data types', () => {
     const doc = schema(); doc.entities[1]!.x = 80; doc.entities[1]!.y = 320;
     await importDocument(page, doc); await selectAttribute(page, 'email');
     const select = page.getByLabel('Data type', { exact: true });
-    await select.selectOption('VARCHAR(255)'); await expect(select).toHaveValue('VARCHAR(255)');
-    expect(await select.evaluate((element) => {
+    await select.selectOption('VARCHAR');
+    await expect(select).toHaveValue('VARCHAR');
+    // The select takes the full width on a phone, and the length beside it is
+    // a full-height tap target rather than a 28px sliver.
+    const fits = await select.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.width >= 44 && rect.height >= 44 && rect.left >= 0 && rect.right <= innerWidth;
+    });
+    expect(fits).toBe(true);
+    const length = page.locator('#attr-type-length');
+    expect(await length.evaluate((element) => {
       const rect = element.getBoundingClientRect();
       return rect.width >= 44 && rect.height >= 44 && rect.left >= 0 && rect.right <= innerWidth;
     })).toBe(true);
+    await length.fill('120');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.getByRole('button', { name: 'Close panel', exact: true }).click();
-    await expect(typeCell(page, 'email')).toHaveText('VARCHAR(255)');
+    await expect(typeCell(page, 'email')).toHaveText('VARCHAR(120)');
     const separated = await row(page, 'email').evaluate((element) => {
       const name = element.querySelector('.crow-row__name')!.getBoundingClientRect();
       const type = element.querySelector('.crow-row__type')!.getBoundingClientRect();
       return name.right + 2 <= type.left;
     });
     expect(separated).toBe(true);
-    expect(JSON.parse(await exported(page, 'JSON')).attributes.find((a: { id: string }) => a.id === 'email').dataType).toBe('VARCHAR(255)');
+    expect(JSON.parse(await exported(page, 'JSON')).attributes.find((a: { id: string }) => a.id === 'email').dataType).toBe('VARCHAR(120)');
   });
 });

@@ -117,6 +117,10 @@ export interface EditorState {
   ungroup: (id: string) => void;
   replaceDocument: (doc: ErdDocument) => void;
   applyPositions: (positions: Map<string, { x: number; y: number }>) => void;
+  /** Moves Crow's-foot tables, writing the shared position that Chen does not use. */
+  applyTablePositions: (positions: Map<string, { x: number; y: number }>) => void;
+  /** Places tables the person did not move. Not undoable; see the implementation. */
+  placeTables: (positions: Map<string, { x: number; y: number }>) => void;
   ydoc: Y.Doc;
   awareness: RoomHandle['awareness'];
 }
@@ -533,6 +537,44 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
           }
         }
       }, true);
+    },
+
+    /**
+     * Moves tables in the Crow's-foot view.
+     *
+     * Written to `crowX`/`crowY` rather than `x`/`y`, so a table dragged here
+     * never moves its entity in Chen, and a collaborator sees the move — the
+     * two notations are arranged separately, not separately *privately*.
+     */
+    applyTablePositions: (positions: Map<string, { x: number; y: number }>) => {
+      mutate(() => {
+        for (const [id, pos] of positions) {
+          const map = room.ydoc.getMap('entities').get(id) as Y.Map<unknown> | undefined;
+          if (!map) continue;
+          map.set('crowX', pos.x);
+          map.set('crowY', pos.y);
+        }
+      }, true);
+    },
+
+    /**
+     * Places tables the person did not move, and is deliberately not undoable.
+     *
+     * This is the app finding somewhere sensible for a table it has just seen
+     * for the first time, not an edit anybody made. Transaction origin matters
+     * here: the UndoManager tracks the null origin, so going through `mutate`
+     * put an automatic placement on the undo stack, and the first Undo after an
+     * import then reverted the arrangement instead of the import.
+     */
+    placeTables: (positions: Map<string, { x: number; y: number }>) => {
+      room.ydoc.transact(() => {
+        for (const [id, pos] of positions) {
+          const map = room.ydoc.getMap('entities').get(id) as Y.Map<unknown> | undefined;
+          if (!map) continue;
+          map.set('crowX', pos.x);
+          map.set('crowY', pos.y);
+        }
+      }, 'auto-place');
     },
 
     /**

@@ -6,7 +6,7 @@ import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
 import { findFreeSlot, occupiedBoxes } from './model/placement';
-import { deriveTables, deriveLinks, routeColumns, loadCrowLayout, saveCrowLayout, withCrowLayout, CROW_WIDTH, tableHeight } from './model/crowfoot';
+import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight } from './model/crowfoot';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
@@ -98,31 +98,18 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const isCrowFoot = state.view === 'crowfoot';
 
   /*
-   * Crow's-foot placement belongs to the person looking, not to the schema.
+   * Crow's-foot placement is shared, and separate from Chen.
    *
-   * It is kept out of the document so a drag here does not move the table under
-   * anybody else, and it is kept separate from the Chen positions so arranging
-   * one notation never rearranges the other. A table with no position yet is
-   * given one by arranging the tables themselves, not by inheriting where its
-   * entity sits in Chen — inheriting is exactly the carry-over that reads as
-   * "why did my diagram jump when I changed notation".
+   * Two people reading one schema are looking at the same tables, so a table
+   * moved here moves for everybody — that is what the notification column is
+   * for. It is stored as `crowX`/`crowY` rather than as the entity's `x`/`y`, so
+   * arranging one notation never rearranges the other. A table with no
+   * Crow's-foot position yet is given one by arranging the tables themselves
+   * rather than by inheriting where its entity sits in Chen; that inheritance is
+   * the carry-over that reads as "why did my diagram jump when I changed
+   * notation".
    */
-  const [crowLayout, setCrowLayout] = useState(() => loadCrowLayout(room.room));
-  const shown = useMemo(
-    () => (isCrowFoot ? withCrowLayout(state.doc, crowLayout) : state.doc),
-    [state.doc, crowLayout, isCrowFoot],
-  );
-
-  const setTablePositions = useCallback((positions: Map<string, { x: number; y: number }>) => {
-    setCrowLayout((current) => {
-      const next = new Map(current);
-      // Absolute positions: a drag starts from where the table is drawn, which is
-      // already this layout, so there is no delta to apply.
-      for (const [id, point] of positions) next.set(id, point);
-      saveCrowLayout(room.room, next);
-      return next;
-    });
-  }, [room.room]);
+  const shown = state.doc;
 
 
   // The name field is a draft so it can be emptied to be retyped; the identity
@@ -211,37 +198,41 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
 
   useEffect(() => {
     if (!isCrowFoot || !state.loaded) return;
-    const missing = state.doc.entities.filter((entity) => !crowLayout.has(entity.id));
+    const missing = state.doc.entities.filter((entity) => entity.crowX === undefined || entity.crowY === undefined);
     if (missing.length === 0) return;
+    const crowPlaced = new Set(
+      state.doc.entities.filter((e) => e.crowX !== undefined).map((e) => e.id),
+    );
     // Arrange the tables as tables. Positions already chosen are kept: this
     // only fills gaps, so re-running cannot rearrange what is settled.
     const arranged = applyLayout(state.doc);
     const fresh = new Map<string, { x: number; y: number }>();
     for (const entity of arranged.entities) {
-      if (!crowLayout.has(entity.id)) fresh.set(entity.id, { x: entity.x, y: entity.y });
+      if (!crowPlaced.has(entity.id)) fresh.set(entity.id, { x: entity.x, y: entity.y });
     }
     if (fresh.size === 0) return;
-    const merged = new Map([...crowLayout, ...fresh]);
-    setCrowLayout((current) => {
-      const next = new Map(current);
-      for (const [id, point] of fresh) next.set(id, point);
-      saveCrowLayout(room.room, next);
-      return next;
-    });
+    // Shared, like every other edit: two people in the room see the same tables.
+    // Untracked on purpose — see `placeTables`.
+    state.placeTables(fresh);
     /*
-     * Frame the layout that was just seeded, explicitly.
+     * Frame the layout that was just placed, explicitly.
      *
      * Waiting for the automatic first frame does not work here. Switching
      * notation clears `framed`, so a frame runs against the positions as they
-     * are *before* seeding, claims the flag, and then blocks itself when the
-     * real layout arrives. The view was left framed for Chen's shapes at Chen's
-     * zoom, with a table under the header.
+     * are *before* placing, claims the flag, and then blocks itself when the
+     * real positions arrive.
      */
     requestAnimationFrame(() => {
       framed.current = false;
-      fitToDoc(withCrowLayout(state.doc, merged));
+      const placed = new Map(arranged.entities.map((entity) =>
+        [entity.id, { x: fresh.get(entity.id)?.x ?? entity.crowX ?? entity.x,
+          y: fresh.get(entity.id)?.y ?? entity.crowY ?? entity.y }] as const));
+      fitToDoc({ ...state.doc, entities: state.doc.entities.map((entity) => {
+        const at = placed.get(entity.id);
+        return at ? { ...entity, crowX: at.x, crowY: at.y } : entity;
+      }) });
     });
-  }, [isCrowFoot, state.loaded, state.doc, crowLayout, room.room, fitToDoc]);
+  }, [isCrowFoot, state.loaded, state.doc, fitToDoc]);
 
   useEffect(() => {
     if (!state.justCreated || !state.selection.includes(state.justCreated)) return;
@@ -350,17 +341,16 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const tidy = useCallback(() => {
     const arranged = applyLayout(shown);
     if (isCrowFoot) {
-      // Tables live in this browser's layout, so Tidy arranges them here and
-      // nowhere else. Writing the result to the document would move the tables
-      // under everybody else, which is the one thing this layout is for.
-      const positions = new Map(arranged.entities.map((entity) => [entity.id, { x: entity.x, y: entity.y }]));
+      // Tables are arranged in the Crow's-foot positions, so Tidy writes those
+      // and leaves Chen's alone. Shared, so everybody sees the result.
       const before = new Map(shown.entities.map((entity) => [entity.id, entity]));
-      const moved = new Map([...positions].filter(([id, point]) => {
-        const old = before.get(id);
-        return old && (old.x !== point.x || old.y !== point.y);
-      }));
-      if (moved.size) setTablePositions(moved);
-      fitToDoc(moved.size ? withCrowLayout(shown, new Map([...crowLayout, ...moved])) : shown);
+      const moved = new Map(arranged.entities
+        .map((entity) => [entity.id, { x: entity.x, y: entity.y }] as const)
+        .filter(([id, point]) => {
+          const old = before.get(id);
+          return old && (old.crowX !== point.x || old.crowY !== point.y);
+        }));
+      if (moved.size) state.applyTablePositions(moved);
       return;
     }
     const positions = new Map<string, { x: number; y: number }>();
@@ -371,7 +361,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     }
     if (positions.size) state.applyPositions(positions);
     fitToDoc(arranged);
-  }, [state, fitToDoc, shown, isCrowFoot, setTablePositions, crowLayout]);
+  }, [state, fitToDoc, shown, isCrowFoot]);
 
   const focusShape = (id: string) => {
     let view = state.view;
@@ -728,7 +718,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="canvas-stage" onContextMenu={openMenu} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={setTablePositions} /> :
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} /> :
             <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
