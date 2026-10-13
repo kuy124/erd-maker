@@ -17,6 +17,7 @@
  */
 
 import type { DataType } from './dataTypes';
+import { descendantAttributeIds } from './attributes';
 
 export type EntityKind = 'strong' | 'weak';
 export type RelationshipKind = 'strong' | 'weak';
@@ -59,11 +60,24 @@ export interface Attribute {
   x: number;
   y: number;
   kind: AttributeKind;
-  /** The entity or relationship this attribute hangs off, or null while floating. */
+  /** Entity, relationship, specialization or composite attribute; null while floating. */
   ownerId: string | null;
   /** Absent means infer from the name. Foreign keys inherit the referenced type. */
   dataType?: DataType;
 }
+
+/**
+ * Which way a Crow's-foot connector runs when it cannot go straight.
+ *
+ * Automatic picks the shorter side, which is usually right and is sometimes not:
+ * two tables side by side still send a line out of the drawing when a third is
+ * in the way. `above` and `below` are the override a person reaches for when the
+ * automatic answer lands somewhere they did not want it.
+ */
+export type RouteSide = 'auto' | 'above' | 'below';
+
+/** The accepted route preferences, for validating a value from anywhere. */
+export const ROUTE_SIDES: RouteSide[] = ['auto', 'above', 'below'];
 
 export interface Relationship {
   id: string;
@@ -71,6 +85,19 @@ export interface Relationship {
   x: number;
   y: number;
   kind: RelationshipKind;
+  /** Crow's-foot only. Absent is the same as automatic. */
+  route?: RouteSide;
+  /**
+   * A corner the person dragged, in drawing coordinates.
+   *
+   * Stored flat rather than as an object because every shared field here is a
+   * primitive; Yjs stores one value per key. Set it and the connector passes
+   * through exactly that point, whatever the router would have chosen — an
+   * automatic guess is overridable, a dragged point is a decision. Both halves
+   * absent means the router still decides.
+   */
+  bendX?: number;
+  bendY?: number;
 }
 
 export interface Isa {
@@ -244,9 +271,7 @@ export function pruneGroups(doc: ErdDocument): ErdDocument {
  * input is not mutated.
  */
 export function removeNode(doc: ErdDocument, id: NodeId): ErdDocument {
-  const orphanedAttributes = new Set(
-    doc.attributes.filter((a) => a.ownerId === id).map((a) => a.id),
-  );
+  const orphanedAttributes = descendantAttributeIds(doc, id);
   return pruneGroups({
     ...doc,
     entities: doc.entities.filter((e) => e.id !== id),
@@ -259,7 +284,8 @@ export function removeNode(doc: ErdDocument, id: NodeId): ErdDocument {
         parentId: i.parentId === id ? null : i.parentId,
         childIds: i.childIds.filter((c) => c !== id),
       })),
-    legs: doc.legs.filter((l) => l.fromId !== id && l.toId !== id),
+    legs: doc.legs.filter((l) => l.fromId !== id && l.toId !== id &&
+      !orphanedAttributes.has(l.fromId) && !orphanedAttributes.has(l.toId)),
   });
 }
 

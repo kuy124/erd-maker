@@ -128,6 +128,54 @@
  * paper, a darker or lighter step from the same ramp is used instead, because
  * a theme is not worth choosing if its helper text cannot be read.
  */
+/*
+ * The default palette, named.
+ *
+ * `:root` above already *is* this palette, so these blocks only need to restate
+ * it for the case where someone picks "Light" or "Dark" explicitly rather than
+ * leaving it on System. Without them, choosing Light on a dark-mode machine
+ * looked like it did nothing, because the attribute was set and nothing read it.
+ */
+[data-theme='graph-light'] {
+  --paper: #f2f4f3;
+  --paper-raised: #fbfcfb;
+  --grid-fine: #e4e8e6;
+  --grid-major: #d8dedb;
+  --rule: #d3d8d6;
+  --rule-strong: #7f8a87;
+  --ink: #16181a;
+  --ink-secondary: #5b6167;
+  --ink-tertiary: #666e73;
+  --ink-inverse: #fbfcfb;
+  --signal: #0f7b8a;
+  --signal-quiet: #d9ebee;
+  --signal-strong: #0a5c68;
+  --danger: #a32d1f;
+  --danger-quiet: #f7e4e1;
+  --warn: #8a5a00;
+  color-scheme: light;
+}
+
+[data-theme='graph-dark'] {
+  --paper: #14171a;
+  --paper-raised: #1b1f22;
+  --grid-fine: #1f2428;
+  --grid-major: #262c30;
+  --rule: #2b3136;
+  --rule-strong: #68737a;
+  --ink: #e8eceb;
+  --ink-secondary: #a4adb2;
+  --ink-tertiary: #98a1a6;
+  --ink-inverse: #14171a;
+  --signal: #3fa8b8;
+  --signal-quiet: #17383d;
+  --signal-strong: #6cc4d2;
+  --danger: #e0776a;
+  --danger-quiet: #3a2320;
+  --warn: #d9a441;
+  color-scheme: dark;
+}
+
 [data-theme='solarized-light'] {
   --paper: #eee8d5;
   --paper-raised: #fdf6e3;
@@ -840,6 +888,35 @@ body {
 }
 
 /* Theme choice: a swatch of the real palette, not a name on its own. */
+/*
+ * The draggable corner of a selected connector.
+ *
+ * Shown only while the line is selected, so a finished diagram is not littered
+ * with dots. The dot is filled with the signal colour to read as a handle rather
+ * than part of the drawing, and the hit circle around it is invisible and
+ * oversized, because a 5px target is not a target.
+ */
+.crow-link__bend {
+  fill: var(--signal);
+  stroke: var(--paper-raised);
+  stroke-width: 1.5;
+  cursor: move;
+  pointer-events: all;
+}
+
+.crow-link__bend-hit {
+  fill: transparent;
+  cursor: move;
+  pointer-events: all;
+}
+
+/* A keyboard user can reach the corner without a pointer. */
+.crow-link__bend:focus-visible {
+  outline: none;
+  stroke: var(--signal-strong);
+  stroke-width: 3;
+}
+
 .crow-row__key {
   fill: var(--ink-tertiary);
   font-family: var(--font-mono);

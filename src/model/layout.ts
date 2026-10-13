@@ -20,6 +20,7 @@
 import { NODE_SIZE, type ErdDocument, type Positioned } from './types';
 import { deriveTables, tableHeight } from './crowfoot';
 import { ATTRIBUTE_ROW_GAP, findAttributeSlot } from './placement';
+import { descendantAttributeIds } from './attributes';
 
 const V_GAP = 120;
 const LAYER_GAP = 240;
@@ -238,13 +239,13 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
 /** Vertical space the attributes owned by `id` occupy beside it, in Chen. */
 function attributeBlock(doc: ErdDocument, id: string): number {
   if (doc.view === 'crowfoot') return 0;
-  const owned = doc.attributes.filter((attribute) => attribute.ownerId === id).length;
+  const owned = descendantAttributeIds(doc, id).size;
   if (owned === 0) return 0;
   // One gap between the owner and the first attribute, then one between each.
   return owned * NODE_SIZE.attribute.h + owned * ATTRIBUTE_ROW_GAP;
 }
 
-function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } {
+export function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } {
   if (doc.entities.some((e) => e.id === id)) return NODE_SIZE.entity;
   if (doc.attributes.some((a) => a.id === id)) return NODE_SIZE.attribute;
   if (doc.relationships.some((r) => r.id === id)) return NODE_SIZE.relationship;
@@ -290,12 +291,18 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
   const movedEntitiesById = new Map(movedEntities.map((e) => [e.id, e]));
   const movedRelationshipsById = new Map(movedRelationships.map((r) => [r.id, r]));
   const movedIsasById = new Map(movedIsas.map((i) => [i.id, i]));
-  const ownerAt = (ownerId: string): ErdDocument['entities'][number] | ErdDocument['relationships'][number] | ErdDocument['isas'][number] | undefined =>
-    movedEntitiesById.get(ownerId) ?? movedRelationshipsById.get(ownerId) ?? movedIsasById.get(ownerId);
+  const placedAttributes = new Map<string, ErdDocument['attributes'][number]>();
+  const ownerAt = (ownerId: string) =>
+    movedEntitiesById.get(ownerId) ?? movedRelationshipsById.get(ownerId) ?? movedIsasById.get(ownerId) ?? placedAttributes.get(ownerId);
 
   const movedAttributes: ErdDocument['attributes'] = [];
   let placed: ErdDocument = { ...doc, entities: movedEntities, relationships: movedRelationships, isas: movedIsas };
-  for (const attr of doc.attributes) {
+  const visiting = new Set<string>();
+  const placeAttribute = (attr: ErdDocument['attributes'][number]) => {
+    if (placedAttributes.has(attr.id) || visiting.has(attr.id)) return;
+    visiting.add(attr.id);
+    const parent = doc.attributes.find(a => a.id === attr.ownerId);
+    if (parent) placeAttribute(parent);
     const delta = attr.ownerId ? entityDelta.get(attr.ownerId) : undefined;
     const shifted = delta && attr.ownerId
       ? { ...attr, x: attr.x + delta.dx, y: attr.y + delta.dy }
@@ -303,21 +310,24 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     const owner = attr.ownerId ? ownerAt(attr.ownerId) : undefined;
     if (!owner) {
       movedAttributes.push(shifted);
-      continue;
+      placedAttributes.set(attr.id, shifted);
+      return;
     }
     // Place against what has been arranged so far, so siblings stack rather
     // than each claiming the same slot.
     const slot = findAttributeSlot({ ...placed, attributes: movedAttributes }, owner.id);
     const next = slot ? { ...shifted, x: slot.x, y: slot.y } : shifted;
     movedAttributes.push(next);
+    placedAttributes.set(attr.id, next);
     placed = { ...placed, attributes: movedAttributes };
-  }
+  };
+  for (const attr of doc.attributes) placeAttribute(attr);
 
   return {
     ...doc,
     entities: movedEntities,
     relationships: movedRelationships,
     isas: movedIsas,
-    attributes: movedAttributes,
+    attributes: doc.attributes.map(attr => placedAttributes.get(attr.id) ?? attr),
   };
 }

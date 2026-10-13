@@ -32,8 +32,8 @@ function block(selector: string): Record<string, string> {
 
 const REQUIRED = ['--paper', '--paper-raised', '--ink', '--ink-secondary', '--ink-tertiary', '--signal'] as const;
 
-/** Every theme except "System", which has no tokens of its own by design. */
-const themed = THEMES.filter((theme) => theme.id !== 'system' && theme.id !== 'graph');
+/** Every theme that names its own palette. "System" has none by design. */
+const themed = THEMES.filter((theme) => theme.id !== 'system');
 
 describe('themes', () => {
   it('offers more than the default, and names them recognisably', () => {

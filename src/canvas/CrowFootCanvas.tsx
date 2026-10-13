@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useCanvasZoom } from './useCanvasZoom';
 import {
   CROW_HEADER_HEIGHT,
@@ -40,14 +41,7 @@ interface Props {
   emptyActions?: React.ReactNode;
   /** Replaces the empty-canvas card entirely; see `emptyState` in App. */
   emptyState?: React.ReactNode;
-  /**
-   * Commits table positions to this browser's layout.
-   *
-   * Deliberately not `state.applyPositions`: a table's place on screen is a
-   * local reading of the schema, and writing it to the shared document would
-   * move the table under everyone else in the room. The attributes, keys, and
-   * types still sync — only where the table sits is personal, and only here.
-   */
+  /** Commits shared table positions separately from the Chen arrangement. */
   onTablePositions?: (positions: Map<string, { x: number; y: number }>) => void;
 }
 
@@ -58,6 +52,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   const [connectFrom, setConnectFrom] = useState<ColumnEndpoint | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const connectionPress = useRef<{ x: number; y: number; end: ColumnEndpoint } | null>(null);
+  const [handleLayer, setHandleLayer] = useState<SVGGElement | null>(null);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -98,7 +93,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
     toWorld,
     onCommit: (positions) => {
       if (onTablePositions) onTablePositions(positions);
-      else state.applyPositions(positions);
+      else state.applyTablePositions(positions);
     },
     onPan: (x, y) => state.setViewport((v) => ({ ...v, x, y })),
     onSettled: (moved) => {
@@ -166,23 +161,15 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
       if (!selection.includes(id)) state.setSelection([id]);
       const start = new Map<string, { x: number; y: number }>();
       for (const nodeId of ids) {
-        const entity = doc.entities.find((item) => item.id === nodeId);
-        if (entity) start.set(nodeId, { x: entity.x, y: entity.y });
+        const table = tables.find((item) => item.entityId === nodeId);
+        if (table) start.set(nodeId, { x: table.x, y: table.y });
       }
       if (!start.has(id)) return;
-      // A table's attributes are drawn as its rows, so they look like they
-      // travelled with it. Their stored positions have to agree, or switching to
-      // Chen would show them stranded wherever the table used to be.
-      for (const attribute of doc.attributes) {
-        if (attribute.ownerId === id && !start.has(attribute.id)) {
-          start.set(attribute.id, { x: attribute.x, y: attribute.y });
-        }
-      }
       pressedTable.current = id;
       const world = toWorld(event.clientX, event.clientY);
       drag.beginNodeDrag(start, world.x, world.y);
     },
-    [tool, state, toWorld, doc.entities, drag, selection],
+    [tool, state, toWorld, doc, tables, drag, selection],
   );
 
   /** Tracks the marquee in a ref so the window listener sees the live value. */
@@ -289,8 +276,13 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   lane={link.lane}
                   selected={selection.includes(link.relId)}
                   obstacles={obstacles}
+                  tool={tool}
+                  toWorld={toWorld}
+                  handleLayer={handleLayer}
                   onSelect={(event) => tool === 'pan' ? drag.beginPan(event.clientX, event.clientY) : state.setSelection([link.relId])}
                   onKeyboardSelect={() => state.setSelection([link.relId])}
+                  onBendChange={(relId, bend) => state.updateRelationship(relId,
+                    bend ? { bendX: bend.x, bendY: bend.y } : { bendX: undefined, bendY: undefined }, true)}
                 />
               );
             })}
@@ -411,6 +403,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
               );
             })}
           </g>
+          <g className="layer-bend-handles" ref={setHandleLayer} />
           {connectFrom && pointer ? (() => {
             const table = byId.get(connectFrom.entityId);
             if (!table) return null;
@@ -477,6 +470,10 @@ function CrowConnector({
   onSelect,
   onKeyboardSelect,
   obstacles,
+  onBendChange,
+  toWorld,
+  handleLayer,
+  tool,
 }: {
   link: CrowLink;
   from: CrowTable;
@@ -487,13 +484,73 @@ function CrowConnector({
   onKeyboardSelect: () => void;
   /** Every table in the drawing, so a connector can route around the others. */
   obstacles: Obstacle[];
+  /** Places the connector's corner, in drawing coordinates. */
+  onBendChange?: (relId: string, bend: { x: number; y: number } | null) => void;
+  toWorld: (clientX: number, clientY: number) => Point;
+  handleLayer: SVGGElement | null;
+  tool: EditorState['tool'];
 }) {
+  const [preview, setPreview] = useState<Point | null>(null);
+  const cancelDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => cancelDrag.current?.(), []);
+  useEffect(() => { if (!selected || tool !== 'select') cancelDrag.current?.(); }, [selected, tool]);
   // The two tables this connector starts and ends at are not obstacles: leaving
   // a row means crossing the table it belongs to, which is how a connector is
   // drawn rather than a flaw.
   const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, lane,
     obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
-      !(rect.minX === to.x && rect.minY === to.y)));
+      !(rect.minX === to.x && rect.minY === to.y)), link.route, preview ?? link.bend ?? null);
+
+  /**
+   * Drag the corner to place it.
+   *
+   * The grab point is the handle itself when there is one, so a drag does not
+   * jump by however far the handle was from the centre. Without a handle the
+   * corner starts at the midpoint, and the grab offset is that midpoint — the
+   * line appears from where it was, not from where the pointer landed.
+   */
+  const startBendDrag = (event: React.PointerEvent, handle?: Point) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    if (tool === 'pan') { onSelect(event); return; }
+    if (tool !== 'select' || !onBendChange) return;
+    event.preventDefault();
+    cancelDrag.current?.();
+    const origin = handle ?? {
+      x: Math.round((route.a.x + route.b.x) / 2),
+      y: Math.round((route.a.y + route.b.y) / 2),
+    };
+    const start = toWorld(event.clientX, event.clientY);
+    const offset = { x: origin.x - start.x, y: origin.y - start.y };
+    let final: Point | null = null;
+    const pointerId = event.pointerId;
+    const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
+      const now = toWorld(moveEvent.clientX, moveEvent.clientY);
+      final = { x: Math.round(now.x + offset.x), y: Math.round(now.y + offset.y) };
+      setPreview(final);
+    };
+    const cancel = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', key);
+      cancelDrag.current = null;
+      setPreview(null);
+    };
+    const up = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return;
+      const point = final;
+      cancel();
+      if (point && (point.x !== origin.x || point.y !== origin.y)) onBendChange(link.relId, point);
+    };
+    const key = (keyEvent: KeyboardEvent) => { if (keyEvent.key === 'Escape') cancel(); };
+    cancelDrag.current = cancel;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', key);
+  };
 
   return (
     <g
@@ -542,6 +599,50 @@ function CrowConnector({
         >
           {shorten(link.label, 24)}
         </text>
+      ) : null}
+      {/*
+        The corner, drawn last so it is on top.
+
+        It has to be: the ratio label sits at the corner and is itself
+        clickable, so a handle painted underneath it could never be grabbed —
+        the drag went to the text every time. Painting last keeps the label
+        selectable everywhere else while the corner takes the pointer where the
+        two overlap, which is exactly where a hand goes for it.
+      */}
+      {selected && onBendChange && handleLayer ? createPortal(
+        <>
+          <circle
+            className="crow-link__bend-hit"
+            cx={route.handle?.x ?? (route.a.x + route.b.x) / 2}
+            cy={route.handle?.y ?? (route.a.y + route.b.y) / 2}
+            r={14}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.stopPropagation();
+              startBendDrag(event, route.handle);
+            }}
+          />
+          <circle
+            className="crow-link__bend"
+            role="button"
+            tabIndex={0}
+            aria-label="Move relationship bend"
+            cx={route.handle?.x ?? (route.a.x + route.b.x) / 2}
+            cy={route.handle?.y ?? (route.a.y + route.b.y) / 2}
+            r={5}
+            onDoubleClick={() => onBendChange(link.relId, null)}
+            onKeyDown={(event) => {
+              if (event.key === 'Delete' || event.key === 'Backspace') {
+                event.preventDefault(); event.stopPropagation(); onBendChange(link.relId, null);
+              }
+            }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.stopPropagation();
+              startBendDrag(event, route.handle);
+            }}
+          />
+        </>, handleLayer
       ) : null}
     </g>
   );

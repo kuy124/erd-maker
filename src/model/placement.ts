@@ -94,6 +94,8 @@ function ownerBox(doc: ErdDocument, ownerId: string): Box | null {
   if (relationship) return { x: relationship.x, y: relationship.y, ...NODE_SIZE.relationship };
   const isa = doc.isas.find((i) => i.id === ownerId);
   if (isa) return { x: isa.x, y: isa.y, ...NODE_SIZE.isa };
+  const attr = doc.attributes.find((a) => a.id === ownerId && a.kind === 'composite');
+  if (attr) return { x: attr.x, y: attr.y, ...NODE_SIZE.attribute };
   return null;
 }
 
@@ -152,7 +154,12 @@ export function findAttributeSlot(
     y = box.y + box.h + ROW_GAP;
   }
 
-  return { x: columnX, y };
+  const occupied = occupiedBoxes({ ...doc, view: 'chen' });
+  for (;;) {
+    const blockers = occupied.filter(b => overlaps({ x: columnX, y, ...size }, b, ROW_GAP));
+    if (blockers.length === 0) return { x: columnX, y };
+    y = Math.max(...blockers.map(b => b.y + b.h)) + ROW_GAP;
+  }
 }
 
 /** Keep an automatic diamond between its entities, stepping sideways if space is tight. */

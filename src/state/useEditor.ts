@@ -29,9 +29,10 @@ import {
 import { writeParticipants, type RelationshipParticipant } from '../collab/participants';
 import { validParticipation } from '../model/issues';
 import { findAttributeSlot } from '../model/placement';
-import { emptyDocument, type ErdDocument } from '../model/types';
+import { emptyDocument, ROUTE_SIDES, type ErdDocument, type RouteSide } from '../model/types';
 import type { ColumnEndpoint } from '../model/crowfoot';
 import { normalizeDataType, type DataType } from '../model/dataTypes';
+import { canOwnAttribute } from '../model/attributes';
 
 export type Tool = 'select' | 'pan' | 'connect';
 
@@ -96,12 +97,12 @@ export interface EditorState {
   setView: (view: 'chen' | 'crowfoot') => void;
   updateEntity: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
   updateAttribute: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: string; ownerId: string | null; dataType: DataType }>) => void;
-  updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
+  updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak'; route: RouteSide; bendX: number | undefined; bendY: number | undefined }>, separateUndo?: boolean) => void;
   updateLeg: (id: string, patch: Partial<{ cardinality: '1' | 'N' | 'M'; min: number; max: number | 'N' }>) => void;
   setParticipants: (relationshipId: string, participants: RelationshipParticipant[]) => void;
   updateIsaParent: (id: string, parentId: string | null) => void;
   updateIsaChildren: (id: string, childId: string, included: boolean) => void;
-  addEntity: (x: number, y: number) => string;
+  addEntity: (x: number, y: number, crowPosition?: { x: number; y: number }) => string;
   addAttribute: (x: number, y: number, ownerId?: string | null) => string;
   addRelationship: (x: number, y: number) => string;
   addIsa: (x: number, y: number) => string;
@@ -308,6 +309,15 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
 
     updateAttribute: (id, patch) =>
       mutate(() => {
+        const live = snapshotFromYdoc(room.ydoc);
+        if (patch.ownerId !== undefined && !canOwnAttribute(live, id, patch.ownerId)) {
+          setNotice('Choose an entity, relationship, specialization or composite outside this attribute’s parts.');
+          return;
+        }
+        if (patch.kind && patch.kind !== 'composite' && live.attributes.some(a => a.ownerId === id)) {
+          setNotice('Move or delete the parts before changing this composite’s kind.');
+          return;
+        }
         const map = room.ydoc.getMap('attributes').get(id) as Y.Map<unknown> | undefined;
         if (!map) return;
         for (const [key, value] of Object.entries(patch)) {
@@ -319,12 +329,24 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
         }
       }),
 
-    updateRelationship: (id, patch) =>
+    updateRelationship: (id, patch, separateUndo = false) =>
       mutate(() => {
         const map = room.ydoc.getMap('relationships').get(id) as Y.Map<unknown> | undefined;
         if (!map) return;
-        for (const [key, value] of Object.entries(patch)) map.set(key, value as never);
-      }),
+        for (const [key, value] of Object.entries(patch)) {
+          // A route that is not one of the three has no meaning, and writing it
+          // would leave the connector falling back to automatic anyway — but as
+          // a stored value nobody can see or undo.
+          if (key === 'route' && !ROUTE_SIDES.includes(value as RouteSide)) continue;
+          // A corner is two finite numbers or nothing. `undefined` clears the
+          // half, which is how dragging back to automatic works.
+          if ((key === 'bendX' || key === 'bendY')) {
+            if (value === undefined) { map.delete(key); continue; }
+            if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+          }
+          map.set(key, value as never);
+        }
+      }, separateUndo),
 
     updateLeg: (id, patch) =>
       mutate(() => {
@@ -369,9 +391,10 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
         map.set('childIds', next);
       }),
 
-    addEntity: (x, y) => {
+    addEntity: (x, y, crowPosition) => {
       const id = makeId('ent');
-      mutate(() => upsertEntity(room.ydoc, { id, name: 'New entity', x, y, kind: 'strong' }), true);
+      mutate(() => upsertEntity(room.ydoc, { id, name: 'New entity', x, y, kind: 'strong',
+        ...(crowPosition ? { crowX: crowPosition.x, crowY: crowPosition.y } : {}) }), true);
       setSelection([id]);
       setJustCreated(id);
       return id;
@@ -393,6 +416,10 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     addAttribute: (x, y, ownerId = null) => {
       const id = makeId('attr');
       const live = snapshotFromYdoc(room.ydoc);
+      if (!canOwnAttribute(live, id, ownerId)) {
+        setNotice('This shape cannot own an attribute.');
+        return '';
+      }
       const slot = findAttributeSlot(live, ownerId);
       const nextX = slot ? slot.x : x;
       const nextY = slot ? slot.y : y;

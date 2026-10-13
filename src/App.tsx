@@ -10,16 +10,17 @@ import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight } from
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
-import { useEditor } from './state/useEditor';
+import { useEditor, type EditorState } from './state/useEditor';
 import { ExportDialog } from './ui/ExportDialog';
 import { Inspector } from './ui/Inspector';
 import { ContextMenu, type MenuItem } from './ui/ContextMenu';
-import { ShareDialog } from './ui/Modals';
+import { ShareDialog, Modal } from './ui/Modals';
 import { ShapeRail, type ShapeKind } from './ui/ShapeRail';
-import { DiagramOutline, ExamplesDialog, HelpPanel } from './ui/WorkspacePanels';
+import { DiagramOutline, ExamplesDialog, HelpPanel, ThemePicker } from './ui/WorkspacePanels';
+import { savedTheme, THEMES } from './ui/theme';
 import { WorkspaceIcon } from './ui/WorkspaceIcon';
 
-type Dialog = 'share' | 'export' | 'examples' | null;
+type Dialog = 'share' | 'export' | 'examples' | 'theme' | 'name' | null;
 type Panel = 'build' | 'diagram' | 'properties' | 'help';
 interface Session { room: string; seed: ErdDocument | null; fromLink: boolean }
 
@@ -201,14 +202,22 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     const missing = state.doc.entities.filter((entity) => entity.crowX === undefined || entity.crowY === undefined);
     if (missing.length === 0) return;
     const crowPlaced = new Set(
-      state.doc.entities.filter((e) => e.crowX !== undefined).map((e) => e.id),
+      state.doc.entities.filter((e) => e.crowX !== undefined && e.crowY !== undefined).map((e) => e.id),
     );
     // Arrange the tables as tables. Positions already chosen are kept: this
     // only fills gaps, so re-running cannot rearrange what is settled.
     const arranged = applyLayout(state.doc);
     const fresh = new Map<string, { x: number; y: number }>();
+    const tables = deriveTables(state.doc);
+    const occupied = tables.filter(table => crowPlaced.has(table.entityId))
+      .map(table => ({ x: table.x, y: table.y, w: table.width, h: tableHeight(table) }));
     for (const entity of arranged.entities) {
-      if (!crowPlaced.has(entity.id)) fresh.set(entity.id, { x: entity.x, y: entity.y });
+      if (crowPlaced.has(entity.id)) continue;
+      const table = tables.find(table => table.entityId === entity.id)!;
+      const size = { w: table.width, h: tableHeight(table) };
+      const point = findFreeSlot(occupied, { x: entity.x, y: entity.y }, size);
+      fresh.set(entity.id, point);
+      occupied.push({ ...point, ...size });
     }
     if (fresh.size === 0) return;
     // Shared, like every other edit: two people in the room see the same tables.
@@ -314,7 +323,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       // the person happened to shift-click them in.
       const owner = state.selection[0];
       const attribute = state.doc.attributes.find((item) => item.id === owner);
-      ownerId = owner && [...state.doc.entities, ...state.doc.relationships, ...state.doc.isas]
+      ownerId = attribute?.kind === 'composite' ? attribute.id : owner && [...state.doc.entities, ...state.doc.relationships, ...state.doc.isas]
         .some((item) => item.id === owner) ? owner : attribute?.ownerId ?? null;
       if (view === 'crowfoot' && !state.doc.entities.some((entity) => entity.id === ownerId)) view = 'chen';
     }
@@ -330,7 +339,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       : cursorOrigin(size, state.pointer.current, rect ?? null, state.viewport);
     const slot = findFreeSlot(occupiedBoxes({ ...shown, view }), origin, size);
     if (kind === 'attribute') state.addAttribute(slot.x, slot.y, ownerId);
-    else if (kind === 'entity') state.addEntity(slot.x, slot.y);
+    else if (kind === 'entity') state.addEntity(slot.x, slot.y, view === 'crowfoot' ? slot : undefined);
     else if (kind === 'relationship') {
       const id = state.addRelationship(slot.x, slot.y);
       if (view === 'chen') setConnectFrom(id);
@@ -550,6 +559,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     if (menu.shape) {
       const selection = state.selection;
       const grouped = state.doc.groups.find((g) => selection.length > 0 && selection.every((id) => g.memberIds.includes(id)));
+      const selectedRelationship = state.doc.relationships.find((r) => selection.length === 1 && selection[0] === r.id);
       return [
         { label: 'Edit properties', onSelect: () => {
           select(selection);
@@ -565,6 +575,30 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           disabledReason: grouped ? 'These shapes are already grouped.' : 'Select at least two shapes with Shift-click to group them.',
           onSelect: () => state.group(selection) },
         ...(grouped ? [{ label: 'Remove group', onSelect: () => state.ungroup(grouped.id) }] : []),
+        /*
+         * Line routing, on the line's own menu.
+         *
+         * Every automatic rule about where a connector goes is a guess. The
+         * corner can be dragged on the canvas; these are the three-way and
+         * clear-it controls for anyone who would rather not drag, or who wants
+         * the router to take over again.
+         */
+        ...(isCrowFoot && selectedRelationship ? [
+          { label: 'Route line above', separated: true,
+            disabled: selectedRelationship.route === 'above' && selectedRelationship.bendX === undefined,
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'above', bendX: undefined, bendY: undefined }) },
+          { label: 'Route line below',
+            disabled: selectedRelationship.route === 'below' && selectedRelationship.bendX === undefined,
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'below', bendX: undefined, bendY: undefined }) },
+          { label: 'Route line automatically',
+            disabled: (!selectedRelationship.route || selectedRelationship.route === 'auto') &&
+              selectedRelationship.bendX === undefined,
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { route: 'auto', bendX: undefined, bendY: undefined }) },
+          { label: 'Clear dragged corner',
+            disabled: selectedRelationship.bendX === undefined && selectedRelationship.bendY === undefined,
+            disabledReason: 'This line has no dragged corner.',
+            onSelect: () => state.updateRelationship(selectedRelationship.id, { bendX: undefined, bendY: undefined }) },
+        ] : []),
         { label: selection.length > 1 ? `Delete ${selection.length} shapes` : 'Delete selection',
           tone: 'danger' as const, separated: true, shortcut: 'Delete',
           onSelect: () => state.remove(selection) },
@@ -579,14 +613,21 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       create('relationship', 'New relationship', 'R'),
       create('isa', 'New specialization', 'S'),
     ];
-  }, [menu, state.selection, state.doc.groups, state.group, state.ungroup, state.remove, addShape, select, showPanel]);
+  }, [menu, state.selection, state.doc.groups, state.doc.relationships, state.updateRelationship, isCrowFoot, state.group, state.ungroup, state.remove, addShape, select, showPanel]);
   const fileItems: MenuItem[] = [
     { label: 'New', onSelect: () => openDocument(emptyDocument()) },
     { label: 'Import', onSelect: () => fileInputRef.current?.click() },
     { label: 'Open an example', onSelect: () => setDialog('examples') },
     { label: 'Export', separated: true, onSelect: () => setDialog('export') },
     { label: 'Share', onSelect: () => setDialog('share') },
-    { label: 'Help', separated: true, onSelect: () => showPanel('help') },
+    // Theme is a setting about this app, not about modeling, so it lives here
+    // rather than at the bottom of a long Help scroll.
+    { label: `Theme: ${THEMES.find((t) => t.id === savedTheme())?.name ?? 'System'}`,
+      separated: true, onSelect: () => setDialog('theme') },
+    { label: 'Help', onSelect: () => showPanel('help') },
+    // Your name used to be reachable only on an empty canvas, which meant it
+    // could not be changed once you had drawn anything.
+    { label: `Your name: ${state.identity.name}`, separated: true, onSelect: () => setDialog('name') },
   ];
   const emptyActions = isEmpty ? <>
     <div className="starter-name">
@@ -761,10 +802,52 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       {dialog === 'share' ? <ShareDialog state={editor} onClose={closeDialog} /> : null}
       {dialog === 'export' ? <ExportDialog state={editor} svgRef={svgRef} onClose={closeDialog} /> : null}
       {dialog === 'examples' ? <ExamplesDialog onOpen={openDocument} onClose={closeDialog} /> : null}
+      {dialog === 'theme' ? (
+        <Modal title="Theme" onClose={closeDialog}>
+          <ThemePicker />
+        </Modal>
+      ) : null}
+      {dialog === 'name' ? (
+        <Modal title="Your name" onClose={closeDialog}>
+          <NameField state={state} />
+        </Modal>
+      ) : null}
       {menu && menuItems ? (
         <ContextMenu at={menu.at} items={menuItems} label={menu.shape ? 'Shape actions' : 'Add a shape'} onClose={closeMenu} />
       ) : null}
       {fileMenuAt ? <ContextMenu at={fileMenuAt} items={fileItems} label="Diagram actions" onClose={closeFileMenu} trigger={fileMenuTrigger} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Your own name, editable at any point.
+ *
+ * The same control as the empty-canvas card, because it was only reachable
+ * there: once the canvas had content there was no way to change it at all.
+ *
+ * Clearing the field does not commit an empty name — `setIdentityName` refuses
+ * one, so a peer is never shown nameless — but the text stays editable while
+ * empty so the name can be retyped, and blur restores what was last committed.
+ */
+function NameField({ state }: { state: EditorState }) {
+  const [draft, setDraft] = useState(state.identity.name);
+  return (
+    <div className="field">
+      <label className="field__label" htmlFor="dialog-name">Your name</label>
+      <input
+        id="dialog-name"
+        className="field__input"
+        value={draft}
+        autoComplete="off"
+        maxLength={32}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          state.setIdentityName(event.target.value);
+        }}
+        onBlur={() => setDraft(state.identity.name)}
+      />
+      <p className="field__help">Collaborators see this beside your cursor. It stays in this browser.</p>
     </div>
   );
 }

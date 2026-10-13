@@ -1,4 +1,5 @@
-import { attributesOf, legsFor, type ErdDocument } from './types';
+import { legsFor, type ErdDocument } from './types';
+import { leafAttributesOf } from './attributes';
 import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection } from './crowfoot';
 
 export interface DiagramIssue {
@@ -21,7 +22,7 @@ export function getDiagramIssues(doc: ErdDocument): DiagramIssue[] {
     }
   }
   for (const entity of doc.entities) {
-    if (!attributesOf(doc, entity.id).some((a) => a.kind === 'key')) {
+    if (!leafAttributesOf(doc, entity.id).some((a) => a.kind === 'key')) {
       issues.push({ code: 'missing-key', nodeId: entity.id,
         message: 'Choose a key for ' + (entity.name || 'this entity') + ' to identify each record.' });
     }

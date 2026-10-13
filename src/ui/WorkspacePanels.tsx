@@ -64,29 +64,35 @@ export function DiagramOutline({ state, onSelect }: { state: EditorState; onSele
  * arrow-key navigation plus a single announced state comes free with a radiogroup
  * that a row of toggles would have to be taught.
  */
-function ThemePicker() {
+/**
+ * Theme choice.
+ *
+ * A radio group rather than a menu of buttons: these are exclusive options, and
+ * arrow-key navigation plus a single announced state come free with a radiogroup
+ * that a row of toggles would have to be taught. Each swatch carries its own
+ * theme on a `data-theme` attribute, so the chip shows the real palette instead
+ * of a word that has to be read before it can be judged.
+ */
+export function ThemePicker() {
   const [theme, setTheme] = useState<ThemeId>(savedTheme);
   const choose = (next: ThemeId) => {
     setTheme(next);
     applyTheme(next);
   };
   return (
-    <fieldset className="theme-picker">
-      <legend className="panel__title">Theme</legend>
-      <div role="radiogroup" aria-label="Theme" className="theme-picker__options">
-        {THEMES.map((option) => (
-          <button key={option.id} type="button" role="radio" aria-checked={theme === option.id}
-            className="theme-swatch" data-theme={option.id === 'system' ? undefined : option.id}
-            onClick={() => choose(option.id)}>
-            <span className="theme-swatch__chip" aria-hidden="true" />
-            <span className="theme-swatch__text">
-              <strong>{option.name}</strong>
-              <span>{option.note}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </fieldset>
+    <div role="radiogroup" aria-label="Theme" className="theme-picker__options">
+      {THEMES.map((option) => (
+        <button key={option.id} type="button" role="radio" aria-checked={theme === option.id}
+          className="theme-swatch" data-theme={option.id === 'system' ? undefined : option.id}
+          onClick={() => choose(option.id)}>
+          <span className="theme-swatch__chip" aria-hidden="true" />
+          <span className="theme-swatch__text">
+            <strong>{option.name}</strong>
+            <span>{option.note}</span>
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -110,6 +116,7 @@ export function HelpPanel() {
       </dl>
       <h3>Attribute kinds</h3>
       <p>Multivalued attributes have a double ellipse; derived attributes have a dashed ellipse. A composite attribute describes smaller parts, such as an address.</p>
+      <p>Select a composite and use Add attribute in Properties to create its parts, such as Street and City. Parts can also be composite. Chen draws each part linked to its parent; tables and SQL use the leaf parts with parent names, such as address_street. Move or delete the parts before changing a composite’s kind.</p>
       <h3>Read a relationship</h3>
       <div className="relationship-example">Customer <strong>1</strong> — places — <strong>N</strong> Order</div>
       <p>One customer can place many orders. Each order belongs to one customer. N and M both mean many.</p>
@@ -127,7 +134,6 @@ export function HelpPanel() {
         ))}
       </div>
       <p>The endpoint beside an entity describes that entity. Click its symbols to edit. N and M use a fork; advanced numeric limits are written beside the line.</p>
-      <ThemePicker />
       <p>Connect two entities to create a relationship diamond automatically. Connect an entity to an existing diamond to add a participant.</p>
       <h3>Chen and crow’s-foot</h3>
       <p>In crow’s-foot view, choose Connect (C) and click or tap two attribute rows, or drag from one row to another. A relationship is created with its endpoints on those rows. Use its Connection attribute selectors to change either end; Automatic follows the inferred key and foreign key.</p>

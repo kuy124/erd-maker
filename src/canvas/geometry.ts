@@ -11,7 +11,7 @@
  */
 
 import { sizeOf, allNodes, type ErdDocument, type NodeId, type Positioned } from '../model/types';
-import { deriveLinks, deriveTables, routeColumns } from '../model/crowfoot';
+import { deriveLinks, deriveTables, routeColumns, tableObstacle } from '../model/crowfoot';
 import { occupiedBoxes } from '../model/placement';
 
 export interface Point {
@@ -313,10 +313,17 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
   }
   if (doc.view === 'crowfoot') {
     const tables = deriveTables(doc);
+    // The obstacles the canvas routes against, and the two endpoints excluded,
+    // exactly as `CrowFootCanvas` builds them. Measuring the direct route while
+    // the drawing shows a detour framed a region the connector was not in, so
+    // Fit left it running off the edge of the screen.
+    const obstacles = tables.map(tableObstacle);
     for (const link of deriveLinks(doc).filter((link, index, all) => all.findIndex((l) => l.relId === link.relId) === index)) {
       const from = tables.find((t) => t.entityId === link.fromEntityId)!;
       const to = tables.find((t) => t.entityId === link.toEntityId)!;
-      const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane);
+      const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane,
+        obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
+          !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend);
       const textWidth = Math.min(link.label.length, 24) * 8;
       minX = Math.min(minX, route.bounds.minX, route.label.x - (route.labelAnchor === 'start' ? 0 : textWidth));
       maxX = Math.max(maxX, route.bounds.maxX, route.label.x + (route.labelAnchor === 'end' ? 0 : textWidth));

@@ -26,7 +26,6 @@
  */
 
 import {
-  attributesOf,
   legsFor,
   type ErdDocument,
   type Entity,
@@ -35,6 +34,7 @@ import {
 } from './types';
 import { toSqlName } from './columnNames';
 import { attributeType, normalizeDataType, sqlDataType } from './dataTypes';
+import { leafAttributesOf } from './attributes';
 import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, type CrowTable, type RelationshipEnd } from './crowfoot';
 export { foreignKeyColumnName, toSqlName } from './columnNames';
 
@@ -161,7 +161,7 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
 
   for (const entity of doc.entities) {
     const columns: Column[] = [];
-    const attrs = attributesOf(doc, entity.id).filter((a) => a.kind !== 'derived');
+    const attrs = leafAttributesOf(doc, entity.id);
     const keyAttrs = attrs.filter((a) => a.kind === 'key');
     const weakParent = weakEntityParent(doc, entity);
 
@@ -263,7 +263,7 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
       },
     ];
     // Attributes hanging off the relationship describe the association itself.
-    for (const attr of attributesOf(doc, rel.id).filter((x) => x.kind !== 'derived')) {
+    for (const attr of leafAttributesOf(doc, rel.id)) {
       const name = toSqlName(attr.name);
       if (columns.some((c) => c.name === name)) continue;
       columns.push({ name, type: columnTypeFor(attr), pk: false, nullable: true });
@@ -318,7 +318,7 @@ function renderTable(table: Table, dropFirst: boolean): string {
 /** Convenience used by the UI to explain why an export would be empty. */
 export function describeSqlReadiness(doc: ErdDocument): string {
   if (doc.entities.length === 0) return 'Add an entity to generate SQL.';
-  const anyKey = doc.entities.some((e) => attributesOf(doc, e.id).some((a) => a.kind === 'key'));
+  const anyKey = doc.entities.some((e) => leafAttributesOf(doc, e.id).some((a) => a.kind === 'key'));
   if (!anyKey) return 'Mark at least one attribute as a key to get a primary key.';
   try {
     generateSql(doc);
