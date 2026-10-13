@@ -86,6 +86,20 @@ describe('composite attributes', () => {
     }
   });
 
+  it('keeps independent segment positions through JSON, portable links and peer updates', () => {
+    const doc = schema();
+    const routePoints = [{ x: 300, y: 166 }, { x: 300, y: -40 }, { x: 550, y: -40 }, { x: 550, y: 166 }];
+    doc.relationships = [{ id: 'r', name: 'owns', x: 0, y: 0, kind: 'strong', routePoints }];
+    const alice = new Y.Doc(), bob = new Y.Doc();
+    seedDocument(alice, doc); Y.applyUpdate(bob, Y.encodeStateAsUpdate(alice));
+    for (const result of [normalizeDocument(doc), decodeSnapshot(encodeSnapshot(doc)), snapshotFromYdoc(bob)]) {
+      expect(result!.relationships[0]!.routePoints).toEqual(routePoints);
+    }
+    alice.destroy(); bob.destroy();
+    doc.relationships[0]!.routePoints = [{ x: 0, y: 0 }, { x: 10, y: 10 }];
+    expect(normalizeDocument(doc).relationships[0]!.routePoints).toBeUndefined();
+  });
+
   it('infers a leaf type from the original leaf name, not its composite ancestors', () => {
     const doc = schema();
     doc.attributes = [

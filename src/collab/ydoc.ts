@@ -36,6 +36,7 @@ import { ROUTE_SIDES } from '../model/types';
 import { emptyDocument } from '../model/types';
 import { normalizeDataType } from '../model/dataTypes';
 import { descendantAttributeIds, normalizeAttributeOwners } from '../model/attributes';
+import { normalizeRoutePoints, type RoutePoint } from '../model/connectorRouting';
 import { canConnect, findRelationshipSlot } from '../model/placement';
 import { deriveTables, type ColumnEndpoint } from '../model/crowfoot';
 
@@ -49,7 +50,7 @@ export const GROUPS = 'groups';
 
 type Primitive = string | number | boolean | null;
 
-function setFields(map: Y.Map<unknown>, fields: Record<string, Primitive | string[]>): void {
+function setFields(map: Y.Map<unknown>, fields: Record<string, Primitive | string[] | RoutePoint[]>): void {
   for (const [key, value] of Object.entries(fields)) {
     if (Array.isArray(value)) {
       map.set(key, value);
@@ -387,6 +388,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
        * Infinity would put the line somewhere nobody can scroll to.
        */
       ...(bendX !== undefined && bendY !== undefined ? { bendX, bendY } : {}),
+      ...(normalizeRoutePoints(m.get('routePoints')) ? { routePoints: normalizeRoutePoints(m.get('routePoints')) } : {}),
     });
   });
 

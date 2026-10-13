@@ -323,7 +323,7 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
       const to = tables.find((t) => t.entityId === link.toEntityId)!;
       const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane,
         obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
-          !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend);
+          !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend, link.routePoints);
       const textWidth = Math.min(link.label.length, 24) * 8;
       minX = Math.min(minX, route.bounds.minX, route.label.x - (route.labelAnchor === 'start' ? 0 : textWidth));
       maxX = Math.max(maxX, route.bounds.maxX, route.label.x + (route.labelAnchor === 'end' ? 0 : textWidth));

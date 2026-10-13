@@ -18,6 +18,7 @@
 
 import type { DataType } from './dataTypes';
 import { descendantAttributeIds } from './attributes';
+import type { RoutePoint } from './connectorRouting';
 
 export type EntityKind = 'strong' | 'weak';
 export type RelationshipKind = 'strong' | 'weak';
@@ -98,6 +99,8 @@ export interface Relationship {
    */
   bendX?: number;
   bendY?: number;
+  /** Interior vertices chosen by dragging individual crow's-foot segments. */
+  routePoints?: RoutePoint[];
 }
 
 export interface Isa {

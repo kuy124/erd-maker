@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { moveRouteSegment, type RoutePoint } from '../model/connectorRouting';
 import { useCanvasZoom } from './useCanvasZoom';
 import {
   CROW_HEADER_HEIGHT,
@@ -282,7 +283,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   onSelect={(event) => tool === 'pan' ? drag.beginPan(event.clientX, event.clientY) : state.setSelection([link.relId])}
                   onKeyboardSelect={() => state.setSelection([link.relId])}
                   onBendChange={(relId, bend) => state.updateRelationship(relId,
-                    bend ? { bendX: bend.x, bendY: bend.y } : { bendX: undefined, bendY: undefined }, true)}
+                    { ...(bend ? { bendX: bend.x, bendY: bend.y } : { bendX: undefined, bendY: undefined }), routePoints: undefined }, true)}
+                  onRouteChange={(relId, routePoints) => state.updateRelationship(relId,
+                    { routePoints, bendX: undefined, bendY: undefined }, true)}
                 />
               );
             })}
@@ -471,6 +474,7 @@ function CrowConnector({
   onKeyboardSelect,
   obstacles,
   onBendChange,
+  onRouteChange,
   toWorld,
   handleLayer,
   tool,
@@ -486,30 +490,29 @@ function CrowConnector({
   obstacles: Obstacle[];
   /** Places the connector's corner, in drawing coordinates. */
   onBendChange?: (relId: string, bend: { x: number; y: number } | null) => void;
+  onRouteChange: (relId: string, points: RoutePoint[]) => void;
   toWorld: (clientX: number, clientY: number) => Point;
   handleLayer: SVGGElement | null;
   tool: EditorState['tool'];
 }) {
   const [preview, setPreview] = useState<Point | null>(null);
+  const [previewPoints, setPreviewPoints] = useState<RoutePoint[] | null>(null);
+  const [dragAxis, setDragAxis] = useState<'horizontal' | 'vertical' | null>(null);
+  const [showCorner, setShowCorner] = useState(false);
   const cancelDrag = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelDrag.current?.(), []);
   useEffect(() => { if (!selected || tool !== 'select') cancelDrag.current?.(); }, [selected, tool]);
+  useEffect(() => { if (!selected) setShowCorner(false); }, [selected]);
   // The two tables this connector starts and ends at are not obstacles: leaving
   // a row means crossing the table it belongs to, which is how a connector is
   // drawn rather than a flaw.
   const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, lane,
     obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
-      !(rect.minX === to.x && rect.minY === to.y)), link.route, preview ?? link.bend ?? null);
+      !(rect.minX === to.x && rect.minY === to.y)), link.route, preview ?? link.bend ?? null,
+    previewPoints ?? link.routePoints);
 
-  /**
-   * Drag the corner to place it.
-   *
-   * The grab point is the handle itself when there is one, so a drag does not
-   * jump by however far the handle was from the centre. Without a handle the
-   * corner starts at the midpoint, and the grab offset is that midpoint — the
-   * line appears from where it was, not from where the pointer landed.
-   */
-  const startBendDrag = (event: React.PointerEvent, handle?: Point) => {
+  /** Move a segment along its normal, or the optional keyboard-selected corner. */
+  const startBendDrag = (event: React.PointerEvent, handle?: Point, segmentIndex?: number) => {
     if (event.button !== 0) return;
     event.stopPropagation();
     if (tool === 'pan') { onSelect(event); return; }
@@ -522,11 +525,33 @@ function CrowConnector({
     };
     const start = toWorld(event.clientX, event.clientY);
     const offset = { x: origin.x - start.x, y: origin.y - start.y };
+    const press = { x: event.clientX, y: event.clientY };
+    let moved = false;
     let final: Point | null = null;
+    let finalPoints: RoutePoint[] | null = null;
+    const axis = segmentIndex === undefined ? null :
+      route.points[segmentIndex]!.y === route.points[segmentIndex + 1]!.y ? 'horizontal' : 'vertical';
     const pointerId = event.pointerId;
     const move = (moveEvent: PointerEvent) => {
       if (moveEvent.pointerId !== pointerId) return;
+      if (!moved && Math.hypot(moveEvent.clientX - press.x, moveEvent.clientY - press.y) < 4) return;
+      moved = true;
       const now = toWorld(moveEvent.clientX, moveEvent.clientY);
+      if (segmentIndex !== undefined) {
+        const points = moveRouteSegment(route.points, segmentIndex,
+          axis === 'horizontal' ? now.y - start.y : now.x - start.x);
+        finalPoints = points.slice(1, -1);
+        if (finalPoints.length === 1) {
+          // Keep a single L-shaped corner valid in the saved interior-vertex format.
+          finalPoints.push({ ...finalPoints[0]! });
+        } else if (finalPoints.length === 0) {
+          const a = points[0]!, b = points.at(-1)!;
+          finalPoints = [1 / 3, 2 / 3].map(t => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }));
+        }
+        setPreviewPoints(finalPoints);
+        setDragAxis(axis);
+        return;
+      }
       final = { x: Math.round(now.x + offset.x), y: Math.round(now.y + offset.y) };
       setPreview(final);
     };
@@ -537,11 +562,15 @@ function CrowConnector({
       window.removeEventListener('keydown', key);
       cancelDrag.current = null;
       setPreview(null);
+      setPreviewPoints(null);
+      setDragAxis(null);
     };
     const up = (upEvent: PointerEvent) => {
       if (upEvent.pointerId !== pointerId) return;
       const point = final;
+      const points = finalPoints;
       cancel();
+      if (points) { onRouteChange(link.relId, points); return; }
       if (point && (point.x !== origin.x || point.y !== origin.y)) onBendChange(link.relId, point);
     };
     const key = (keyEvent: KeyboardEvent) => { if (keyEvent.key === 'Escape') cancel(); };
@@ -554,7 +583,8 @@ function CrowConnector({
 
   return (
     <g
-      className={`crow-link${selected ? ' crow-link--selected' : ''}`}
+      className={`crow-link${selected ? ' crow-link--selected' : ''}${preview || previewPoints ? ' crow-link--dragging' : ''}`}
+      data-drag-axis={dragAxis ?? undefined}
       role="button"
       tabIndex={0}
       aria-label={`Relationship ${link.label}, ${link.ratio}, ${from.name}.${from.rows.find((r) => r.id === link.fromColumnId)?.name} to ${to.name}.${to.rows.find((r) => r.id === link.toColumnId)?.name}`}
@@ -563,17 +593,35 @@ function CrowConnector({
       data-from-column={link.fromColumnId}
       data-to-column={link.toColumnId}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onKeyboardSelect(); }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault(); setShowCorner(true); onKeyboardSelect();
+        }
       }}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.stopPropagation();
+        event.currentTarget.focus({ preventScroll: true });
+        setShowCorner(false);
         onSelect(event);
       }}
     >
+      <title>Drag a segment with the double-arrow cursor to move it. Click to select.</title>
       {/* A wide transparent band makes the thin line easy to hit, the same as
           the relationship lines in the Chen view. */}
-      <path className="crow-link__hit" d={route.path} />
+      {route.points.slice(1).map((point, index) => {
+        const previous = route.points[index]!;
+        const axis = previous.y === point.y ? 'horizontal' : 'vertical';
+        return <path key={index} className={`crow-link__hit crow-link__hit--${axis}`}
+          data-route-axis={axis} d={`M${previous.x} ${previous.y} L${point.x} ${point.y}`}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            event.stopPropagation();
+            event.currentTarget.closest<SVGGElement>('.crow-link')?.focus({ preventScroll: true });
+            setShowCorner(false);
+            onSelect(event);
+            if (tool === 'select') startBendDrag(event, undefined, index);
+          }} />;
+      })}
       <path className="leg crow-link__path" d={route.path} />
       <CardinalityMarker origin={route.a} toward={route.aToward}
         many={link.fromMany} required={link.fromMandatory} />
@@ -609,7 +657,7 @@ function CrowConnector({
         selectable everywhere else while the corner takes the pointer where the
         two overlap, which is exactly where a hand goes for it.
       */}
-      {selected && onBendChange && handleLayer ? createPortal(
+      {selected && showCorner && !link.routePoints && !previewPoints && onBendChange && handleLayer ? createPortal(
         <>
           <circle
             className="crow-link__bend-hit"

@@ -2,6 +2,7 @@ import { legsFor, type ErdDocument, type Entity, type Leg, type RouteSide } from
 import { foreignKeyColumnName, toSqlName } from './columnNames';
 import { attributeType } from './dataTypes';
 import { leafAttributesOf } from './attributes';
+import { normalizeRoutePoints, simplifyRoute, type RoutePoint } from './connectorRouting';
 
 export interface CrowTable {
   entityId: string;
@@ -89,6 +90,7 @@ export interface CrowLink {
   route: RouteSide;
   /** A corner the person dragged. Absent means the router still decides. */
   bend?: { x: number; y: number };
+  routePoints?: RoutePoint[];
 }
 
 function baseRows(doc: ErdDocument, entity: Entity): CrowRow[] {
@@ -297,6 +299,7 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
       route: rel.route ?? 'auto',
       // Absent stays absent, so a document with no dragged corners is unchanged.
       ...(rel.bendX !== undefined && rel.bendY !== undefined ? { bend: { x: rel.bendX, y: rel.bendY } } : {}),
+      ...(rel.routePoints ? { routePoints: rel.routePoints } : {}),
     };
     links.push(link);
     // Preserve the existing helper contract; the renderer draws the relationship once.
@@ -385,14 +388,16 @@ export function routeColumns(
   obstacles: Obstacle[] = [],
   preferred: RouteSide = 'auto',
   bend?: Point | null,
+  routePoints?: RoutePoint[],
 ) {
   const ay = rowCenter(from, fromColumnId), by = rowCenter(to, toColumnId);
   const span = Math.max(from.width, to.width);
   const gapRight = to.x - from.x - span;
   const gapLeft = from.x - to.x - span;
   const facing = Math.max(gapRight, gapLeft) >= EXIT_STUB + 44;
-  const fromRight = facing ? gapRight >= gapLeft : to.x >= from.x;
-  const toRight = facing ? !fromRight : fromRight;
+  const saved = normalizeRoutePoints(routePoints);
+  const fromRight = saved ? saved[0]!.x >= from.x + from.width / 2 : facing ? gapRight >= gapLeft : to.x >= from.x;
+  const toRight = saved ? saved.at(-1)!.x >= to.x + to.width / 2 : facing ? !fromRight : fromRight;
   const a = { x: from.x + (fromRight ? from.width : 0), y: ay };
   const b = { x: to.x + (toRight ? to.width : 0), y: by };
 
@@ -407,7 +412,8 @@ export function routeColumns(
       { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: jogY },
       { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: by }, b];
 
-  const directPath = polyline(direct);
+  const directPoints = simplifyRoute(direct);
+  const directPath = polyline(directPoints);
   const clear = obstacles.every((rect) =>
     direct.slice(1).every((point, index) => !crossesObstacle(direct[index]!, point, rect)));
 
@@ -419,18 +425,30 @@ export function routeColumns(
    * should go; a dragged point is not a guess. Only "automatic" or a missing
    * point lets the router decide again.
    */
+  if (saved) {
+    const first = saved[0]!, last = saved.at(-1)!;
+    const points = simplifyRoute([a, { x: first.x, y: ay }, ...saved, { x: last.x, y: by }, b]);
+    const middle = points[Math.floor(points.length / 2)]!;
+    return {
+      a, b, points, path: polyline(points),
+      aToward: points[1] ?? b, bToward: points.at(-2) ?? a,
+      handle: middle, label: { x: middle.x + 26, y: middle.y }, labelAnchor: 'start' as const,
+      bounds: { minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)),
+        minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)) },
+    };
+  }
   if (bend) {
     const corner = { x: bend.x, y: bend.y };
     const aStub = { x: a.x + (fromRight ? EXIT_STUB : -EXIT_STUB), y: ay };
     const bStub = { x: b.x + (toRight ? EXIT_STUB : -EXIT_STUB), y: by };
-    const points = [a, aStub, { x: corner.x, y: ay }, corner,
-      { x: bStub.x, y: corner.y }, bStub, b];
+    const points = simplifyRoute([a, aStub, { x: corner.x, y: ay }, corner,
+      { x: bStub.x, y: corner.y }, bStub, b]);
     const path = polyline(points);
     return {
       a, b,
       aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
       bToward: { x: b.x + (toRight ? 30 : -30), y: by },
-      path,
+      path, points,
       /*
        * The label sits beside the corner, never on it.
        *
@@ -459,7 +477,7 @@ export function routeColumns(
       y: jogY !== ay || ay === by ? jogY - 20 : (ay + by) / 2 - (facing ? 0 : lane * 32) };
     return { a, b, aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
       bToward: { x: b.x + (toRight ? 30 : -30), y: by },
-      path: directPath, label, labelAnchor: facing ? 'middle' as const : fromRight ? 'start' as const : 'end' as const,
+      path: directPath, points: directPoints, label, labelAnchor: facing ? 'middle' as const : fromRight ? 'start' as const : 'end' as const,
       handle: { x: bendX, y: jogY === ay ? by : jogY },
       bounds: { minX: Math.min(a.x, b.x, bendX), maxX: Math.max(a.x, b.x, bendX),
         minY: Math.min(ay, by, jogY), maxY: Math.max(ay, by) } };
@@ -491,12 +509,13 @@ export function routeColumns(
   // line off the edge of the drawing is worse than a longer one.
   const forced = preferred === 'above' ? above : preferred === 'below' ? below : undefined;
   const channel = forced ?? (cost(above) <= cost(below) ? above : below);
-  const path = polyline([a, { x: a.x, y: channel }, { x: b.x, y: channel }, b]);
+  const points = simplifyRoute([a, { x: a.x, y: channel }, { x: b.x, y: channel }, b]);
+  const path = polyline(points);
   return {
     a, b,
     aToward: { x: a.x + (fromRight ? 30 : -30), y: ay },
     bToward: { x: b.x + (toRight ? 30 : -30), y: by },
-    path,
+    path, points,
     label: { x: (a.x + b.x) / 2, y: channel + (channel < Math.min(ay, by) ? -12 : 16) },
     labelAnchor: 'middle' as const,
     handle: { x: (a.x + b.x) / 2, y: channel },

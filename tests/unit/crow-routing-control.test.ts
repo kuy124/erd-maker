@@ -98,4 +98,17 @@ describe('manual routing', () => {
     expect(points[corner - 1]!.x).toBe(400);
     expect(points[corner + 1]!.y).toBe(-120);
   });
+
+  it('keeps independent segment positions attached to the current table rows', () => {
+    const saved = [{ x: 300, y: 166 }, { x: 300, y: 40 }, { x: 550, y: 40 }, { x: 550, y: 166 }];
+    const route = routeColumns(from, 'r', to, 'r', 0, [], 'auto', null, saved);
+    expect(orthogonalPoints(route.path)).toContainEqual({ x: 300, y: 40 });
+    expect(orthogonalPoints(route.path)).toContainEqual({ x: 550, y: 40 });
+    const moved = routeColumns(table(0, 200), 'r', table(600, 300), 'r', 0, [], 'auto', null, saved);
+    expect(orthogonalPoints(moved.path)[0]).toEqual({ x: 200, y: 266 });
+    expect(orthogonalPoints(moved.path).at(-1)).toEqual({ x: 600, y: 366 });
+    expect(orthogonalPoints(moved.path)).toContainEqual({ x: 550, y: 40 });
+    const movedPastRoute = routeColumns(table(400, 200), 'r', table(1000, 300), 'r', 0, [], 'auto', null, saved);
+    expect(orthogonalPoints(movedPastRoute.path)[0]).toEqual({ x: 400, y: 266 });
+  });
 });
