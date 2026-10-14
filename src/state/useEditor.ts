@@ -29,7 +29,7 @@ import {
 import { writeParticipants, type RelationshipParticipant } from '../collab/participants';
 import { validParticipation } from '../model/issues';
 import { findAttributeSlot } from '../model/placement';
-import { emptyDocument, ROUTE_SIDES, type ErdDocument, type RouteSide } from '../model/types';
+import { emptyDocument, ROUTE_SIDES, type EntityKind, type ErdDocument, type RouteSide } from '../model/types';
 import type { ColumnEndpoint } from '../model/crowfoot';
 import { normalizeDataType, type DataType } from '../model/dataTypes';
 import { canOwnAttribute } from '../model/attributes';
@@ -96,7 +96,7 @@ export interface EditorState {
   setViewport: (updater: (v: Viewport) => Viewport) => void;
   setDocName: (name: string) => void;
   setView: (view: 'chen' | 'crowfoot') => void;
-  updateEntity: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak' }>) => void;
+  updateEntity: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: EntityKind }>) => void;
   updateAttribute: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: string; ownerId: string | null; dataType: DataType }>) => void;
   updateRelationship: (id: string, patch: Partial<{ name: string; x: number; y: number; kind: 'strong' | 'weak'; route: RouteSide; bendX: number | undefined; bendY: number | undefined; routePoints: RoutePoint[] | undefined }>, separateUndo?: boolean) => void;
   updateLeg: (id: string, patch: Partial<{ cardinality: '1' | 'N' | 'M'; min: number; max: number | 'N' }>) => void;

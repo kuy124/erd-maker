@@ -180,7 +180,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
         </div>
         <div className="field">
           <span className="field__label" id="entity-kind-label">
-            Kind
+            Entity type
           </span>
           <div className="seg" role="group" aria-labelledby="entity-kind-label">
             <button
@@ -189,7 +189,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
               aria-pressed={entity.kind === 'strong'}
               onClick={() => state.updateEntity(entity.id, { kind: 'strong' })}
             >
-              Strong
+              Regular
             </button>
             <button
               type="button"
@@ -199,10 +199,15 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             >
               Weak
             </button>
+            <button type="button" className="seg__btn" aria-pressed={entity.kind === 'associative'}
+              onClick={() => state.updateEntity(entity.id, { kind: 'associative' })}>Associative</button>
           </div>
           <p className="field__help">
-            A weak entity cannot exist without its parent, and is drawn with a double border.
+            {entity.kind === 'weak' ? 'A weak entity depends on its parent and is drawn with a double border.' :
+              entity.kind === 'associative' ? 'An associative entity stores facts about an association. Connect it to the related entities and choose its key attributes.' :
+                'A regular entity has its own identity, such as a customer or employee.'}
           </p>
+          <button type="button" className="btn" onClick={() => state.connect(entity.id, entity.id)}>Add unary relationship</button>
         </div>
 
         <div className="field">

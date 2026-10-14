@@ -562,6 +562,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       const selection = state.selection;
       const grouped = state.doc.groups.find((g) => selection.length > 0 && selection.every((id) => g.memberIds.includes(id)));
       const selectedRelationship = state.doc.relationships.find((r) => selection.length === 1 && selection[0] === r.id);
+      const selectedEntity = state.doc.entities.find(entity => selection.length === 1 && selection[0] === entity.id);
       return [
         { label: 'Edit properties', onSelect: () => {
           select(selection);
@@ -572,6 +573,9 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             if (field instanceof HTMLInputElement) field.select();
           });
         } },
+        ...(selectedEntity ? [{ label: 'Add unary relationship', onSelect: () => {
+          state.connect(selectedEntity.id, selectedEntity.id); showPanel('properties');
+        } }] : []),
         { label: selection.length > 1 ? `Group ${selection.length} shapes` : 'Group selected shapes',
           separated: true, disabled: selection.length < 2 || Boolean(grouped),
           disabledReason: grouped ? 'These shapes are already grouped.' : 'Select at least two shapes with Shift-click to group them.',

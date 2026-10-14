@@ -52,7 +52,8 @@ test('repeated table drags use table coordinates and undo independently of Chen'
 });
 
 for (const zoomAction of ['Fit', 'Zoom in', 'Zoom out']) test(`connector paths end at rows and bends follow the pointer after ${zoomAction}`, async ({ page }) => {
-  await importDocument(page, schema());
+  const doc = schema(); doc.relationships[0]!.bendX = 500; doc.relationships[0]!.bendY = -200;
+  await importDocument(page, doc);
   if (zoomAction !== 'Fit') {
     await page.getByRole('button', { name: zoomAction, exact: true }).click();
     await page.getByRole('button', { name: zoomAction, exact: true }).click();
@@ -66,16 +67,19 @@ for (const zoomAction of ['Fit', 'Zoom in', 'Zoom out']) test(`connector paths e
     return { x: end.x, y: end.y };
   });
   expect(endpoint).toEqual({ x: 700, y: 210 });
-  const handle = page.locator('.crow-link__bend');
-  const before = await handle.evaluate(el => ({ x: Number(el.getAttribute('cx')), y: Number(el.getAttribute('cy')) }));
+  const handle = page.getByRole('button', { name: 'Move vertical segment 2', exact: true });
+  const corner = () => handle.evaluate(el => {
+    const matrix = (el as SVGGraphicsElement).transform.baseVal.consolidate()!.matrix;
+    return { x: matrix.e, y: matrix.f };
+  });
+  const before = await corner();
   const scale = await page.locator('[data-viewport]').evaluate(el => (el as unknown as SVGGraphicsElement).transform.baseVal.consolidate()!.matrix.a);
   const box = (await handle.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 - 60, { steps: 5 }); await page.mouse.up();
-  await expect.poll(() => handle.getAttribute('cx')).toBe(String(Math.round(before.x + 40 / scale)));
-  await expect.poll(() => handle.getAttribute('cy')).toBe(String(Math.round(before.y - 60 / scale)));
+  await expect.poll(corner).toEqual({ x: Math.round(before.x + 40 / scale), y: before.y });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect.poll(() => handle.getAttribute('cx')).toBe(String(before.x));
+  await expect.poll(corner).toEqual(before);
 });
 
 test('a composite owns children, draws them in Chen, and exports prefixed leaves', async ({ page }) => {
@@ -118,7 +122,7 @@ test('cancelled bends leave saved geometry unchanged and pan works on their hand
   await importDocument(page, schema());
   const link = page.getByTestId('crow-link-r');
   await link.focus(); await page.keyboard.press('Enter');
-  const handle = page.locator('.crow-link__bend');
+  const handle = page.locator('.crow-link__segment-handle').first();
   const path = await link.locator('.crow-link__path').getAttribute('d');
   for (const cancel of ['escape', 'pointercancel'] as const) {
     const box = (await handle.boundingBox())!;
@@ -131,9 +135,9 @@ test('cancelled bends leave saved geometry unchanged and pan works on their hand
     await expect(link.locator('.crow-link__path')).toHaveAttribute('d', path!);
     await link.focus(); await page.keyboard.press('Enter');
   }
+  const box = (await handle.boundingBox())!;
   await page.getByRole('button', { name: 'Pan tool', exact: true }).click();
   const before = await page.locator('[data-viewport]').getAttribute('transform');
-  const box = (await handle.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2 + 30, { steps: 4 }); await page.mouse.up();
   await expect(page.locator('[data-viewport]')).not.toHaveAttribute('transform', before!);
@@ -152,13 +156,13 @@ test('route controls clear manual bends and SVG export includes their bounds', a
   const svg = await readDownload(await download);
   const minY = Number(/viewBox="[^ ]+ ([^ ]+)/.exec(svg)![1]);
   expect(minY).toBeLessThan(-700);
-  expect(svg).not.toContain('class="crow-link__bend');
+  expect(svg).not.toContain('class="crow-link__segment-handle');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await inspectSelection(page);
   const path = await link.locator('.crow-link__path').getAttribute('d');
   await page.getByTestId('rel-route-auto').click();
   await expect(link.locator('.crow-link__path')).not.toHaveAttribute('d', path!);
-  await expect(page.locator('.crow-link__bend')).not.toHaveAttribute('cy', '-700');
+  await expect(page.getByRole('button', { name: 'Move vertical segment 2', exact: true })).not.toHaveAttribute('transform', 'translate(500 -267)');
 });
 
 test('grouped tables retain their offsets through a drag', async ({ page }) => {

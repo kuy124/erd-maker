@@ -12,7 +12,7 @@
  */
 
 import LZString from 'lz-string';
-import { emptyDocument, ROUTE_SIDES, type ErdDocument, type RouteSide } from './types';
+import { emptyDocument, ENTITY_KINDS, ROUTE_SIDES, type ErdDocument, type RouteSide } from './types';
 import { normalizeDataType } from './dataTypes';
 import { normalizeAttributeOwners } from './attributes';
 import { normalizeRoutePoints } from './connectorRouting';
@@ -233,7 +233,7 @@ export function normalizeDocument(input: unknown): ErdDocument {
           y: asNumber(o.y),
           // Both or neither: half a position is not a position.
           ...(crowX !== undefined && crowY !== undefined ? { crowX, crowY } : {}),
-          kind: o.kind === 'weak' ? 'weak' : 'strong',
+          kind: ENTITY_KINDS.find(kind => kind === o.kind) ?? 'strong',
         },
       ];
     }),

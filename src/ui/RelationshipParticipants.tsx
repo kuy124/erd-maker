@@ -70,6 +70,8 @@ export function RelationshipParticipants({ state, relationshipId }: {
   return <section className="participant-editor" aria-label="Relationship participants">
     <div className="field__heading"><h3>Participants</h3><span>{participants.length}</span></div>
     <p className="field__help">Choose the entities and the attributes joined in table view. Extra participants are kept for relationships involving three or more entities.</p>
+    {participants.length === 2 && participants[0]!.entityId === participants[1]!.entityId ?
+      <p className="field__help">Unary relationship: the same entity takes two roles. Edit each role’s cardinality and connection attribute independently.</p> : null}
     <div className="ratio-preview" aria-live="polite" data-testid="ratio-preview">
       {participants.length >= 2 ? participants.map((row) => name(row.entityId) + ' (' + row.cardinality + ')').join(' : ') :
         'Add at least two participants to see the ratio.'}

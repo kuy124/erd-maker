@@ -11,7 +11,7 @@ function crossesBox(p: RoutePoint, q: RoutePoint, rect: RouteBox): boolean {
     Math.max(p.y, q.y) > rect.minY + 1 && Math.min(p.y, q.y) < rect.maxY - 1;
 }
 
-function symbolBoxes({ a, b, aStub, bStub }: RouteGuard): RouteBox[] {
+export function symbolBoxes({ a, b, aStub, bStub }: RouteGuard): RouteBox[] {
   return [[a, aStub], [b, bStub]].map(([port, stub]) => {
     const height = 12 * Math.min(1, Math.abs(stub!.x - port!.x) / ENDPOINT_STUB);
     return { minX: Math.min(port!.x, stub!.x), maxX: Math.max(port!.x, stub!.x),
@@ -54,6 +54,24 @@ export function simplifyRoute(points: RoutePoint[]): RoutePoint[] {
   return result;
 }
 
+/** Round only clear turns; the saved vertices and protected endpoint spaces stay exact. */
+export function roundedRoutePath(points: RoutePoint[], guard: RouteGuard): string {
+  if (!points.length) return '';
+  let path = `M${points[0]!.x} ${points[0]!.y}`;
+  const boxes = [...guard.obstacles, ...symbolBoxes(guard)];
+  for (let i = 1; i < points.length - 1; i++) {
+    const a = points[i - 1]!, b = points[i]!, c = points[i + 1]!;
+    const before = Math.hypot(b.x - a.x, b.y - a.y), after = Math.hypot(c.x - b.x, c.y - b.y);
+    const radius = Math.min(8, before / 2, after / 2);
+    const entry = { x: b.x + (a.x - b.x) / before * radius, y: b.y + (a.y - b.y) / before * radius };
+    const exit = { x: b.x + (c.x - b.x) / after * radius, y: b.y + (c.y - b.y) / after * radius };
+    if (!radius || boxes.some(box => crossesBox(entry, exit, box))) path += ` L${b.x} ${b.y}`;
+    else path += ` L${entry.x} ${entry.y} Q${b.x} ${b.y} ${exit.x} ${exit.y}`;
+  }
+  const end = points.at(-1)!;
+  return points.length > 1 ? path + ` L${end.x} ${end.y}` : path;
+}
+
 /** Move the grabbed segment along its normal, keeping the two ports fixed. */
 export function moveRouteSegment(points: RoutePoint[], index: number, delta: number,
   stubs?: { start: number; end: number }): RoutePoint[] {
@@ -88,6 +106,29 @@ export function moveRouteSegment(points: RoutePoint[], index: number, delta: num
     ...(horizontal && last ? [{ x: movedB.x, y: b.y }] : []),
     ...points.slice(index + 1),
   ]);
+}
+
+/** dbdiagram-style insertion: split at the section midpoint and slide the chosen half. */
+export function splitRouteSegment(points: RoutePoint[], index: number, guard: RouteGuard,
+  position?: RoutePoint, dragOffset?: number): RoutePoint[] | null {
+  const a = points[index], b = points[index + 1];
+  if (!a || !b) return null;
+  const horizontal = a.y === b.y;
+  const start = index === 0 ? guard.aStub : a;
+  const end = index === points.length - 2 ? guard.bStub : b;
+  const axis = horizontal ? 'x' : 'y';
+  if (Math.abs(end[axis] - start[axis]) < 24) return null;
+  const middle = { ...start, [axis]: Math.round((start[axis] + end[axis]) / 2) };
+  const secondHalf = position && (position[axis] - start[axis]) / (end[axis] - start[axis]) > 0.5;
+  const expanded = [...points.slice(0, index + 1), ...(index === 0 ? [start] : []), middle,
+    ...(index === points.length - 2 ? [end] : []), ...points.slice(index + 1)];
+  const section = index + (index === 0 ? 1 : 0) + (secondHalf ? 1 : 0);
+  for (const offset of dragOffset === undefined ? [32, -32] : [Math.round(dragOffset)]) {
+    const split = moveRouteSegment(expanded, section, offset,
+      { start: Math.abs(guard.aStub.x - guard.a.x), end: Math.abs(guard.bStub.x - guard.b.x) });
+    if (isRouteSafe(split, guard)) return split;
+  }
+  return null;
 }
 
 /** A manual edit must leave symbols outside tables and cannot cross or double back. */
@@ -171,16 +212,43 @@ export function findSafeRoute(guard: RouteGuard): RoutePoint[] | null {
   return null;
 }
 
-/** Keep captions readable when a dragged corner approaches a table or endpoint symbol. */
+/** Each end's cardinality stays beside its port, independent of the manual route. */
+export function placeEndpointLabels(guard: RouteGuard, ratio: string) {
+  const placed: RouteBox[] = [];
+  return [[guard.a, guard.aStub], [guard.b, guard.bStub]].map(([port, stub], index) => {
+    const value = ratio.split(':')[index] ?? '';
+    const width = value.length * 10 + 16;
+    const at = (x: number, y: number) => ({ x, y, value,
+      bounds: { minX: x - width / 2, maxX: x + width / 2, minY: y - 11, maxY: y + 11 } });
+    const x = (port!.x + stub!.x) / 2;
+    const outward = stub!.x + Math.sign(stub!.x - port!.x) * (width / 2 + 8);
+    const boxes = [...guard.obstacles, ...symbolBoxes(guard), ...placed];
+    const candidates = [at(x, port!.y - 24), at(x, port!.y + 24),
+      at(outward, port!.y - 24), at(outward, port!.y + 24),
+      ...guard.obstacles.flatMap(box => [at(x, box.minY - 19), at(x, box.maxY + 19)])
+        .sort((a, b) => Math.abs(a.y - port!.y) - Math.abs(b.y - port!.y))];
+    const label = candidates.find(label => boxes.every(box =>
+      label.bounds.maxX <= box.minX || label.bounds.minX >= box.maxX ||
+      label.bounds.maxY <= box.minY || label.bounds.minY >= box.maxY)) ??
+      at(x, Math.min(port!.y, ...boxes.map(box => box.minY)) - 19);
+    placed.push(label.bounds);
+    return label;
+  });
+}
+
+/** Keep relationship names clear of tables, endpoint symbols, and their labels. */
 export function placeRouteCaption(route: {
   points: RoutePoint[]; label: RoutePoint; labelAnchor: 'start' | 'middle' | 'end'; guard: RouteGuard;
 }, name: string, ratio: string) {
   // Allow for wide uppercase glyphs in the 13px relationship name.
-  const width = Math.max(Math.min(name.length, 24) * 14, ratio.length * 10) + 20;
-  const boxes = [...route.guard.obstacles, ...symbolBoxes(route.guard)];
+  const width = Math.min(name.length, 24) * 14 + 20;
+  const boxes = [...route.guard.obstacles, ...symbolBoxes(route.guard),
+    ...placeEndpointLabels(route.guard, ratio).map(label => label.bounds),
+    ...route.points.slice(1, -1).map(point => ({ minX: point.x - 12, maxX: point.x + 12,
+      minY: point.y - 12, maxY: point.y + 12 }))];
   const at = (x: number, y: number, labelAnchor: 'start' | 'middle' | 'end') => {
     const left = x - (labelAnchor === 'start' ? 10 : labelAnchor === 'end' ? width - 10 : width / 2);
-    return { x, y, labelAnchor, bounds: { minX: left, maxX: left + width, minY: y - 35, maxY: y + 14 } };
+    return { x, y, labelAnchor, bounds: { minX: left, maxX: left + width, minY: y - 35, maxY: y - 15 } };
   };
   const clear = (caption: ReturnType<typeof at>) => boxes.every(box =>
     caption.bounds.maxX <= box.minX || caption.bounds.minX >= box.maxX ||

@@ -10,6 +10,7 @@ export interface CrowTable {
   x: number;
   y: number;
   weak: boolean;
+  associative?: boolean;
   rows: CrowRow[];
   /**
    * Rendered width, which grows with the longest text so nothing is truncated.
@@ -43,8 +44,8 @@ export const CROW_NAME_X = 34;
 const CROW_GUTTER = 12;
 
 /** Width that fits the table's own title and every row's name and type. */
-function widthFor(name: string, weak: boolean, rows: CrowRow[]): number {
-  const title = name + (weak ? ' (weak)' : '');
+function widthFor(name: string, weak: boolean, rows: CrowRow[], associative = false): number {
+  const title = name + (weak ? ' (weak)' : associative ? ' (associative)' : '');
   let needed = CROW_GUTTER * 2 + title.length * CHAR_SANS_BOLD;
   for (const row of rows) {
     needed = Math.max(needed,
@@ -62,7 +63,7 @@ export interface CrowRow {
   name: string;
   pk: boolean;
   fk: boolean;
-  references?: { entityId: string; columnId: string; label: string };
+  references?: { entityId: string; columnId: string; label: string; relationshipIds?: string[] };
   type: string;
   generatedKey?: boolean;
 }
@@ -121,7 +122,7 @@ export function binaryEnds(doc: ErdDocument, relationshipId: string): [Relations
 export function foreignKeyDirection(doc: ErdDocument, [a, b]: [RelationshipEnd, RelationshipEnd]): [RelationshipEnd, RelationshipEnd] | null {
   const identifying = doc.relationships.some((r) => r.kind === 'weak' &&
     (r.id === a.leg.fromId || r.id === a.leg.toId) && (r.id === b.leg.fromId || r.id === b.leg.toId));
-  if (identifying && a.entity.kind !== b.entity.kind) return a.entity.kind === 'weak' ? [a, b] : [b, a];
+  if (identifying && (a.entity.kind === 'weak') !== (b.entity.kind === 'weak')) return a.entity.kind === 'weak' ? [a, b] : [b, a];
   if (a.leg.cardinality !== '1' && b.leg.cardinality === '1') return [a, b];
   if (b.leg.cardinality !== '1' && a.leg.cardinality === '1') return [b, a];
   if (a.leg.cardinality !== '1' || b.leg.cardinality !== '1' || (!a.leg.columnId && !b.leg.columnId)) return null;
@@ -206,7 +207,7 @@ export function withCrowLayout(doc: ErdDocument, layout: CrowLayout | null): Erd
 export function deriveTables(doc: ErdDocument): CrowTable[] {
   const tables = doc.entities.map((entity) => ({ entityId: entity.id, name: entity.name,
     x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y,
-    weak: entity.kind === 'weak', width: CROW_WIDTH, rows: baseRows(doc, entity) }));
+    weak: entity.kind === 'weak', ...(entity.kind === 'associative' ? { associative: true } : {}), width: CROW_WIDTH, rows: baseRows(doc, entity) }));
   const byId = new Map(tables.map((t) => [t.entityId, t]));
   // Inherited keys must exist before another table can reference the weak entity.
   for (const rel of [...doc.relationships].sort((a, b) => Number(b.kind === 'weak') - Number(a.kind === 'weak'))) {
@@ -226,18 +227,27 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
     const selectedTarget = targetTable.rows.find((r) => r.id === target.leg.columnId);
     const keys = selectedTarget ? [selectedTarget] : targetTable.rows.filter((r) => r.pk);
     for (const key of keys) {
-      const name = identifying ? toSqlName(key.name) : foreignKeyColumnName(toSqlName(target.entity.name), toSqlName(key.name));
-      const id = 'foreign:' + target.entity.id + ':' + key.id;
+      const recursive = source.entity.id === target.entity.id;
+      let name = identifying ? toSqlName(key.name) : foreignKeyColumnName(toSqlName(target.entity.name), toSqlName(key.name));
+      const legacyId = 'foreign:' + target.entity.id + ':' + key.id;
+      const id = recursive && source.leg.columnId !== legacyId ? 'foreign:' + rel.id + ':' + target.entity.id + ':' + key.id : legacyId;
       let row = sourceTable.rows.find((r) => r.id === source.leg.columnId);
-      row ??= sourceTable.rows.find((r) => toSqlName(r.name) === name);
+      row ??= sourceTable.rows.find((r) => toSqlName(r.name) === name &&
+        (!recursive || (r.attributeId && !r.pk && !r.references) || r.references?.relationshipIds?.includes(rel.id)));
       if (!row) {
+        if (recursive && sourceTable.rows.some(r => toSqlName(r.name) === name)) {
+          const base = foreignKeyColumnName(toSqlName(rel.name), toSqlName(key.name));
+          name = base;
+          for (let suffix = 2; sourceTable.rows.some(r => toSqlName(r.name) === name); suffix++) name = base + '_' + suffix;
+        }
         row = { id, attributeId: null, name, pk: false, fk: false, type: key.type };
         sourceTable.rows.push(row);
       }
       row.fk = true;
       if (identifying) row.pk = true;
       row.type = key.type;
-      row.references = { entityId: target.entity.id, columnId: key.id, label: target.entity.name + '.' + key.name };
+      row.references = { entityId: target.entity.id, columnId: key.id, label: target.entity.name + '.' + key.name,
+        ...(recursive ? { relationshipIds: [...new Set([...(row.references?.relationshipIds ?? []), rel.id])] } : {}) };
     }
   }
   // A referenced key can itself be an FK processed later. Resolve types only
@@ -254,7 +264,7 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
   }
   // Sized last: foreign-key rows are appended above, and a table that measured
   // itself before them would still truncate the names it gained.
-  for (const table of tables) table.width = widthFor(table.name, table.weak, table.rows);
+  for (const table of tables) table.width = widthFor(table.name, table.weak, table.rows, table.associative);
   return tables;
 }
 
@@ -267,10 +277,14 @@ export function endpointRows(doc: ErdDocument, tables: CrowTable[], ends: [Relat
   let aRow = aTable.rows.find((r) => r.id === a.leg.columnId) ?? key(aTable);
   let bRow = bTable.rows.find((r) => r.id === b.leg.columnId) ?? key(bTable);
   const direction = foreignKeyDirection(doc, ends);
+  const recursive = a.entity.id === b.entity.id;
+  const relationshipId = doc.relationships.find(rel => rel.id === a.leg.fromId || rel.id === a.leg.toId)?.id;
   if (direction?.[0].leg.id === a.leg.id && !a.leg.columnId) {
-    aRow = aTable.rows.find((r) => r.references?.entityId === b.entity.id && r.references.columnId === bRow.id) ?? aRow;
+    aRow = aTable.rows.find((r) => recursive ? r.references?.relationshipIds?.includes(relationshipId!) :
+      r.references?.entityId === b.entity.id && r.references.columnId === bRow.id) ?? aRow;
   } else if (direction?.[0].leg.id === b.leg.id && !b.leg.columnId) {
-    bRow = bTable.rows.find((r) => r.references?.entityId === a.entity.id && r.references.columnId === aRow.id) ?? bRow;
+    bRow = bTable.rows.find((r) => recursive ? r.references?.relationshipIds?.includes(relationshipId!) :
+      r.references?.entityId === a.entity.id && r.references.columnId === aRow.id) ?? bRow;
   }
   return [aRow, bRow];
 }

@@ -53,8 +53,6 @@ async function anchored(page: Page, source: string, target: string) {
   const link = links(page).first();
   await expect(link).toHaveAttribute('data-from-column', source);
   await expect(link).toHaveAttribute('data-to-column', target);
-  const endpoints = await link.locator('.crow-link__path').getAttribute('d');
-  expect(endpoints).toMatch(/^M-?\d+(?:\.\d+)? -?\d+(?:\.\d+)? H/);
   const values = await page.evaluate(({ source, target }) => {
     const center = (selector: string) => {
       const field = document.querySelector<SVGGElement>(selector)!;
@@ -64,11 +62,12 @@ async function anchored(page: Page, source: string, target: string) {
     };
     const path = document.querySelector<SVGPathElement>('.crow-link__path')!;
     const start = path.getPointAtLength(0), end = path.getPointAtLength(path.getTotalLength());
-    return { sourceY: center(`[data-node-id="c"] [data-column-id="${source}"]`),
+    return { length: path.getTotalLength(), sourceY: center(`[data-node-id="c"] [data-column-id="${source}"]`),
       targetY: center(`[data-node-id="o"] [data-column-id="${target}"]`),
       startY: new DOMPoint(start.x, start.y).matrixTransform(path.getCTM()!).y,
       endY: new DOMPoint(end.x, end.y).matrixTransform(path.getCTM()!).y };
   }, { source, target });
+  expect(values.length).toBeGreaterThan(0);
   expect(values.startY).toBeCloseTo(values.sourceY, 2); expect(values.endY).toBeCloseTo(values.targetY, 2);
 }
 
