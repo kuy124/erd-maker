@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { emptyDocument } from '../../src/model/types';
 import { importDocument, pointAtLocalSignaling, signalingContext } from './actions';
 import { orthogonalPoints } from '../unit/svgPath';
@@ -29,7 +29,78 @@ async function grabPoint(page: Page) {
   });
 }
 
+async function dragInsert(page: Page, control: Locator, distance = 32) {
+  const p = await control.evaluate(el => {
+    const matrix = (el as SVGGraphicsElement).getScreenCTM()!;
+    const screen = new DOMPoint(0, 0).matrixTransform(matrix);
+    return { x: screen.x, y: screen.y, scale: matrix.a, horizontal: el.getAttribute('aria-label')!.includes('horizontal') };
+  });
+  await page.mouse.move(p.x, p.y); await page.mouse.down();
+  await page.mouse.move(p.x + (p.horizontal ? 0 : distance * p.scale), p.y + (p.horizontal ? distance * p.scale : 0), { steps: 5 });
+  await page.mouse.up();
+}
+
 test.beforeEach(async ({ context, page }) => { await pointAtLocalSignaling(context); await open(page); });
+
+test('dbdiagram controls offer two halves, ignore plain clicks, and keep the dragged section handle under the pointer', async ({ page }) => {
+  const path = page.getByTestId('crow-link-r').locator('.crow-link__path');
+  const before = await path.getAttribute('d'), point = await grabPoint(page);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.dblclick(point.x, point.y);
+  await expect(path).toHaveAttribute('d', before!);
+  await expect(page.locator('.crow-link__corner-handle')).toHaveCount(0);
+  const inserts = page.getByRole('button', { name: /^Split vertical segment 2/ });
+  await expect(inserts).toHaveCount(2);
+  const control = inserts.first();
+  await control.click(); await expect(path).toHaveAttribute('d', before!);
+  const pivot = await control.evaluate(el => {
+    const matrix = (el as SVGGraphicsElement).getScreenCTM()!;
+    const p = new DOMPoint(0, 0).matrixTransform(matrix);
+    return { x: p.x, y: p.y, scale: matrix.a };
+  });
+  await page.mouse.move(pivot.x, pivot.y); await page.mouse.down();
+  expect(await page.evaluate(({ x, y }) => getComputedStyle(document.elementFromPoint(x, y)!).cursor, pivot)).toBe('ew-resize');
+  await page.mouse.move(pivot.x + 40 * pivot.scale, pivot.y - 30 * pivot.scale, { steps: 5 }); await page.mouse.up();
+  const moved = orthogonalPoints((await path.getAttribute('d'))!);
+  expect(moved.length).toBe(orthogonalPoints(before!).length + 2);
+  expect(moved).toContainEqual({ x: 540, y: -17 });
+  const dots = await page.locator('.crow-link__segment-handle').evaluateAll(els => els.map(el => {
+    const p = new DOMPoint(0, 0).matrixTransform((el as SVGGraphicsElement).getScreenCTM()!);
+    return { x: p.x, y: p.y };
+  }));
+  expect(dots.some(dot => Math.abs(dot.x - pivot.x - 40 * pivot.scale) < 1 && Math.abs(dot.y - pivot.y) < 1)).toBe(true);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', before!);
+});
+
+test('hover reveals controls without selection and dragging an insertion point makes one undoable step', async ({ page }) => {
+  const link = page.getByTestId('crow-link-r'), path = link.locator('.crow-link__path');
+  const before = await path.getAttribute('d'), point = await grabPoint(page);
+  await page.mouse.move(point.x, point.y);
+  await expect(link).not.toHaveClass(/crow-link--selected/);
+  const add = page.getByRole('button', { name: /Split .* segment/ }).first();
+  await expect(add).toBeVisible();
+  const grab = await add.evaluate(el => {
+    const p = new DOMPoint(0, 0).matrixTransform((el as SVGGraphicsElement).getScreenCTM()!);
+    return { x: p.x, y: p.y, horizontal: el.getAttribute('aria-label')!.includes('horizontal') };
+  });
+  await page.mouse.move(grab.x, grab.y); await page.mouse.down();
+  await page.mouse.move(grab.x + (grab.horizontal ? 0 : 45), grab.y + (grab.horizontal ? 45 : 0), { steps: 4 });
+  await expect(path).not.toHaveAttribute('d', before!);
+  const preview = await path.getAttribute('d'); await page.mouse.up();
+  await expect(path).toHaveAttribute('d', preview!);
+  expect(orthogonalPoints(preview!).length).toBeGreaterThan(orthogonalPoints(before!).length);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', before!);
+  await page.mouse.click(20, 150);
+  await expect(page.getByRole('button', { name: /Split .* segment/ })).toHaveCount(0);
+  await page.mouse.move(point.x, point.y); await expect(add).toBeVisible();
+  const box = (await add.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 45, { steps: 4 });
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  await expect(path).toHaveAttribute('d', before!);
+});
 
 for (const zoomedOut of [false, true]) test(`an unselected line can be dragged away from its dot ${zoomedOut ? 'while zoomed out' : 'at normal zoom'}`, async ({ page }) => {
   if (zoomedOut) for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
@@ -98,6 +169,77 @@ test('symbol stubs select the relationship without moving its geometry', async (
   await page.mouse.move(point.x + 40, point.y + 40, { steps: 4 }); await page.mouse.up();
   await expect(link).toHaveClass(/crow-link--selected/);
   await expect(path).toHaveAttribute('d', before!);
+});
+
+test('selected lines expose round segment handles, insert controls, and a visible automatic reset', async ({ page }) => {
+  const link = page.getByTestId('crow-link-r'), path = link.locator('.crow-link__path');
+  await link.focus(); await page.keyboard.press('Enter');
+  await expect(path).toHaveAttribute('d', /Q/);
+  const before = await path.getAttribute('d');
+  const handle = page.getByRole('button', { name: 'Move vertical segment 2', exact: true });
+  await expect(handle).toBeVisible();
+  await handle.focus(); await page.keyboard.press('ArrowRight');
+  await expect(path).not.toHaveAttribute('d', before!);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', before!);
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 35, box.y + box.height / 2, { steps: 4 }); await page.mouse.up();
+  await expect(path).not.toHaveAttribute('d', before!);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', before!);
+  const add = page.getByRole('button', { name: /Split .* segment/ }).first();
+  await expect(add.locator('rect')).toBeVisible(); await dragInsert(page, add);
+  await expect(path).not.toHaveAttribute('d', before!);
+  await page.getByRole('button', { name: 'Reset line route', exact: true }).click();
+  const automatic = await path.getAttribute('d');
+  expect(automatic).not.toBe(before);
+  await expect(page.getByRole('button', { name: 'Reset line route', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).not.toHaveAttribute('d', automatic!);
+});
+
+for (const zoomedOut of [false, true]) test(`splitting a segment creates movable sections with undo and persistent endpoint labels ${zoomedOut ? 'while zoomed out' : 'at normal zoom'}`, async ({ page }) => {
+  if (zoomedOut) for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
+  const link = page.getByTestId('crow-link-r'), path = link.locator('.crow-link__path');
+  const before = await path.getAttribute('d');
+  const labels = await link.locator('.crow-link__ratio').evaluateAll(els => els.map(el => ({
+    text: el.textContent, x: el.getAttribute('x'), y: el.getAttribute('y'),
+  })));
+  expect(labels.map(label => label.text)).toEqual(['1', 'N']);
+  await link.focus(); await page.keyboard.press('Enter');
+  await dragInsert(page, page.getByRole('button', { name: /^Split vertical segment 2/ }).first());
+  await expect(path).not.toHaveAttribute('d', before!);
+  const split = await path.getAttribute('d');
+  expect(orthogonalPoints(split!)).toHaveLength(orthogonalPoints(before!).length + 2);
+  const moved = await link.locator('[data-route-axis="vertical"]').evaluateAll(els => {
+    const segment = els.find(el => {
+      const path = el as SVGPathElement;
+      return path.getPointAtLength(0).x === 532;
+    }) as SVGPathElement;
+    const middle = segment.getPointAtLength(segment.getTotalLength() / 2);
+    const p = new DOMPoint(middle.x, middle.y).matrixTransform(segment.getScreenCTM()!);
+    return { x: p.x, y: p.y };
+  });
+  await page.mouse.move(moved.x, moved.y); await page.mouse.down();
+  await page.mouse.move(moved.x + 25, moved.y, { steps: 5 }); await page.mouse.up();
+  await expect(path).not.toHaveAttribute('d', split!);
+  expect(await link.locator('.crow-link__ratio').evaluateAll(els => els.map(el => ({
+    text: el.textContent, x: el.getAttribute('x'), y: el.getAttribute('y'),
+  })))).toEqual(labels);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', split!);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', before!);
+  await page.getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(path).toHaveAttribute('d', split!);
+  await page.reload(); await expect(page.getByLabel('Diagram name')).toBeEnabled();
+  await expect(path).toHaveAttribute('d', split!);
+  await link.focus(); await page.keyboard.press('Enter');
+  const add = page.getByRole('button', { name: /Split .* segment/ }).first();
+  await expect(add).toBeVisible(); await add.focus(); await page.keyboard.press('Enter');
+  await expect(path).not.toHaveAttribute('d', split!);
+  await page.screenshot({ path: `output/playwright/split-endpoints-${zoomedOut ? 'zoomed' : 'normal'}.png` });
 });
 
 test('an invalid drag keeps the last safe preview and commits only that route', async ({ page }) => {
@@ -172,6 +314,9 @@ test('Escape cancels a line drag and Pan moves the viewport rather than the rout
   await page.mouse.move(point.x + 40, point.y + 20, { steps: 5 }); await page.mouse.up();
   await expect(viewport).not.toHaveAttribute('transform', transform!);
   await expect(path).toHaveAttribute('d', before!);
+  await page.mouse.dblclick(point.x + 40, point.y + 20);
+  await expect(path).toHaveAttribute('d', before!);
+  await expect(page.getByRole('button', { name: /Split .* segment/ })).toHaveCount(0);
 });
 
 test('segment edits synchronize with a peer and reset through the line menu', async ({ page, browser }) => {
@@ -188,6 +333,9 @@ test('segment edits synchronize with a peer and reset through the line menu', as
     await page.mouse.move(point.x, point.y); await page.mouse.down();
     await page.mouse.move(point.x + 40, point.y, { steps: 5 }); await page.mouse.up();
     await expect(path).not.toHaveAttribute('d', before!);
+    await expect(peerPath).toHaveAttribute('d', (await path.getAttribute('d'))!);
+    await page.getByTestId('crow-link-r').focus(); await page.keyboard.press('Enter');
+    await dragInsert(page, page.getByRole('button', { name: /Split .* segment/ }).first());
     await expect(peerPath).toHaveAttribute('d', (await path.getAttribute('d'))!);
     const click = await path.evaluate(el => {
       const svg = el as SVGPathElement, p = svg.getPointAtLength(svg.getTotalLength() * 0.25);

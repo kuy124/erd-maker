@@ -10,10 +10,10 @@
  * Convention: a node's `x`/`y` is the top-left of its bounding box.
  */
 
-import { sizeOf, allNodes, type ErdDocument, type NodeId, type Positioned } from '../model/types';
+import { sizeOf, allNodes, type ErdDocument, type Leg, type NodeId, type Positioned } from '../model/types';
 import { deriveLinks, deriveTables, routeColumns, tableObstacle } from '../model/crowfoot';
-import { placeRouteCaption } from '../model/connectorRouting';
-import { occupiedBoxes } from '../model/placement';
+import { placeEndpointLabels, placeRouteCaption } from '../model/connectorRouting';
+import { occupiedBoxes, unaryRolePoints } from '../model/placement';
 
 export interface Point {
   x: number;
@@ -121,6 +121,8 @@ function findPositioned(doc: ErdDocument, id: NodeId): Positioned | undefined {
 export interface Segment {
   from: Point;
   to: Point;
+  /** Bent role line for repeated participation. */
+  points?: Point[];
   /** Midpoint of the visible segment, where a cardinality label belongs. */
   mid: Point;
 }
@@ -148,6 +150,23 @@ export function segmentBetween(doc: ErdDocument, fromId: NodeId, toId: NodeId): 
     to,
     mid: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 },
   };
+}
+
+/** ERDPlus unary roles meet opposite diamond corners and use separate straight entity stubs. */
+export function segmentForLeg(doc: ErdDocument, leg: Leg): Segment | undefined {
+  const entity = doc.entities.find(node => node.id === leg.fromId || node.id === leg.toId);
+  const relationship = doc.relationships.find(node => node.id === leg.fromId || node.id === leg.toId);
+  if (!entity || !relationship) return segmentBetween(doc, leg.fromId, leg.toId);
+  const roles = doc.legs.filter(row => (row.fromId === entity.id && row.toId === relationship.id) ||
+    (row.toId === entity.id && row.fromId === relationship.id)).sort((a, b) =>
+      Number(a.cardinality !== '1') - Number(b.cardinality !== '1') || a.id.localeCompare(b.id));
+  if (roles.length < 2) return segmentBetween(doc, leg.fromId, leg.toId);
+  const role = roles.findIndex(row => row.id === leg.id) / (roles.length - 1);
+  const points = unaryRolePoints({ ...entity, ...sizeOf(doc, entity.id) }, { ...relationship, ...sizeOf(doc, relationship.id) }, role);
+  const [, shoulder, corner] = points;
+  if (leg.fromId !== entity.id) points.reverse();
+  return { from: points[0]!, to: points[2]!, points,
+    mid: { x: (shoulder.x + corner.x) / 2, y: (shoulder.y + corner.y) / 2 } };
 }
 
 /**
@@ -330,6 +349,10 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
       maxX = Math.max(maxX, route.bounds.maxX, caption.bounds.maxX);
       minY = Math.min(minY, route.bounds.minY, caption.bounds.minY);
       maxY = Math.max(maxY, route.bounds.maxY, caption.bounds.maxY);
+      for (const label of placeEndpointLabels(route.guard, link.ratio)) {
+        minX = Math.min(minX, label.bounds.minX); maxX = Math.max(maxX, label.bounds.maxX);
+        minY = Math.min(minY, label.bounds.minY); maxY = Math.max(maxY, label.bounds.maxY);
+      }
     }
   }
   return {

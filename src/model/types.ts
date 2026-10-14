@@ -20,7 +20,8 @@ import type { DataType } from './dataTypes';
 import { descendantAttributeIds } from './attributes';
 import type { RoutePoint } from './connectorRouting';
 
-export type EntityKind = 'strong' | 'weak';
+export type EntityKind = 'strong' | 'weak' | 'associative';
+export const ENTITY_KINDS: EntityKind[] = ['strong', 'weak', 'associative'];
 export type RelationshipKind = 'strong' | 'weak';
 export type AttributeKind = 'simple' | 'key' | 'multivalued' | 'derived' | 'composite';
 export type Cardinality = '1' | 'N' | 'M';

@@ -34,7 +34,7 @@ export function getDiagramIssues(doc: ErdDocument): DiagramIssue[] {
     });
     if (participants.length < 2) {
       issues.push({ code: 'incomplete-relationship', nodeId: relationship.id,
-        message: 'Connect ' + (relationship.name || 'this relationship') + ' to at least two entities.' });
+        message: 'Add at least two participant roles to ' + (relationship.name || 'this relationship') + '. A unary relationship uses the same entity twice.' });
     }
     const ends = binaryEnds(doc, relationship.id);
     if (ends && ends.some((end) => end.leg.columnId)) {

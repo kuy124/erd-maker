@@ -68,10 +68,10 @@ describe('connecting nodes', () => {
     expect(snapshotFromYdoc(ydoc).legs.find((leg) => leg.id === id)).toMatchObject({ fromId: 'r1', toId: 'e2' });
   });
 
-  it('refuses self-connections, attributes, and endpoints removed before the drop', () => {
+  it('refuses non-entity self-connections, attributes, and endpoints removed before the drop', () => {
     const ydoc = new Y.Doc(); seedDocument(ydoc, sample());
     const before = snapshotFromYdoc(ydoc);
-    for (const [from, to] of [['e1', 'e1'], ['a1', 'e2'], ['e1', 'missing']] as const) {
+    for (const [from, to] of [['r1', 'r1'], ['a1', 'e2'], ['e1', 'missing']] as const) {
       expect(connectNodes(ydoc, from, to, ids())).toBeNull();
     }
     expect(snapshotFromYdoc(ydoc)).toEqual(before);

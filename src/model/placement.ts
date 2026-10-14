@@ -13,6 +13,7 @@
  */
 
 import { NODE_SIZE, type ErdDocument } from './types';
+import type { RoutePoint } from './connectorRouting';
 import { deriveTables, tableHeight } from './crowfoot';
 
 export interface Box {
@@ -42,6 +43,35 @@ function overlaps(a: Box, b: Box, gap: number): boolean {
     a.y < b.y + b.h + gap &&
     a.y + a.h + gap > b.y
   );
+}
+
+/** Shared by placement and Chen rendering, so clearance checks use the actual role paths. */
+export function unaryRolePoints(entity: Box, relationship: Box, role: number): [RoutePoint, RoutePoint, RoutePoint] {
+  const dx = relationship.x + relationship.w / 2 - entity.x - entity.w / 2;
+  const dy = relationship.y + relationship.h / 2 - entity.y - entity.h / 2;
+  const vertical = Math.abs(dy) >= Math.abs(dx), side = Math.sign(vertical ? dy : dx) || -1;
+  const port = vertical
+    ? { x: entity.x + entity.w * (0.18 + role * 0.64), y: entity.y + (side > 0 ? entity.h : 0) }
+    : { x: entity.x + (side > 0 ? entity.w : 0), y: entity.y + entity.h * (0.18 + role * 0.64) };
+  const shoulder = vertical ? { x: port.x, y: port.y + side * 38 } : { x: port.x + side * 38, y: port.y };
+  const corner = vertical
+    ? { x: relationship.x + role * relationship.w, y: relationship.y + relationship.h / 2 - side * (1 - Math.abs(2 * role - 1)) * relationship.h / 2 }
+    : { x: relationship.x + relationship.w / 2 - side * (1 - Math.abs(2 * role - 1)) * relationship.w / 2, y: relationship.y + role * relationship.h };
+  return [port, shoulder, corner];
+}
+
+/** Segment/rectangle slab intersection, including space for endpoint symbols. */
+function roleCrossesBox(a: RoutePoint, b: RoutePoint, box: Box): boolean {
+  let enter = 0, leave = 1;
+  for (const [axis, size] of [['x', 'w'], ['y', 'h']] as const) {
+    const delta = b[axis] - a[axis], low = box[axis] - 12, high = box[axis] + box[size] + 12;
+    if (!delta) { if (a[axis] <= low || a[axis] >= high) return false; }
+    else {
+      const first = (low - a[axis]) / delta, last = (high - a[axis]) / delta;
+      enter = Math.max(enter, Math.min(first, last)); leave = Math.min(leave, Math.max(first, last));
+    }
+  }
+  return leave > enter;
 }
 
 /**
@@ -167,6 +197,26 @@ export function findRelationshipSlot(doc: ErdDocument, fromId: string, toId: str
   const from = doc.entities.find((entity) => entity.id === fromId)!;
   const to = doc.entities.find((entity) => entity.id === toId)!;
   const size = NODE_SIZE.relationship;
+  if (fromId === toId) {
+    const occupied = occupiedBoxes({ ...doc, view: 'chen' });
+    const entity = { ...from, ...NODE_SIZE.entity };
+    const origin = { x: from.x + (entity.w - size.w) / 2, y: from.y - size.h - 64 };
+    const blockers = occupied.filter(box => !(box.x === entity.x && box.y === entity.y && box.w === entity.w && box.h === entity.h));
+    for (let ring = 0; ring < 48; ring++) {
+      const distance = ring * (size.w + SLOT_GAP);
+      const candidates = ring === 0 ? [origin] : [
+        { x: origin.x - distance, y: origin.y }, { x: origin.x + distance, y: origin.y },
+        { x: origin.x, y: origin.y - distance }, { x: origin.x, y: from.y + entity.h + 64 + distance },
+      ];
+      for (const point of candidates) {
+        const diamond = { ...point, ...size };
+        if (occupied.some(box => overlaps(diamond, box, SLOT_GAP))) continue;
+        const paths = [0, 1].map(role => unaryRolePoints(entity, diamond, role));
+        if (paths.every(path => path.slice(1).every((end, index) => !blockers.some(box => roleCrossesBox(path[index]!, end, box))))) return point;
+      }
+    }
+    return findFreeSlot(occupied, origin, size);
+  }
   const origin = {
     x: (from.x + to.x + NODE_SIZE.entity.w - size.w) / 2,
     y: (from.y + to.y + NODE_SIZE.entity.h - size.h) / 2,

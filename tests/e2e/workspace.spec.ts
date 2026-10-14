@@ -397,27 +397,30 @@ test('Chen endpoints match ERDPlus and keep legacy leg orientations and exported
   expect(restored.legs).toEqual(doc.legs);
 });
 
-test('crow’s-foot shows endpoint symbols alongside clear relationship ratios', async ({ page }) => {
+test('crow’s-foot shows cardinality labels at both table endpoints', async ({ page }) => {
   await page.goto('/'); await ready(page);
   await importDocument(page, createExample('courses'));
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
   await expect(page.locator('.layer-links .crow-link')).toHaveCount(1);
   await expect(page.locator('.layer-links [data-cardinality="many"]')).toHaveCount(2);
   await expect(page.locator('.layer-links [data-cardinality="one"]')).toHaveCount(0);
-  await expect(page.locator('.crow-link__ratio')).toHaveText('N:M');
+  await expect(page.locator('.crow-link__ratio')).toHaveText(['N', 'M']);
   const doc = createExample('orders');
   doc.legs.forEach((leg) => { leg.cardinality = '1'; });
   await importDocument(page, doc);
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
   await expect(page.locator('.layer-links [data-cardinality="many"]')).toHaveCount(0);
   await expect(page.locator('.layer-links [data-cardinality="one"]')).toHaveCount(2);
-  await expect(page.locator('.crow-link__ratio')).toHaveText('1:1');
+  await expect(page.locator('.crow-link__ratio')).toHaveText(['1', '1']);
   await importDocument(page, createExample('orders'));
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
-  await expect(page.locator('.crow-link__ratio')).toHaveText('1:N');
+  await expect(page.locator('.crow-link__ratio')).toHaveText(['1', 'N']);
   await expect(page.locator('.layer-links [data-cardinality="many"]')).toHaveCount(1);
   await expect(page.locator('.layer-links [data-cardinality="one"]')).toHaveCount(1);
   await expect(page.locator('.layer-links [data-participation]')).toHaveCount(2);
+  const link = page.locator('.crow-link');
+  await link.focus(); await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: /Split .* segment/ }).first()).toBeVisible();
   await documentAction(page, 'Export');
   await page.getByRole('tab', { name: 'SVG', exact: true }).click();
   const pending = page.waitForEvent('download');
@@ -426,4 +429,7 @@ test('crow’s-foot shows endpoint symbols alongside clear relationship ratios',
   expect(svg).toContain('1:N');
   expect(svg).toContain('data-cardinality=');
   expect(svg).toContain('data-participation=');
+  expect(svg).toContain('data-route-end="from"');
+  expect(svg).toContain('data-route-end="to"');
+  expect(svg).not.toContain('crow-link__split');
 });

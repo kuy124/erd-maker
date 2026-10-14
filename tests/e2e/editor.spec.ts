@@ -2188,7 +2188,7 @@ test.describe('right-click menu', () => {
     // land a connector under the panel; Fit is the app's own answer and the
     // thing a person would press.
     await page.getByRole('button', { name: 'Fit', exact: true }).click();
-    await page.locator('.crow-link__ratio').click({ button: 'right' });
+    await page.locator('.crow-link__ratio-background').first().click({ button: 'right' });
     await expect(page.getByRole('menu', { name: 'Shape actions' })).toBeVisible();
     await page.getByRole('menuitem', { name: 'Delete selection', exact: true }).click();
     await expect(page.locator('.crow-link')).toHaveCount(0);

@@ -697,13 +697,13 @@ body {
   pointer-events: stroke;
 }
 
-.crow-link:hover .crow-link__path {
+.crow-link:hover .crow-link__path, .crow-link--hovered .crow-link__path {
   stroke: var(--signal);
 }
 
 .crow-link__path { pointer-events: none; }
 /* Text over a short run must not block its double-arrow drag target. */
-.crow-link__ratio, .crow-link__label, .crow-link__ratio-background { pointer-events: none; }
+.crow-link__ratio, .crow-link__label { pointer-events: none; }
 .crow-link__hit--horizontal { cursor: ns-resize; }
 .crow-link__hit--vertical { cursor: ew-resize; }
 .crow-link--dragging[data-drag-axis='horizontal'],
@@ -711,6 +711,17 @@ body {
 .crow-link--dragging[data-drag-axis='vertical'],
 .crow-link--dragging[data-drag-axis='vertical'] * { cursor: ew-resize; }
 .crow-link--blocked, .crow-link--blocked * { cursor: not-allowed !important; }
+.crow-link__split, .crow-link__reset, .crow-link__segment-handle { outline: none; }
+.crow-link__reset { cursor: pointer; }
+.crow-link__split-hit { fill: transparent; }
+.crow-link__split-body, .crow-link__handle-body { fill: var(--paper); stroke: var(--signal); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.crow-link__reset path { fill: none; stroke: var(--signal); stroke-width: 1.5; pointer-events: none; vector-effect: non-scaling-stroke; }
+.crow-link__split:hover .crow-link__split-body,
+.crow-link__split:focus-visible .crow-link__split-body,
+.crow-link__reset:hover .crow-link__split-body,
+.crow-link__reset:focus-visible .crow-link__split-body,
+.crow-link__segment-handle:hover .crow-link__handle-body,
+.crow-link__segment-handle:focus-visible .crow-link__handle-body { stroke-width: 3; }
 .canvas-wrap[data-tool='pan'] .crow-link__hit { cursor: grab; }
 
 .crow-link__ratio {
@@ -722,6 +733,7 @@ body {
 }
 
 .crow-link__ratio-background {
+  pointer-events: all;
   fill: var(--paper);
   stroke: var(--rule-strong);
   stroke-width: 1;
@@ -908,36 +920,6 @@ body {
 .theme-swatch__text span {
   font-size: var(--text-xs);
   color: var(--ink-tertiary);
-}
-
-/* Theme choice: a swatch of the real palette, not a name on its own. */
-/*
- * The draggable corner of a selected connector.
- *
- * Shown only while the line is selected, so a finished diagram is not littered
- * with dots. The dot is filled with the signal colour to read as a handle rather
- * than part of the drawing, and the hit circle around it is invisible and
- * oversized, because a 5px target is not a target.
- */
-.crow-link__bend {
-  fill: var(--signal);
-  stroke: var(--paper-raised);
-  stroke-width: 1.5;
-  cursor: move;
-  pointer-events: all;
-}
-
-.crow-link__bend-hit {
-  fill: transparent;
-  cursor: move;
-  pointer-events: all;
-}
-
-/* A keyboard user can reach the corner without a pointer. */
-.crow-link__bend:focus-visible {
-  outline: none;
-  stroke: var(--signal-strong);
-  stroke-width: 3;
 }
 
 .crow-row__key {

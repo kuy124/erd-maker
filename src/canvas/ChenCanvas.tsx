@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
 import { descendantAttributeIds } from '../model/attributes';
-import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentBetween, type Point } from './geometry';
+import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentForLeg, type Point } from './geometry';
 import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
 import { useDrag, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
@@ -467,13 +467,14 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
 
           <g className="layer-legs">
             {displayDoc.legs.map((leg) => {
-              const seg = segmentBetween(displayDoc, leg.fromId, leg.toId);
+              const seg = segmentForLeg(displayDoc, leg);
               if (!seg) return null;
               const isSelected = selection.includes(leg.id);
               const entity = displayDoc.entities.find((node) => node.id === leg.fromId || node.id === leg.toId);
               const relationship = displayDoc.relationships.find((node) => node.id === leg.fromId || node.id === leg.toId);
               const endpoint = entity?.id === leg.fromId ? seg.from : seg.to;
-              const toward = entity?.id === leg.fromId ? seg.to : seg.from;
+              const toward = seg.points?.[1] ?? (entity?.id === leg.fromId ? seg.to : seg.from);
+              const path = seg.points?.map((point, index) => `${index ? 'L' : 'M'}${point.x} ${point.y}`).join(' ');
               const markerCenter = offsetToward(endpoint, toward, 14);
               const many = leg.cardinality !== '1';
               const required = leg.participation.min > 0;
@@ -487,7 +488,11 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                       stroke is still easy to click. `pointer-events: stroke`
                       makes it hit-testable even though it is not painted. It is
                       drawn first so the labels below stay on top of it. */}
-                  <line
+                  {path ? <path className="leg-hit" data-testid="leg-hit" d={path}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation(); state.setSelection([leg.id]);
+                    }} /> : <line
                     className="leg-hit"
                     data-testid="leg-hit"
                     x1={seg.from.x}
@@ -499,14 +504,14 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
                       event.stopPropagation();
                       state.setSelection([leg.id]);
                     }}
-                  />
-                  <line
+                  />}
+                  {path ? <path className={`leg${isSelected ? ' leg--selected' : ''}`} d={path} /> : <line
                     className={`leg${isSelected ? ' leg--selected' : ''}`}
                     x1={seg.from.x}
                     y1={seg.from.y}
                     x2={seg.to.x}
                     y2={seg.to.y}
-                  />
+                  />}
                   {entity && relationship ? <>
                     <g className="leg-endpoint" data-testid="leg-cardinality" role="button" tabIndex={-1}
                       aria-label={`${entity.name}: ${required ? 'required' : 'optional'} ${many ? 'many' : 'one'}. Edit relationship line`}

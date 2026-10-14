@@ -32,7 +32,7 @@ import type {
   Relationship,
   RouteSide,
 } from '../model/types';
-import { ROUTE_SIDES } from '../model/types';
+import { ENTITY_KINDS, ROUTE_SIDES } from '../model/types';
 import { emptyDocument } from '../model/types';
 import { normalizeDataType } from '../model/dataTypes';
 import { descendantAttributeIds, normalizeAttributeOwners } from '../model/attributes';
@@ -233,16 +233,17 @@ export function connectNodes(
   ydoc: Y.Doc, fromId: string, toId: string, makeId: (kind: string) => string,
 ): string | null {
   const doc = snapshotFromYdoc(ydoc);
-  if (!canConnect(doc, fromId, toId)) return null;
   const entityPair = doc.entities.some((entity) => entity.id === fromId) &&
     doc.entities.some((entity) => entity.id === toId);
+  const unary = entityPair && fromId === toId;
+  if (!unary && !canConnect(doc, fromId, toId)) return null;
   const id = makeId(entityPair ? 'rel' : 'leg');
   ydoc.transact(() => {
     if (entityPair) {
       upsertRelationship(ydoc, { id, name: 'relationship', kind: 'strong', ...findRelationshipSlot(doc, fromId, toId) });
-      for (const entityId of [fromId, toId]) {
+      for (const [index, entityId] of [fromId, toId].entries()) {
         upsertLeg(ydoc, { id: makeId('leg'), fromId: id, toId: entityId,
-          cardinality: '1', participation: { min: 0, max: 1 } });
+          cardinality: unary && index === 1 ? 'N' : '1', participation: { min: unary ? 1 : 0, max: unary && index === 1 ? 'N' : 1 } });
       }
     } else {
       upsertLeg(ydoc, { id, fromId, toId, cardinality: '1', participation: { min: 0, max: 1 } });
@@ -345,7 +346,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
       // Absent stays absent: it means "this browser has not placed the table
       // yet", which is different from a placement at the origin.
       ...(crowX !== undefined && crowY !== undefined ? { crowX, crowY } : {}),
-      kind: readString(m, 'kind', 'strong') === 'weak' ? 'weak' : 'strong',
+      kind: ENTITY_KINDS.find(kind => kind === m.get('kind')) ?? 'strong',
     });
   });
 

@@ -70,11 +70,13 @@ export const EntityShape = memo(function EntityShape({
       onPointerDown={onPointerDown}
       role="button"
       tabIndex={-1}
-      aria-label={`Entity ${entity.name}${weak ? ', weak' : ''}`}
+      aria-label={`Entity ${entity.name}${weak ? ', weak' : entity.kind === 'associative' ? ', associative' : ''}`}
       data-node-id={entity.id}
     >
       <rect className="node__body" width={w} height={h} />
       {weak ? <rect className="node__body" x={5} y={5} width={w - 10} height={h - 10} /> : null}
+      {entity.kind === 'associative' ? <polygon className="node__body entity-associative"
+        points={`${w / 2},5 ${w - 5},${h / 2} ${w / 2},${h - 5} 5,${h / 2}`} /> : null}
       <ShapeLabel name={entity.name} x={w / 2} y={h / 2} limit={20} />
       <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />
     </g>
