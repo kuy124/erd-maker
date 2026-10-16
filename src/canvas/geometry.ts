@@ -344,7 +344,7 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
       const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane,
         obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
           !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend, link.routePoints);
-      const caption = placeRouteCaption(route, link.label, link.ratio);
+      const caption = placeRouteCaption(route, link.ratio);
       minX = Math.min(minX, route.bounds.minX, caption.bounds.minX);
       maxX = Math.max(maxX, route.bounds.maxX, caption.bounds.maxX);
       minY = Math.min(minY, route.bounds.minY, caption.bounds.minY);

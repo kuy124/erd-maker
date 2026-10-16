@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
-import { documentAction, importDocument, inspectSelection, shape, signalingContext } from './actions';
+import { documentAction, importDocument, inspectSelection, readDownload, shape, signalingContext } from './actions';
 
 /**
  * Crow's-foot tables.
@@ -257,5 +257,38 @@ test.describe('crow tables', () => {
     await page.locator('[data-column-id="attribute:note"]').click();
     await inspectSelection(page);
     await expect(page.getByLabel('Attribute name')).toHaveValue('billing_note');
+  });
+
+  test('a connector shows only cardinality, never the relationship name', async ({ page }) => {
+    const doc = schema();
+    doc.relationships = [{ id: 'r', name: 'having', kind: 'strong', x: 440, y: 120 }];
+    doc.attributes.push({ id: 'inv_id', name: 'invoice_id', kind: 'key', ownerId: 'i', x: 0, y: 0 });
+    doc.legs = [
+      { id: 'l1', fromId: 'r', toId: 'c', cardinality: '1', participation: { min: 0, max: 1 } },
+      { id: 'l2', fromId: 'r', toId: 'i', cardinality: 'N', participation: { min: 0, max: 'N' } },
+    ];
+    await page.goto('/');
+    await expect(page.getByLabel('Diagram name')).toBeEnabled();
+    await importDocument(page, doc);
+    await expect(page.getByTestId('crow-link-r')).toBeVisible();
+
+    const link = page.getByTestId('crow-link-r');
+    // The cardinality on each end is drawn...
+    await expect(link.locator('.crow-link__ratio')).toHaveText(['1', 'N']);
+    // ...and the verb label is not: on screen or in the exported drawing.
+    await expect(link.locator('.crow-link__label')).toHaveCount(0);
+    await expect(page.locator('.layer-links .crow-link__label')).toHaveCount(0);
+
+    const download = page.waitForEvent('download');
+    await documentAction(page, 'Export');
+    await page.getByRole('button', { name: 'Download SVG' }).click();
+    const svg = await readDownload(await download);
+    await page.keyboard.press('Escape');
+    // The name is not drawn anywhere in the export. It may still appear as an
+    // accessible name on the connector, which is deliberate; what must be gone
+    // is the visible text.
+    expect(svg).not.toMatch(/>[^<>]*having[^<>]*</);
+    expect(svg).toContain('Customer');
+    expect(svg).toContain('N');
   });
 });

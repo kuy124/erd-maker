@@ -451,10 +451,6 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   );
 }
 
-function shorten(value: string, length: number): string {
-  return value.length > length ? value.slice(0, length - 1) + '…' : value;
-}
-
 function interiorPoints(points: RoutePoint[]): RoutePoint[] {
   const interior = points.slice(1, -1);
   if (interior.length === 1) return [interior[0]!, { ...interior[0]! }];
@@ -517,7 +513,7 @@ function CrowConnector({
     obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
       !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend ?? null,
     previewPoints ?? link.routePoints);
-  const caption = placeRouteCaption(route, link.label, link.ratio);
+  const caption = placeRouteCaption(route, link.ratio);
   const endpointLabels = placeEndpointLabels(route.guard, link.ratio);
   const stubs = { start: Math.abs(route.guard.aStub.x - route.a.x), end: Math.abs(route.guard.bStub.x - route.b.x) };
   const controlBoxes = [...route.guard.obstacles, ...symbolBoxes(route.guard), caption.bounds, ...endpointLabels.map(label => label.bounds)];
@@ -651,17 +647,6 @@ function CrowConnector({
           {label.value}
         </text>
       </g>)}
-      {link.label ? (
-        <text
-          className="crow-link__label"
-          x={caption.x}
-          y={caption.y - 25}
-          textAnchor={caption.labelAnchor}
-          dominantBaseline="middle"
-        >
-          {shorten(link.label, 24)}
-        </text>
-      ) : null}
       {(selected || hovered) && tool === 'select' && handleLayer ? createPortal(<g data-route-owner={link.relId} data-selection-id={link.relId}>
         {route.points.slice(1).map((end, index) => {
           const start = route.points[index]!;

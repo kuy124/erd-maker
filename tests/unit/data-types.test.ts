@@ -4,7 +4,8 @@ import { deriveTables } from '../../src/model/crowfoot';
 import { generateSql } from '../../src/model/sql';
 import { decodeSnapshot, encodeSnapshot, normalizeDocument } from '../../src/model/snapshot';
 import {
-  BASE_TYPES, makeDataType, normalizeDataType, splitDataType,
+  BASE_TYPES, enumValuesFromInput, enumValuesOf, makeDataType, makeEnumType,
+  normalizeDataType, splitDataType,
 } from '../../src/model/dataTypes';
 import { emptyDocument } from '../../src/model/types';
 import { ATTRIBUTES, seedDocument, snapshotFromYdoc, upsertAttribute } from '../../src/collab/ydoc';
@@ -82,11 +83,11 @@ describe('parameterised types', () => {
   });
 
   it('reads a type back into the parts the form edits', () => {
-    expect(splitDataType('VARCHAR(64)')).toEqual({ base: 'VARCHAR', args: [64] });
-    expect(splitDataType('DECIMAL(12,4)')).toEqual({ base: 'DECIMAL', args: [12, 4] });
-    expect(splitDataType('UUID')).toEqual({ base: 'UUID', args: [] });
+    expect(splitDataType('VARCHAR(64)')).toEqual({ base: 'VARCHAR', args: [64], enumValues: [] });
+    expect(splitDataType('DECIMAL(12,4)')).toEqual({ base: 'DECIMAL', args: [12, 4], enumValues: [] });
+    expect(splitDataType('UUID')).toEqual({ base: 'UUID', args: [], enumValues: [] });
     // Nothing chosen reads as TEXT with no arguments, not as a broken type.
-    expect(splitDataType(undefined)).toEqual({ base: 'TEXT', args: [] });
+    expect(splitDataType(undefined)).toEqual({ base: 'TEXT', args: [], enumValues: [] });
   });
 
   it('accepts the whole base list it offers', () => {
@@ -219,5 +220,104 @@ describe('editable data types', () => {
     upsertAttribute(source, doc.attributes[1]!);
     expect(snapshotFromYdoc(source).attributes.find((a) => a.id === 'email')).not.toHaveProperty('dataType');
     undo.destroy(); source.destroy(); peer.destroy();
+  });
+});
+
+describe('enum data types', () => {
+  it('builds a canonical ENUM with quoted, comma-separated values', () => {
+    expect(makeEnumType(['pending', 'active', 'closed'])).toBe("ENUM('pending','active','closed')");
+    expect(makeEnumType(['a'])).toBe("ENUM('a')");
+    // No space after the commas: this is the canonical form the exporter emits.
+    expect(makeEnumType(['a', 'b'])).not.toContain(', ');
+  });
+
+  it('escapes a single quote inside a value the way SQL does', () => {
+    expect(makeEnumType(["it's"])).toBe("ENUM('it''s')");
+    expect(enumValuesOf("ENUM('it''s','ok')")).toEqual(["it's", 'ok']);
+  });
+
+  it('choosing the base without values gives a usable default', () => {
+    const made = makeDataType('ENUM');
+    expect(made).toBeDefined();
+    expect(enumValuesOf(made!)).toEqual(['value']);
+    expect(makeDataType('INT', [4])).toBeUndefined();
+  });
+
+  it('normalizes case, padding, and quoting to one canonical form', () => {
+    expect(normalizeDataType('enum')).toBe("ENUM('value')");
+    expect(normalizeDataType("  enum ( 'a' , 'b' )  ")).toBe("ENUM('a','b')");
+    expect(normalizeDataType("ENUM('a','b')")).toBe("ENUM('a','b')");
+  });
+
+  it('treats the whitespace-separated and no-space spellings as the same list', () => {
+    expect(enumValuesOf("ENUM('a','b','c')")).toEqual(enumValuesOf("ENUM( 'a' , 'b' , 'c' )"));
+  });
+
+  it('reads the values back out in order for the form', () => {
+    expect(splitDataType("ENUM('low','high')")).toEqual({
+      base: 'ENUM', args: [], enumValues: ['low', 'high'],
+    });
+    // A non-enum never reports values, so the form knows to hide the list field.
+    expect(splitDataType('VARCHAR(64)').enumValues).toEqual([]);
+  });
+
+  it('rejects a malformed enum rather than repairing it into something plausible', () => {
+    for (const bad of [
+      'ENUM()', 'ENUM(', 'ENUM(red)', "ENUM('a',)", "ENUM('a' junk)", 'ENUM(,)',
+      "ENUM('')", 'ENUM(a,b)',
+    ]) {
+      expect(normalizeDataType(bad), bad).toBeUndefined();
+    }
+  });
+
+  it('refuses duplicate values, an empty list, and unreasonably large lists', () => {
+    expect(makeEnumType([])).toBeUndefined();
+    expect(makeEnumType([])).toBeUndefined();
+    expect(makeEnumType(['a', 'a'])).toBeUndefined();
+    expect(makeEnumType(Array.from({ length: 65 }, (_, i) => 'v' + i))).toBeUndefined();
+    expect(makeEnumType(['x'.repeat(65)])).toBeUndefined();
+    // The boundary itself is allowed.
+    expect(makeEnumType(Array.from({ length: 64 }, (_, i) => 'v' + i))).toBeDefined();
+    expect(makeEnumType(['x'.repeat(64)])).toBeDefined();
+  });
+
+  it('drops an absurd imported enum and safely infers instead', () => {
+    const doc = schema();
+    Object.assign(doc.attributes[1]!, { dataType: "ENUM('a'" });
+    const normalized = normalizeDocument(doc);
+    expect(normalized.attributes[1]).not.toHaveProperty('dataType');
+    expect(generateSql(normalized)).toContain('"email" TEXT');
+  });
+
+  it('parses the comma-separated text a person types, with or without quotes', () => {
+    expect(enumValuesFromInput('pending, active, closed')).toEqual(['pending', 'active', 'closed']);
+    expect(enumValuesFromInput("'pending', 'active'")).toEqual(['pending', 'active']);
+    // Quotes protect an internal comma; without them, the comma splits.
+    expect(enumValuesFromInput("'a,b', c")).toEqual(['a,b', 'c']);
+    expect(enumValuesFromInput('  a ,  b  ')).toEqual(['a', 'b']);
+    expect(enumValuesFromInput('')).toEqual([]);
+    expect(enumValuesFromInput('   ,  ,  ')).toEqual([]);
+  });
+
+  it('exports an enum column and carries its type into inherited foreign keys', () => {
+    const doc = schema();
+    Object.assign(doc.attributes[0]!, { dataType: "ENUM('gold','silver')" });
+    expect(deriveTables(doc)[0]!.rows.find((r) => r.attributeId === 'id')?.type).toBe("ENUM('gold','silver')");
+    expect(generateSql(doc)).toContain('"customer_id" ENUM(\'gold\',\'silver\')');
+    // A key of enum type carries the same enum into the many-side foreign key.
+    expect(deriveTables(doc)[1]!.rows.find((r) => r.fk)?.type).toBe("ENUM('gold','silver')");
+  });
+
+  it('survives JSON normalization, URL snapshots, and a Yjs round trip', () => {
+    const doc = schema();
+    Object.assign(doc.attributes[1]!, { dataType: "ENUM('a','b')" });
+    expect(normalizeDocument(JSON.parse(JSON.stringify(doc)))).toEqual(doc);
+    expect(decodeSnapshot(encodeSnapshot(doc))).toEqual(doc);
+
+    const source = new Y.Doc(), peer = new Y.Doc();
+    seedDocument(source, doc); Y.applyUpdate(peer, Y.encodeStateAsUpdate(source));
+    expect(snapshotFromYdoc(peer).attributes.find((a) => a.id === 'email'))
+      .toHaveProperty('dataType', "ENUM('a','b')");
+    source.destroy(); peer.destroy();
   });
 });

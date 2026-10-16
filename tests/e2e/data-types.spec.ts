@@ -204,3 +204,47 @@ test.describe('phone data types', () => {
     expect(JSON.parse(await exported(page, 'JSON')).attributes.find((a: { id: string }) => a.id === 'email').dataType).toBe('VARCHAR(120)');
   });
 });
+
+test('adds an ENUM type with a comma-separated list, exports it, and round-trips it', async ({ page }) => {
+  await importDocument(page); await selectAttribute(page, 'email');
+  await page.getByLabel('Data type', { exact: true }).selectOption('ENUM');
+  // Choosing the base gives a usable default so the column is never typeless.
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('value')");
+  const values = page.locator('#attr-enum-values');
+  await expect(values).toBeVisible();
+  await values.fill('pending, active, closed');
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('pending','active','closed')");
+  // Quotes are optional in the field; the exported type always quotes.
+  await expect(page.locator('#attr-data-type-help')).toContainText('separated by commas');
+  const sql = await exported(page, 'SQL');
+  expect(sql).toContain(`"contact_email_address" ENUM('pending','active','closed')`);
+  expect(await exported(page, 'SVG')).toContain("ENUM('pending','active','closed')");
+  const json = JSON.parse(await exported(page, 'JSON')) as ErdDocument;
+  expect(json.attributes.find((a) => a.id === 'email')?.dataType).toBe("ENUM('pending','active','closed')");
+  // The JSON is what a reload and a share link both parse, so the value survives.
+  await page.reload();
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('pending','active','closed')");
+});
+
+test('an incomplete enum list keeps the last valid type instead of clearing it', async ({ page }) => {
+  await importDocument(page); await selectAttribute(page, 'email');
+  await page.getByLabel('Data type', { exact: true }).selectOption('ENUM');
+  const values = page.locator('#attr-enum-values');
+  await values.fill('draft, review');
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('draft','review')");
+  // A trailing comma is mid-word, not yet a value: the column must not lapse to
+  // something untyped, or to a bogus empty value.
+  await values.fill('draft, review, ');
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('draft','review')");
+  // Finishing the value commits it, and the quoted spelling is accepted too.
+  await values.fill("'draft', 'review', 'done'");
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('draft','review','done')");
+});
+
+test('a value containing a quote is escaped so the SQL stays valid', async ({ page }) => {
+  await importDocument(page); await selectAttribute(page, 'email');
+  await page.getByLabel('Data type', { exact: true }).selectOption('ENUM');
+  await page.locator('#attr-enum-values').fill("owner's, admin");
+  await expect(typeCell(page, 'email')).toHaveText("ENUM('owner''s','admin')");
+  expect(await exported(page, 'SQL')).toContain(`"contact_email_address" ENUM('owner''s','admin')`);
+});

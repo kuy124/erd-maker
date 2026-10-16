@@ -338,8 +338,12 @@ test.describe("crow's foot", () => {
 
     await page.getByRole('button', { name: "Crow's-foot" }).click();
     await page.waitForTimeout(150);
-    // Crow's foot notation states the ratio on the connector.
-    await expect(canvas(page).getByText(/1\s*:\s*N/i)).toBeVisible();
+    // Crow's foot notation states each end's cardinality beside its table: `1`
+    // at the one end and `N` at the many end, never the relationship's name.
+    const ratios = page.locator('.crow-link__ratio');
+    await expect(ratios).toHaveCount(2);
+    await expect(ratios).toHaveText(['1', 'N']);
+    await expect(page.locator('.crow-link__label')).toHaveCount(0);
   });
 
   test('AUDIT: a connector can be selected and deleted', async ({ page }) => {

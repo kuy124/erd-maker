@@ -96,10 +96,10 @@ it('splits at the requested spot, tries the clear side, and refuses steps into t
   expect(splitRouteSegment(points, 0, guard, { x: 118, y: 0 })).toBeNull();
 });
 
-it('keeps the relationship name clear of the real corner dots', () => {
+it('keeps the caption anchor clear of the real corner dots', () => {
   const points = [{ x: 380, y: 166 }, { x: 540, y: 166 }, { x: 540, y: 210 }, { x: 700, y: 210 }];
   const guard = { a: points[0]!, b: points[3]!, aStub: { x: 416, y: 166 }, bStub: { x: 664, y: 210 }, obstacles: [] };
-  const caption = placeRouteCaption({ points, guard, label: { x: 540, y: 188 }, labelAnchor: 'middle' }, 'owns', '1:N');
+  const caption = placeRouteCaption({ points, guard, label: { x: 540, y: 188 }, labelAnchor: 'middle' }, '1:N');
   for (const point of points.slice(1, -1)) expect(caption.bounds.maxX <= point.x - 12 || caption.bounds.minX >= point.x + 12 ||
     caption.bounds.maxY <= point.y - 12 || caption.bounds.minY >= point.y + 12).toBe(true);
 });

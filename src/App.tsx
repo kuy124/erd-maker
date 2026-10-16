@@ -397,7 +397,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       const a = tables.find((item) => item.entityId === link.fromEntityId)!;
       const b = tables.find((item) => item.entityId === link.toEntityId)!;
       point = placeRouteCaption(routeColumns(a, link.fromColumnId, b, link.toColumnId, link.lane, tables.map(tableObstacle),
-        link.route, link.bend, link.routePoints), link.label, link.ratio);
+        link.route, link.bend, link.routePoints), link.ratio);
     }
     if (point) requestAnimationFrame(() => {
       const area = canvasArea();

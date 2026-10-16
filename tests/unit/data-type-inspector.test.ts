@@ -29,7 +29,7 @@ describe('data type properties', () => {
     // Bases, not fixed presets: `VARCHAR` and `VARCHAR(64)` are different
     // columns, so the numbers are a separate control.
     const bases = [...select.options].map((o) => o.value);
-    for (const base of ['TEXT', 'VARCHAR', 'INT', 'DECIMAL', 'NUMERIC', 'UUID', 'BOOLEAN']) {
+    for (const base of ['TEXT', 'VARCHAR', 'INT', 'DECIMAL', 'NUMERIC', 'UUID', 'BOOLEAN', 'ENUM']) {
       expect(bases).toContain(base);
     }
   });
@@ -84,5 +84,22 @@ describe('data type properties', () => {
   it('keeps the type control out of Chen conceptual properties', () => {
     const doc = document(); doc.view = 'chen';
     expect(properties(doc).querySelector('#attr-data-type')).toBeNull();
+  });
+
+  it('offers a values field for ENUM and only for ENUM', () => {
+    // A base with no list shows no enum field.
+    const plain = document(); plain.attributes[0]!.dataType = 'TEXT';
+    expect(properties(plain).querySelector('#attr-enum-values')).toBeNull();
+
+    const doc = document(); doc.attributes[0]!.dataType = "ENUM('low','high')";
+    const dom = properties(doc);
+    expect(dom.querySelector<HTMLSelectElement>('#attr-data-type')?.value).toBe('ENUM');
+    const field = dom.querySelector<HTMLInputElement>('#attr-enum-values')!;
+    expect(field).toBeDefined();
+    expect(field.type).toBe('text');
+    expect(field.value).toBe('low, high');
+    // The number inputs belong to other bases and must not appear for ENUM.
+    expect(dom.querySelector('#attr-type-length')).toBeNull();
+    expect(dom.querySelector('#attr-type-precision')).toBeNull();
   });
 });

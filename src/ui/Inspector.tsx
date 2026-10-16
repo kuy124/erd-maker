@@ -10,13 +10,15 @@
  * empty — an empty panel is a missed opportunity to teach the notation.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
 import type { AttributeKind, ErdDocument } from '../model/types';
 import {
   attributeType,
   BASE_TYPES,
+  enumValuesFromInput,
   makeDataType,
+  makeEnumType,
   MAX_LENGTH,
   MAX_PRECISION,
   splitDataType,
@@ -44,6 +46,45 @@ function lengthFields(base: BaseType): Array<{ id: string; base: BaseType; label
     ];
   }
   return [];
+}
+
+/**
+ * The comma-separated list of an `ENUM`, kept as free text while it is typed.
+ *
+ * The stored type is derived from this text, but the field must not be driven by
+ * the stored type: a half-typed list like `red, ` is not yet a valid enum, and
+ * echoing the canonical value back would delete the comma the moment it was
+ * typed. The text is the source of truth here; the model follows what can be
+ * parsed, and holds its last good value while the text is still incomplete.
+ */
+function EnumValuesField({ id, values, onChange }: {
+  id: string;
+  values: string[];
+  onChange: (type: string) => void;
+}) {
+  const [text, setText] = useState(values.join(', '));
+  // A different attribute (or an external edit that changed the values) resets
+  // the field, but only when the values actually differ from what is typed.
+  const canonical = values.join(', ');
+  const lastCanonical = useRef(canonical);
+  useEffect(() => {
+    if (lastCanonical.current !== canonical) {
+      lastCanonical.current = canonical;
+      setText(canonical);
+    }
+  }, [canonical]);
+  return <input key={id} id={id} className="field__input enum-values"
+    type="text" autoComplete="off" spellCheck={false}
+    aria-label="Enum values" placeholder="e.g. pending, active, closed"
+    value={text}
+    onChange={(event) => {
+      const next = event.target.value;
+      setText(next);
+      const made = makeEnumType(enumValuesFromInput(next));
+      // Hold the last good enum while a value is still being typed, rather than
+      // clearing the column's type on the way to a complete list.
+      if (made) onChange(made);
+    }} />;
 }
 import { deriveTables } from '../model/crowfoot';
 import { canOwnAttribute } from '../model/attributes';
@@ -275,11 +316,11 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
         {doc.view === 'crowfoot' ? <div className="field">
           <label className="field__label" htmlFor="attr-data-type">Data type</label>
           {/*
-            A base and, for the bases that have one, its numbers — because
+            A base and, for the bases that have one, its arguments — because
             `VARCHAR` and `VARCHAR(64)` are different columns and a list of
-            fixed presets can only ever offer a few of each. The number inputs
-            appear only for bases that take them, so `INT` is not asked for a
-            length it does not have.
+            fixed presets can only ever offer a few of each. The extra inputs
+            appear only for bases that take them: numbers for `VARCHAR`, a
+            comma-separated list for `ENUM`, nothing for `INT`.
           */}
           <div className="type-fields">
             <select id="attr-data-type" className="field__select"
@@ -314,10 +355,15 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
                   // until there is a replacement.
                   if (made) state.updateAttribute(attribute.id, { dataType: made });
                 }} />)}
+            {!row?.fk && splitDataType(attribute.dataType).base === 'ENUM' ?
+              <EnumValuesField id="attr-enum-values" values={splitDataType(attribute.dataType).enumValues}
+                onChange={(value) => state.updateAttribute(attribute.id, { dataType: value })} /> : null}
           </div>
           <p id="attr-data-type-help" className="field__help">{row?.fk ?
             'Inherited from ' + row.references?.label + '. Change the referenced attribute’s data type to keep this foreign key compatible.' :
             attribute.kind === 'derived' ? 'Derived attributes are calculated and omitted from tables and SQL.' :
+            splitDataType(attribute.dataType).base === 'ENUM' ?
+              'Type the allowed values, separated by commas. Quotes are optional; each value is quoted in the exported SQL.' :
             'Automatic infers a type from the name. Choose a type to use it in tables and SQL.'}</p>
         </div> : null}
         <div className="field">

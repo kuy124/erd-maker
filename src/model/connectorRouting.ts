@@ -236,12 +236,18 @@ export function placeEndpointLabels(guard: RouteGuard, ratio: string) {
   });
 }
 
-/** Keep relationship names clear of tables, endpoint symbols, and their labels. */
+/**
+ * Where a relationship's caption may sit, kept clear of tables, endpoint symbols,
+ * and their labels.
+ *
+ * The crow's-foot view draws only cardinality, not the relationship name, so the
+ * box is a small fixed anchor used for placing the drag handle and framing the
+ * connector — it is never given text.
+ */
 export function placeRouteCaption(route: {
   points: RoutePoint[]; label: RoutePoint; labelAnchor: 'start' | 'middle' | 'end'; guard: RouteGuard;
-}, name: string, ratio: string) {
-  // Allow for wide uppercase glyphs in the 13px relationship name.
-  const width = Math.min(name.length, 24) * 14 + 20;
+}, ratio: string) {
+  const width = 20;
   const boxes = [...route.guard.obstacles, ...symbolBoxes(route.guard),
     ...placeEndpointLabels(route.guard, ratio).map(label => label.bounds),
     ...route.points.slice(1, -1).map(point => ({ minX: point.x - 12, maxX: point.x + 12,
