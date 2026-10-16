@@ -20,6 +20,7 @@ import { describeSqlReadiness, generateSql } from '../model/sql';
 import { documentBounds } from '../canvas/geometry';
 import type { EditorState } from '../state/useEditor';
 import { Modal } from './Modals';
+import { SQL_DIALECTS, savedSqlDialect, saveSqlDialect, type SqlDialect } from './sqlDialect';
 
 type Tab = 'svg' | 'png' | 'json' | 'sql';
 
@@ -34,6 +35,13 @@ export function ExportDialog({ state, svgRef, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // Read once when the dialog opens; the dialog unmounts on close, so the
+  // saved choice is what it comes back to.
+  const [dialect, setDialect] = useState<SqlDialect>(savedSqlDialect);
+  const chooseDialect = (next: SqlDialect) => {
+    setDialect(next);
+    saveSqlDialect(next);
+  };
 
   /**
    * `generateSql` throws `SqlError` for documents that cannot become a schema
@@ -50,11 +58,11 @@ export function ExportDialog({ state, svgRef, onClose }: Props) {
    */
   const sql = useMemo(() => {
     try {
-      return generateSql(state.doc);
+      return generateSql(state.doc, { dialect });
     } catch {
       return null;
     }
-  }, [state.doc]);
+  }, [state.doc, dialect]);
   const sqlReadiness = useMemo(() => describeSqlReadiness(state.doc), [state.doc]);
   const stem = fileStem(state.doc.name);
 
@@ -191,6 +199,23 @@ export function ExportDialog({ state, svgRef, onClose }: Props) {
             The schema this diagram describes. Key attributes become the primary key, and each
             relationship becomes a foreign key or its own table.
           </p>
+          {/*
+            The dialect is a property of the person, not the diagram, and it is
+            stored in this browser. Only the auto-increment style of generated
+            keys depends on it, so the note says so rather than implying the
+            whole schema changes.
+          */}
+          <div className="field">
+            <label className="field__label" htmlFor="sql-dialect">SQL dialect</label>
+            <select id="sql-dialect" className="field__select" value={dialect}
+              aria-describedby="sql-dialect-help"
+              onChange={(event) => chooseDialect(event.target.value as SqlDialect)}>
+              {SQL_DIALECTS.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+            </select>
+            <p id="sql-dialect-help" className="field__help">
+              {SQL_DIALECTS.find((option) => option.id === dialect)?.note} Affects generated key columns only.
+            </p>
+          </div>
           {sql ? (
             <pre className="code" aria-label="Generated SQL">
               {sql}

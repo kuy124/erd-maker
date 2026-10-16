@@ -1125,6 +1125,42 @@ test.describe('export', () => {
     await page.getByLabel('Maximum').fill('5');
     await expect(page.getByTestId('leg-participation')).toHaveText('(1,5)');
   });
+
+  test('choosing a SQL dialect changes the generated key and is remembered', async ({ page }) => {
+    await openApp(page);
+    await addNamedEntity(page, 'Customer');
+    // No key attribute, so the table gets a generated surrogate key — the one
+    // thing the dialect changes.
+    await addShape(page, 'attribute');
+    await nameField(page).fill('note');
+
+    await documentAction(page, 'Export');
+    await page.getByRole('tab', { name: 'SQL', exact: true }).click();
+    const code = page.getByLabel('Generated SQL');
+    // The default is portable standard SQL.
+    await expect(code).toContainText('"id" INTEGER');
+    const dialect = page.getByLabel('SQL dialect');
+    await expect(dialect).toHaveValue('standard');
+
+    // MySQL spells a generated key differently, and the preview follows the choice.
+    await dialect.selectOption('mysql');
+    await expect(code).toContainText('"id" INT AUTO_INCREMENT');
+    const pending = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download SQL' }).click();
+    const text = await readDownload(await pending);
+    expect(text).toContain('INT AUTO_INCREMENT');
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+
+    // The choice belongs to the person, so it survives closing the dialog.
+    await documentAction(page, 'Export');
+    await page.getByRole('tab', { name: 'SQL', exact: true }).click();
+    await expect(page.getByLabel('SQL dialect')).toHaveValue('mysql');
+    await expect(page.getByLabel('Generated SQL')).toContainText('INT AUTO_INCREMENT');
+
+    // And a different dialect previews its own key spelling.
+    await page.getByLabel('SQL dialect').selectOption('postgres');
+    await expect(page.getByLabel('Generated SQL')).toContainText('"id" SERIAL');
+  });
 });
 
 /**
