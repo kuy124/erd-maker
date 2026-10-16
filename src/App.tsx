@@ -149,6 +149,20 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     if (panelTrigger.current?.getClientRects().length) panelTrigger.current.focus();
     else svgRef.current?.focus();
   }, []);
+  /**
+   * Double-clicking a shape reveals its properties, the shortcut a mouse user
+   * reaches for before hunting the panel controls.
+   *
+   * The first press of the double-click has already selected the shape, so this
+   * only opens the panel — it never changes the selection. Under Pan or Connect
+   * a press pans or draws instead of selecting, so the selection on screen is
+   * not the thing under the pointer, and nothing opens. An empty double-click
+   * clears the selection in the same gesture, which the length check catches.
+   */
+  const revealProperties = useCallback(() => {
+    if (state.tool !== 'select' || state.selection.length !== 1) return;
+    showPanel('properties');
+  }, [state.tool, state.selection, showPanel]);
   const select = state.setSelection;
   const editor: typeof state = { ...state, doc: shown, setViewport: (update) => {
     // Canvas gestures take ownership of the view while a live room is loading.
@@ -762,7 +776,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             <DiagramOutline state={editor} onSelect={focusShape} />}
         </div>
 
-        <div className="canvas-stage" onContextMenu={openMenu} onKeyDown={(event) => {
+        <div className="canvas-stage" onContextMenu={openMenu} onDoubleClick={revealProperties} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
           {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} /> :

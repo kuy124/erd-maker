@@ -433,3 +433,51 @@ test('crow’s-foot shows cardinality labels at both table endpoints', async ({ 
   expect(svg).toContain('data-route-end="to"');
   expect(svg).not.toContain('crow-link__split');
 });
+
+test('double-clicking a shape reveals its properties, in both views and from Help', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  await importDocument(page, createExample('orders'));
+
+  // A closed panel, then a double-click on a Chen entity, reveals Properties
+  // for that entity without any trip to the panel controls.
+  await expect(properties(page)).toBeHidden();
+  await page.getByTestId('canvas').getByRole('button', { name: /^Entity Customer/ }).dblclick();
+  await expect(properties(page)).toBeVisible();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Customer');
+
+  // Double-clicking with Help open switches the right panel to Properties for
+  // the shape: the gesture means "this shape's properties", not "open a panel".
+  await page.getByRole('button', { name: 'Help', exact: true }).click();
+  await expect(properties(page)).toBeHidden();
+  await page.getByTestId('canvas').getByRole('button', { name: /^Entity Order/ }).dblclick();
+  await expect(properties(page)).toBeVisible();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Order');
+
+  // The same works in the crow's-foot view, on a table header and an attribute row.
+  await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await expect(properties(page)).toBeHidden();
+  await page.getByTestId('table-Customer').getByRole('button', { name: 'Table Customer', exact: true }).dblclick();
+  await expect(properties(page)).toBeVisible();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Customer');
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit attribute customer_id', exact: true }).dblclick();
+  await expect(properties(page)).toBeVisible();
+  await expect(page.getByLabel('Attribute name')).toHaveValue('customer_id');
+});
+
+test('a double-click on empty paper or under another tool does not open properties', async ({ page }) => {
+  await page.goto('/'); await ready(page);
+  await importDocument(page, createExample('orders'));
+  await expect(properties(page)).toBeHidden();
+
+  // Empty paper clears the selection, so there is nothing to reveal.
+  await page.getByTestId('canvas').dblclick({ position: { x: 5, y: 5 } });
+  await expect(properties(page)).toBeHidden();
+
+  // Under the Connect tool a press draws instead of selecting, so the selection
+  // on screen is not the shape under the pointer and nothing should open.
+  await page.getByRole('button', { name: 'Connect tool' }).click();
+  await page.getByTestId('canvas').getByRole('button', { name: /^Entity Customer/ }).dblclick();
+  await expect(properties(page)).toBeHidden();
+});

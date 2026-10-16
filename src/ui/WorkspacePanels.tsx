@@ -134,6 +134,7 @@ export function HelpPanel() {
         ))}
       </div>
       <p>The endpoint beside an entity describes that entity. Click its symbols to edit. N and M use a fork; advanced numeric limits are written beside the line.</p>
+      <p>Select a shape to highlight it and edit it in Properties, or double-click a shape to reveal its properties in one step.</p>
       <p>Connect two entities to create a relationship diamond automatically. Connect an entity to an existing diamond to add a participant.</p>
       <p>Entity types are Regular, Weak, and Associative. Weak uses a double border; Associative uses a rectangle with a diamond inside. An associative entity stores attributes of an association and connects to its related entities.</p>
       <p>For a unary relationship, select an entity and choose Add unary relationship in Properties or its right-click menu. The diamond starts above the entity, with two bent role lines and separate endpoint symbols. The entity takes two roles, such as Employee managing Employee. Edit each role’s cardinality and connection attribute in Participants.</p>
