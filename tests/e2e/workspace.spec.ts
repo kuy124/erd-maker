@@ -366,6 +366,44 @@ test('phone sheets fit above a simulated keyboard and Help remains scrollable at
   await page.screenshot({ path: 'test-results/shots/workspace-200-percent-help.png' });
 });
 
+test('Help is grouped into named, collapsible topics rather than one long page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/'); await ready(page);
+  await panels(page).getByRole('button', { name: 'Help', exact: true }).click();
+  const guide = page.getByRole('region', { name: 'Modeling guide' });
+  await expect(guide).toBeVisible();
+
+  // Every topic holds a heading, so the panel can be skimmed by section instead
+  // of read top to bottom.
+  for (const title of ['The four shapes', 'Attribute kinds', 'Read a relationship',
+    'Build and edit', 'Entity types and unary relationships', "Crow’s-foot tables",
+    "Chen and crow’s-foot", 'Keyboard shortcuts']) {
+    await expect(guide.getByRole('heading', { name: title })).toBeVisible();
+  }
+
+  // No topic is a wall of consecutive prose: a run of body paragraphs with no
+  // list, table, or example between them is what made the old guide unreadable.
+  const wall = await guide.evaluate((node) => {
+    const bodies = [...node.querySelectorAll('.help-section__body')];
+    return Math.max(...bodies.map((body) => {
+      let run = 0, longest = 0;
+      for (const child of body.children) {
+        run = child.tagName === 'P' ? run + 1 : 0;
+        longest = Math.max(longest, run);
+      }
+      return longest;
+    }));
+  });
+  expect(wall, 'a topic is a wall of consecutive paragraphs').toBeLessThan(4);
+
+  // Each topic collapses, so a reader can put one away once it is understood.
+  const topic = guide.locator('.help-section').filter({ hasText: 'Attribute kinds' });
+  await expect(topic).toHaveAttribute('open', '');
+  await topic.getByRole('heading', { name: 'Attribute kinds' }).click();
+  await expect(topic).not.toHaveAttribute('open', '');
+  await expect(guide.getByRole('heading', { name: 'Read a relationship' })).toBeVisible();
+});
+
 
 test('Chen endpoints match ERDPlus and keep legacy leg orientations and exported symbols', async ({ page }) => {
   await page.goto('/'); await ready(page);

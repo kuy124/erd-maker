@@ -1605,11 +1605,53 @@ body {
 .diagram-checks > .btn { width: 100%; justify-content: space-between; }
 .count { font-family: var(--font-mono); }
 .issue-link { font-size: var(--text-xs); color: var(--warn); line-height: 1.5; }
-.help-panel p, .help-panel dd { font-size: var(--text-sm); color: var(--ink-secondary); }
-.help-panel h3 { font-size: var(--text-base); margin: var(--s5) 0 var(--s2); }
+.help-panel p, .help-panel dd, .help-panel li { font-size: var(--text-sm); color: var(--ink-secondary); }
+.help-intro { margin-bottom: var(--s4); }
+
+/* Each topic is its own collapsible block, so the guide reads as a set of
+   answers rather than one long page. The rule between sections is the only
+   separator; the guide has no cards. */
+.help-section { border-top: var(--hairline) solid var(--rule); }
+.help-section__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  cursor: pointer;
+  padding: var(--s3) 0;
+  list-style: none;
+}
+/* The default disclosure triangle sits at a different height than the heading
+   and cannot be aligned; a chevron drawn here turns instead. */
+.help-section__summary::-webkit-details-marker { display: none; }
+.help-section__summary::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--ink-tertiary);
+  border-bottom: 2px solid var(--ink-tertiary);
+  transform: rotate(-45deg);
+  transition: transform var(--t-fast) var(--ease-out);
+}
+.help-section[open] > .help-section__summary::before { transform: rotate(45deg); }
+.help-section__summary:hover::before { border-color: var(--signal); }
+.help-section__summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; border-radius: var(--r-control); }
+.help-section__summary h3 { margin: 0; font-size: var(--text-base); }
+.help-section__body { padding: 0 0 var(--s4) calc(7px + var(--s2)); }
+.help-section__body > :first-child { margin-top: 0; }
+
+.help-list { margin: var(--s2) 0; padding-left: 1.1em; display: grid; gap: var(--s2); }
+.help-list li { line-height: 1.5; }
+/* A lead-in for a list below it: a label, not a sentence, so it stays out of
+   the body-copy rhythm and the list reads as one block. Written as
+   `.help-panel .help-label` so it matches the `.help-panel p` rule's
+   specificity rather than resorting to `!important`. */
+.help-panel .help-label { font-weight: 600; color: var(--ink); margin-bottom: var(--s1); }
+.help-panel code { font-family: var(--font-mono); font-size: var(--text-xs); }
+
 .help-legend, .shortcut-list { margin: var(--s4) 0; }
-.help-legend > div { margin-bottom: var(--s4); }
-.help-legend dt { display: flex; align-items: center; gap: var(--s2); font-weight: 600; }
+.help-legend > div { margin-bottom: var(--s3); }
+.help-legend dt { display: flex; align-items: center; gap: var(--s2); font-weight: 600; font-size: var(--text-sm); color: var(--ink); }
 .help-legend dd, .shortcut-list dd { margin: var(--s1) 0 0; }
 .relationship-example { border-block: 1px solid var(--rule); padding: var(--s3) 0; line-height: 1.8; }
 .relationship-example strong { color: var(--signal-strong); font-family: var(--font-mono); }
