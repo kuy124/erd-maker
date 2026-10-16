@@ -76,6 +76,17 @@
 
   --hairline: 1px;
 
+  /*
+   * The one shadow in the system.
+   *
+   * The thesis is hairline ink with no shadows: nothing on the paper is lifted
+   * off it. A context menu is the exception because it is not on the paper at
+   * all — it floats above the work, and without an edge it reads as another
+   * panel rather than something that will dismiss. Elevation earns a shadow
+   * only where a surface genuinely hovers over the page.
+   */
+  --shadow-menu: 0 8px 24px rgb(0 0 0 / 18%);
+
   color-scheme: light;
 }
 
@@ -883,7 +894,7 @@ body {
   text-align: left;
   background: var(--paper-raised);
   border: 1px solid var(--rule);
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-control);
   cursor: pointer;
   color: var(--ink);
 }
@@ -969,7 +980,7 @@ body {
   background: var(--paper-raised);
   border: 1px solid var(--rule-strong);
   border-radius: var(--r-control);
-  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 18%));
+  box-shadow: var(--shadow-menu);
 }
 
 .context-menu__heading {

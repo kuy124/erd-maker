@@ -86,6 +86,8 @@ The default signaling server is `wss://signaling.fly.dev`. Override it using `?s
 
 Download SVG, PNG, JSON, or SQL. Image exports use the complete drawing bounds and remove selection, hover, connection, and presence overlays.
 
+The SQL tab previews the schema and offers a **SQL dialect**: Standard SQL, PostgreSQL, MySQL, or SQLite. The dialect affects only the spelling of generated key columns — `INTEGER`, `SERIAL`, `INT AUTO_INCREMENT` — which is the one place the portable form is not valid on a real database. It is a property of the exporter rather than the diagram, so it is stored in this browser and every other output is unchanged.
+
 SQL follows the existing textbook mapping: entities become tables, weak entities borrow their parent’s key, many-to-many relationships become junction tables, and one-to-many relationships add foreign keys. Selected connection attributes supply the actual foreign-key columns; explicit one-to-one connections also enforce uniqueness. SQL export explains when a chosen reference needs a single-column primary key, or an endpoint is no longer available. Foreign-key types follow the referenced key; other types use the chosen Data type or infer it from the name. Types are parameterised (`VARCHAR(64)`, `NUMERIC(12,4)`) rather than arbitrary, and SQL/DBML import is outside this editor’s current scope.
 
 ## Keyboard
@@ -112,6 +114,8 @@ Scroll over the canvas to zoom smoothly toward the pointer. Trackpad pinch and t
 The keyboard journey for a two-entity keyed schema is kept within 11 deliberate interactions.
 
 ## Design references
+
+The design thesis, palette, geometry rules, and the accessibility floor are documented in [DESIGN.md](./DESIGN.md), and two unit tests hold the stylesheet to it — one that every `var()` a rule reads is set somewhere, and one that every theme defines its tokens and clears 4.5:1. Read that file before changing a token or adding a surface.
 
 The workspace retains IBM Plex typography, paper-and-ink surfaces, quiet drafting grids, and teal selection. It follows the system’s light or dark theme and respects reduced motion. Help also offers **Solarized Light**, **Solarized Dark**, **Dracula**, **Nord**, **GitHub Dark**, and **Monokai** — palettes other tools already ship, using the values those projects publish, so a theme is recognizable before it is read. A theme is a sheet of paper and the ink on it: only the colour tokens change, and every palette is held to the same 4.5:1 body-text contrast as the default. The choice is stored in that browser; picking System clears it and goes back to following the machine.
 
