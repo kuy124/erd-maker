@@ -99,14 +99,14 @@ export function ThemePicker() {
 /**
  * A collapsible block of the guide.
  *
- * The guide covers a lot of ground, and a reader arrives looking for one thing.
- * Sections start open so the answers are visible on arrival, and a heading can
- * be collapsed to get a topic out of the way once it is understood. Native
- * `<details>` gives the toggle, the keyboard behaviour, and the state for free.
+ * The guide covers a lot of ground and a reader arrives looking for one thing,
+ * so every topic starts collapsed and the panel reads as a list of answers to
+ * choose from. Native `<details>` gives the toggle, the keyboard behaviour, and
+ * the state, so this adds no script.
  */
 function HelpSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <details className="help-section" open>
+    <details className="help-section">
       <summary className="help-section__summary"><h3>{title}</h3></summary>
       <div className="help-section__body">{children}</div>
     </details>
@@ -118,8 +118,7 @@ export function HelpPanel() {
     <section className="help-panel" aria-label="Modeling guide">
       <h2 className="panel__title">Modeling guide</h2>
       <p className="help-intro">
-        A quick reference, not a tutorial: read the part you need. Every heading
-        collapses once you have it.
+        A quick reference, not a tutorial: open the topic you need.
       </p>
 
       <HelpSection title="The four shapes">

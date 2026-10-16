@@ -396,12 +396,20 @@ test('Help is grouped into named, collapsible topics rather than one long page',
   });
   expect(wall, 'a topic is a wall of consecutive paragraphs').toBeLessThan(4);
 
-  // Each topic collapses, so a reader can put one away once it is understood.
-  const topic = guide.locator('.help-section').filter({ hasText: 'Attribute kinds' });
+  // Every topic starts collapsed, so the panel opens as a list of answers to
+  // choose from rather than a page to scroll.
+  const topics = guide.locator('.help-section');
+  await expect(topics.first()).not.toHaveAttribute('open', '');
+  expect(await guide.locator('.help-section[open]').count()).toBe(0);
+
+  // Opening one shows its content and leaves the rest collapsed.
+  const topic = topics.filter({ hasText: 'Attribute kinds' });
+  await topic.getByRole('heading', { name: 'Attribute kinds' }).click();
   await expect(topic).toHaveAttribute('open', '');
+  await expect(guide.getByRole('heading', { name: 'Read a relationship' })).toBeVisible();
+  await expect(guide.locator('.help-section[open]')).toHaveCount(1);
   await topic.getByRole('heading', { name: 'Attribute kinds' }).click();
   await expect(topic).not.toHaveAttribute('open', '');
-  await expect(guide.getByRole('heading', { name: 'Read a relationship' })).toBeVisible();
 });
 
 
