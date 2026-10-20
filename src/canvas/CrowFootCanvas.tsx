@@ -372,7 +372,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                           <circle cx={0} cy={y} r={5} /><circle cx={table.width} cy={y} r={5} />
                         </g> : null}
                         <text className="crow-row__key" x={10} y={y}>
-                          <tspan style={row.pk && row.fk ? { fontSize: 10 } : undefined}>{row.pk && row.fk ? 'PK/FK' : row.pk ? 'PK' : row.fk ? 'FK' : ''}</tspan>
+                          <tspan style={row.pk && row.fk ? { fontSize: 10 } : undefined}>
+                            {row.pk && row.fk ? 'PK/FK' : row.pk ? 'PK' : row.fk ? 'FK' : row.unique ? 'UQ' : ''}
+                          </tspan>
                         </text>
                         <text
                           className={`crow-row__name${row.pk ? ' crow-row__name--pk' : ''}`}

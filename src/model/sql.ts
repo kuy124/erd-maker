@@ -153,8 +153,13 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
     const rows = crowTables.find((t) => t.entityId === end.entity.id)!.rows;
     const keys = rows.filter((r) => r.pk);
     const row = end.leg.columnId ? rows.find((r) => r.id === end.leg.columnId) : keys[0];
-    if (!row?.pk || keys.length !== 1) {
-      throw new SqlError(`${relationshipName}: choose a single-column primary key at ${end.entity.name} for SQL export. A non-key field or one part of a composite key cannot be referenced alone.`);
+    /*
+     * A column may be referenced when it identifies a row on its own: the
+     * primary key, or a column marked unique. A plain column says nothing
+     * about how many rows share its value, so it cannot be pointed at.
+     */
+    if (!row || (!row.pk && !row.unique) || keys.length !== 1) {
+      throw new SqlError(`${relationshipName}: choose a single-column primary key or a unique column at ${end.entity.name} for SQL export. A plain field or one part of a composite key cannot be referenced alone.`);
     }
     return { name: toSqlName(row.name), type: sqlDataType(row.type),
       pk: true, nullable: false };
@@ -206,6 +211,9 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
         name,
         type: columnTypeFor(attr),
         pk: attr.kind === 'key',
+        // A unique column is not part of the primary key, but no two rows may
+        // share its value, so the database says so.
+        unique: attr.kind === 'unique',
         nullable: attr.kind !== 'key',
       });
     }

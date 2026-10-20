@@ -44,10 +44,12 @@ export function getDiagramIssues(doc: ErdDocument): DiagramIssue[] {
       const invalidTargets = targets.filter((target) => {
         const row = rows[ends[0].leg.id === target.leg.id ? 0 : 1];
         const keys = tables.find((t) => t.entityId === target.entity.id)!.rows.filter((r) => r.pk);
-        return !row.pk || keys.length !== 1;
+        // A column may be referenced when it identifies a row on its own: the
+        // primary key, or a column marked unique.
+        return (!row.pk && !row.unique) || keys.length !== 1;
       });
       if (invalidTargets.length) issues.push({ code: 'non-key-reference', nodeId: relationship.id,
-        message: 'For SQL export, connect ' + (relationship.name || 'this relationship') + ' to a single-column primary key at ' +
+        message: 'For SQL export, connect ' + (relationship.name || 'this relationship') + ' to a single-column primary key or a unique column at ' +
           invalidTargets.map((end) => end.entity.name || 'this entity').join(' and ') + '.' });
     }
   }

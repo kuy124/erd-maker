@@ -424,7 +424,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
   ydoc.getMap(ATTRIBUTES).forEach((value, key) => {
     const m = value as Y.Map<unknown>;
     const kind = readString(m, 'kind', 'simple');
-    const kinds = ['simple', 'key', 'multivalued', 'derived', 'composite'] as const;
+    const kinds = ['simple', 'key', 'unique', 'multivalued', 'derived', 'composite'] as const;
     const dataType = normalizeDataType(m.get('dataType'));
     doc.attributes.push({
       id: key,

@@ -131,6 +131,7 @@ export const AttributeShape = memo(function AttributeShape({
   const rx = w / 2;
   const ry = h / 2;
   const key = attribute.kind === 'key';
+  const unique = attribute.kind === 'unique';
   const multivalued = attribute.kind === 'multivalued';
   const derived = attribute.kind === 'derived';
 
@@ -158,7 +159,7 @@ export const AttributeShape = memo(function AttributeShape({
           style={{ strokeDasharray: '5 4' }}
         />
       ) : null}
-      <ShapeLabel name={attribute.name} x={rx} y={ry - (key && attribute.name.length <= 16 ? 4 : 0)} limit={16}
+      <ShapeLabel name={attribute.name} x={rx} y={ry - ((key || unique) && attribute.name.length <= 16 ? 4 : 0)} limit={16}
         underline={key && attribute.name.length > 16} />
       {/* Key attributes are underlined, the standard Chen convention. */}
       {key && attribute.name.length <= 16 ? (
@@ -168,6 +169,21 @@ export const AttributeShape = memo(function AttributeShape({
           y1={ry + 8}
           x2={rx + Math.min(measureLabel(attribute.name) / 2, rx - 10)}
           y2={ry + 8}
+        />
+      ) : null}
+      {/*
+        A unique column is underlined with a broken line: it identifies a row
+        on its own, but it is not the primary key, and the two should not be
+        mistaken for one another.
+      */}
+      {unique ? (
+        <line
+          className="node__key-line"
+          x1={rx - Math.min(measureLabel(attribute.name) / 2, rx - 10)}
+          y1={ry + 8}
+          x2={rx + Math.min(measureLabel(attribute.name) / 2, rx - 10)}
+          y2={ry + 8}
+          strokeDasharray="3 3"
         />
       ) : null}
       <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />

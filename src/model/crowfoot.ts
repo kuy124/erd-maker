@@ -64,6 +64,8 @@ export interface CrowRow {
   name: string;
   pk: boolean;
   fk: boolean;
+  /** The column identifies a row on its own, but it is not the primary key. */
+  unique?: boolean;
   /**
    * What the row points at.
    *
@@ -133,7 +135,7 @@ function baseRows(doc: ErdDocument, entity: Entity): CrowRow[] {
   const attrs = leafAttributesOf(doc, entity.id);
   const rows: CrowRow[] = attrs.filter((a) => a.kind === 'key').concat(attrs.filter((a) => a.kind !== 'key'))
     .map((a) => ({ id: 'attribute:' + a.id, attributeId: a.id, name: a.name,
-      pk: a.kind === 'key', fk: false, type: attributeType(a) }));
+      pk: a.kind === 'key', fk: false, ...(a.kind === 'unique' ? { unique: true } : {}), type: attributeType(a) }));
   if (!rows.some((r) => r.pk)) {
     const existingId = rows.find((r) => toSqlName(r.name) === 'id');
     if (existingId) { existingId.pk = true; existingId.generatedKey = true; }

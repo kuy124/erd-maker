@@ -98,6 +98,7 @@ interface Props {
 const ATTRIBUTE_KINDS: { value: AttributeKind; label: string }[] = [
   { value: 'simple', label: 'Simple' },
   { value: 'key', label: 'Key' },
+  { value: 'unique', label: 'Unique' },
   { value: 'multivalued', label: 'Multivalued' },
   { value: 'derived', label: 'Derived' },
   { value: 'composite', label: 'Composite' },
@@ -618,6 +619,8 @@ function describeKind(kind: AttributeKind): string {
   switch (kind) {
     case 'key':
       return 'A key uniquely identifies an entity, and is drawn underlined.';
+    case 'unique':
+      return 'A unique column identifies a row on its own, but it is not the primary key. Another table may point at it instead of at the key.';
     case 'multivalued':
       return 'A multivalued attribute can hold more than one value, and is drawn with a double outline.';
     case 'derived':

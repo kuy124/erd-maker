@@ -23,7 +23,16 @@ import type { RoutePoint } from './connectorRouting';
 export type EntityKind = 'strong' | 'weak' | 'associative';
 export const ENTITY_KINDS: EntityKind[] = ['strong', 'weak', 'associative'];
 export type RelationshipKind = 'strong' | 'weak';
-export type AttributeKind = 'simple' | 'key' | 'multivalued' | 'derived' | 'composite';
+/**
+ * The kind of an attribute.
+ *
+ * `key` is the primary key: the columns that identify a row, and the ones a
+ * foreign key points at by default. `unique` is a candidate key: it identifies
+ * a row on its own, but it is not the primary key — an email, a national
+ * number. Another table may point at a unique column instead of at the primary
+ * key, which is what makes it worth saying that a column is unique at all.
+ */
+export type AttributeKind = 'simple' | 'key' | 'unique' | 'multivalued' | 'derived' | 'composite';
 export type Cardinality = '1' | 'N' | 'M';
 
 /** Participation constraint; advanced numeric ranges are written (min,max). */

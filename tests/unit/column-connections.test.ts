@@ -264,7 +264,7 @@ describe('row routing and export framing', () => {
 });
 
 describe('SQL uses the connected fields', () => {
-  it('uses a selected existing attribute with the referenced key’s type and no duplicate generated FK', () => {
+  it('uses a selected existing attribute with the referenced keyâ€™s type and no duplicate generated FK', () => {
     const sql = generateSql(shop());
     expect(sql).toContain('FOREIGN KEY ("buyer_ref") REFERENCES "customer" ("id")');
     expect(sql).toContain('"buyer_ref" INTEGER');
@@ -311,7 +311,7 @@ describe('SQL uses the connected fields', () => {
       expect(() => db.exec('INSERT INTO places (customer_id, order_id) VALUES (1, 99)')).toThrow(/FOREIGN KEY/);
     } finally { db.close(); }
   });
-  it('uses a weak entity’s selected identifying FK in both table rows and its composite primary key', () => {
+  it('uses a weak entityâ€™s selected identifying FK in both table rows and its composite primary key', () => {
     const doc = shop(); doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';
     const row = deriveTables(doc)[1]!.rows.find((r) => r.attributeId === 'o-buyer')!;
     expect(row).toMatchObject({ pk: true, fk: true, type: 'INT' });
@@ -325,7 +325,7 @@ describe('SQL uses the connected fields', () => {
       expect(() => db.exec('INSERT INTO "order" (id, buyer_ref) VALUES (2, 99)')).toThrow(/FOREIGN KEY/);
     } finally { db.close(); }
   });
-  it('enforces one-to-one uniqueness even when a weak entity’s FK is part of a composite key', () => {
+  it('enforces one-to-one uniqueness even when a weak entityâ€™s FK is part of a composite key', () => {
     const doc = shop(); doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';
     doc.legs[1]!.cardinality = '1'; doc.legs[1]!.participation.max = 1;
     const db = new DatabaseSync(':memory:');
@@ -352,7 +352,7 @@ describe('SQL uses the connected fields', () => {
     expect(tables[0]!.rows.some((r) => r.fk)).toBe(false);
     expect(tables[1]!.rows.find((r) => r.id === 'attribute:o-key')).toMatchObject({ pk: true, fk: true });
   });
-  it('retains a weak entity’s plain id attribute without giving it a second generated PK role', () => {
+  it('retains a weak entityâ€™s plain id attribute without giving it a second generated PK role', () => {
     const doc = shop(); doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';
     doc.legs.forEach((l) => delete l.columnId); doc.attributes.find((a) => a.id === 'o-key')!.kind = 'simple';
     doc.attributes[0]!.name = 'customer_id';
@@ -370,9 +370,9 @@ describe('SQL uses the connected fields', () => {
       { id: 'owns-2', fromId: 'owns', toId: 'c', cardinality: 'N', participation: { min: 0, max: 'N' } },
     );
     // Customer has its partial id plus Staff's inherited id: neither part is unique alone.
-    expect(() => generateSql(doc)).toThrow(/single-column primary key at Customer/);
+    expect(() => generateSql(doc)).toThrow(/single-column primary key or a unique column at Customer/);
   });
-  it('references a weak entity’s sole inherited key by its actual name', () => {
+  it('references a weak entityâ€™s sole inherited key by its actual name', () => {
     const doc = shop(); doc.entities[0]!.kind = 'weak'; delete doc.legs[0]!.columnId;
     doc.attributes = doc.attributes.filter((a) => a.ownerId !== 'c');
     doc.entities.push({ id: 's', name: 'Staff', x: 800, y: 0, kind: 'strong' });
@@ -404,7 +404,7 @@ describe('SQL uses the connected fields', () => {
   });
   it('rejects referenced non-key fields, partial composite keys, and missing attributes with actionable errors', () => {
     const doc = shop(); doc.legs[0]!.columnId = 'attribute:c-email';
-    expect(() => generateSql(doc)).toThrow(/single-column primary key at Customer/);
+    expect(() => generateSql(doc)).toThrow(/single-column primary key or a unique column at Customer/);
     doc.legs[0]!.columnId = 'attribute:c-key'; doc.attributes.find((a) => a.id === 'c-email')!.kind = 'key';
     expect(() => generateSql(doc)).toThrow(SqlError);
     doc.attributes = doc.attributes.filter((a) => a.id !== 'o-buyer');

@@ -243,7 +243,7 @@ export function normalizeDocument(input: unknown): ErdDocument {
     attributes: asArray(raw.attributes).flatMap((a) => {
       const o = asObject(a);
       if (!o || typeof o.id !== 'string') return [];
-      const kinds = ['simple', 'key', 'multivalued', 'derived', 'composite'] as const;
+      const kinds = ['simple', 'key', 'unique', 'multivalued', 'derived', 'composite'] as const;
       const kind = kinds.find((k) => k === o.kind) ?? 'simple';
       const dataType = normalizeDataType(o.dataType);
       return [

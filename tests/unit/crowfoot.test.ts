@@ -124,6 +124,28 @@ describe('deriveTables', () => {
     expect(deriveLinks(doc)[0]!.toColumnId).toBe(order.rows.find((r) => r.fk)!.id);
   });
 
+  it('keeps a unique column apart from the primary key', () => {
+    const doc = shop();
+    // A unique column identifies a row on its own, but it is not the key: the
+    // key is what the other table points at by default.
+    doc.attributes.push({ id: 'c-nim', name: 'nim', x: 0, y: 0, kind: 'unique', ownerId: 'c' });
+    const customer = deriveTables(doc).find((t) => t.name === 'Customer')!;
+    const unique = customer.rows.find((r) => r.name === 'nim');
+    expect(unique).toMatchObject({ pk: false, unique: true, fk: false });
+    expect(customer.rows.filter((r) => r.pk).map((r) => r.name)).toEqual(['customer_id']);
+    // The column is still there to be pointed at.
+    expect(generateSql(doc)).toContain('UNIQUE');
+  });
+
+  it('lets another table point at a unique column instead of the key', () => {
+    const doc = shop();
+    doc.attributes.push({ id: 'c-nim', name: 'nim', x: 0, y: 0, kind: 'unique', ownerId: 'c' });
+    // The customer side points at the unique column rather than at the key.
+    doc.legs[0]!.columnId = 'attribute:c-nim';
+    expect(() => generateSql(doc)).not.toThrow();
+    expect(generateSql(doc)).toContain('FOREIGN KEY ("customer_nim") REFERENCES "customer" ("nim")');
+  });
+
   it('uses the name a person gives a generated foreign key', () => {
     const doc = shop();
     // The name lives on the leg that holds the column, so it belongs to the

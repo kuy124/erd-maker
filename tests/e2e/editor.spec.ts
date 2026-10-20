@@ -1049,7 +1049,7 @@ test.describe('export', () => {
 
     // And SQL explains itself instead of rendering nothing.
     await page.getByRole('tab', { name: 'SQL', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('choose a single-column primary key at Customer');
+    await expect(page.getByRole('alert')).toContainText('choose a single-column primary key or a unique column at Customer');
     await expect(page.getByRole('button', { name: 'Download SQL' })).toBeDisabled();
     await expect(page.getByTestId('canvas')).toBeVisible();
   });
