@@ -554,9 +554,9 @@ function CrowConnector({
       }
       const now = toWorld(moveEvent.clientX, moveEvent.clientY);
       const delta = axis === 'horizontal' ? now.y - start.y : now.x - start.x;
-      const points = kind === 'insert' ? splitRouteSegment(route.points, index, route.guard, origin, delta) :
+      const points = kind === 'insert' ? splitRouteSegment(route.points, index, route.guard, origin, delta, true) :
           moveRouteSegment(route.points, index, delta, stubs);
-      const safe = points !== null && isRouteSafe(points, route.guard);
+      const safe = points !== null && isRouteSafe(points, route.guard, true);
       setBlocked(!safe);
       if (!safe || !points) return;
       finalPoints = interiorPoints(points);
@@ -668,7 +668,7 @@ function CrowConnector({
                 if (event.key !== negative && event.key !== positive) return;
                 event.preventDefault(); event.stopPropagation();
                 const points = moveRouteSegment(route.points, index, (event.key === negative ? -1 : 1) * (event.shiftKey ? 10 : 1), stubs);
-                if (isRouteSafe(points, route.guard)) onRouteChange(link.relId, interiorPoints(points));
+                if (isRouteSafe(points, route.guard, true)) onRouteChange(link.relId, interiorPoints(points));
               }}>
               <title>Drag this section, or use arrow keys; Shift moves 10 units</title>
               <circle className="crow-link__split-hit" r={11 / zoom} />

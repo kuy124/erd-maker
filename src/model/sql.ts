@@ -32,10 +32,10 @@ import {
   type Leg,
   type Relationship,
 } from './types';
-import { toSqlName } from './columnNames';
+import { foreignKeyColumnName, toSqlName } from './columnNames';
 import { attributeType, normalizeDataType, sqlDataType } from './dataTypes';
 import { leafAttributesOf } from './attributes';
-import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, type CrowTable, type RelationshipEnd } from './crowfoot';
+import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, rowForColumn, type CrowTable, type RelationshipEnd } from './crowfoot';
 export { foreignKeyColumnName, toSqlName } from './columnNames';
 
 export interface SqlOptions {
@@ -144,7 +144,8 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
     const rel = doc.relationships.find((r) => r.id === leg.fromId || r.id === leg.toId);
     if (!rel) continue;
     const entityId = otherEnd(leg, rel.id);
-    if (!crowTables.find((t) => t.entityId === entityId)?.rows.some((r) => r.id === leg.columnId)) {
+    const rows = crowTables.find((t) => t.entityId === entityId)?.rows ?? [];
+    if (!rowForColumn(rows, leg.columnId!)) {
       throw new SqlError(`Choose an available connection attribute for ${rel.name}.`);
     }
   }
@@ -173,10 +174,16 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
       const bound = source?.leg.columnId || target?.leg.columnId;
       const keys = bound && target ? [selectedKey(target, weakParent.rel.name)] : parentKeyColumns(crowTables, weakParent.parent);
       if (bound && keys.length !== 1) throw new SqlError(`${weakParent.rel.name}: a single connection attribute cannot reference a composite key.`);
-      const sourceRow = bound && ends && source ? endpointRows(doc, crowTables, ends)[ends[0].leg.id === source.leg.id ? 0 : 1] : null;
-      for (const pk of keys) {
+      /*
+       * The inherited key is named after the table it comes from, and the table
+       * view says so. Reading the name from the same row keeps the exported
+       * schema and the drawn table saying the same thing.
+       */
+      const inherited = crowTables.find((t) => t.entityId === entity.id)!.rows
+        .filter((row) => row.references?.relationshipIds?.includes(weakParent.rel.id));
+      for (const [index, pk] of keys.entries()) {
         columns.push({
-          name: sourceRow ? toSqlName(sourceRow.name) : pk.name,
+          name: toSqlName(inherited[index]?.name ?? pk.name),
           type: pk.type,
           pk: true,
           fk: { table: entityTableName(weakParent.parent), column: pk.name },
@@ -248,14 +255,14 @@ export function generateSql(doc: ErdDocument, options: SqlOptions = {}): string 
 
     const columns: Column[] = [
       {
-        name: `${toSqlName(a.name)}_${aKey.name}`,
+        name: foreignKeyColumnName(toSqlName(a.name), toSqlName(aKey.name)),
         type: aKey.type,
         pk: true,
         fk: { table: entityTableName(a), column: aKey.name },
         nullable: false,
       },
       {
-        name: `${toSqlName(b.name)}_${bKey.name}${a.id === b.id ? '_2' : ''}`,
+        name: foreignKeyColumnName(toSqlName(b.name), toSqlName(bKey.name)) + (a.id === b.id ? '_2' : ''),
         type: bKey.type,
         pk: true,
         fk: { table: entityTableName(b), column: bKey.name },

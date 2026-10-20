@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
-import { connectedPeerCount, readPeers, type PeerState, type RoomHandle } from '../collab/provider';
+import { connectedPeerCount, onTransport, readPeers, transportState, type PeerState, type RoomHandle, type TransportState } from '../collab/provider';
 import { createLocalIdentity, rememberIdentity, type Identity } from '../collab/identity';
 import {
   connectColumns,
@@ -20,6 +20,7 @@ import {
   seedDocument,
   setGroupMembers,
   setMeta,
+  setCrowPlacement,
   snapshotFromYdoc,
   upsertAttribute,
   upsertEntity,
@@ -62,6 +63,14 @@ export interface EditorState {
   connected: boolean;
   /** Peers reachable over a direct WebRTC connection (not just same-browser). */
   directPeers: number;
+  /**
+   * What the room connection is doing, and why nobody may be there.
+   *
+   * The signalling server is what finds a peer in another device; the direct
+   * connection is what carries the edits. Either can fail on its own, and the
+   * person waiting in the room can only be helped if they are told which.
+   */
+  transport: TransportState;
   loaded: boolean;
   /**
    * Ids of every selected node. Empty means nothing is selected.
@@ -153,6 +162,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [connected, setConnected] = useState(false);
   const [directPeers, setDirectPeers] = useState(0);
+  const [transport, setTransport] = useState<TransportState>({ signalling: false, direct: 0, blocked: 0 });
   const [selection, setSelection] = useState<string[]>([]);
   /**
    * The id of the shape created by the most recent add, or null.
@@ -255,13 +265,25 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   // connection exists.
   useEffect(() => {
     const provider = room.provider;
-    const update = () => setDirectPeers(connectedPeerCount(provider));
+    const update = () => {
+      setDirectPeers(connectedPeerCount(provider));
+      setTransport(transportState(provider));
+    };
     provider.on('peers', update);
     provider.on('status', update);
+    const stopTransport = onTransport(provider, update);
+    // The signalling socket has a life of its own: it drops and reconnects on
+    // its own, and whether it is up is the difference between "nobody is in
+    // this room" and "this room cannot be found".
+    for (const conn of provider.signalingConns) {
+      conn.on('connect', update);
+      conn.on('disconnect', update);
+    }
     update();
     return () => {
       provider.off('peers', update);
       provider.off('status', update);
+      stopTransport();
     };
   }, [room]);
 
@@ -286,7 +308,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     [room],
   );
 
-  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
+  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'transport' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
     setTool,    setSelection: (ids) => { setSelection(ids); setJustCreated(null); },
     toggleSelection: (id) => setSelection((current) =>
       current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
@@ -585,10 +607,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     applyTablePositions: (positions: Map<string, { x: number; y: number }>) => {
       mutate(() => {
         for (const [id, pos] of positions) {
-          const map = room.ydoc.getMap('entities').get(id) as Y.Map<unknown> | undefined;
-          if (!map) continue;
-          map.set('crowX', pos.x);
-          map.set('crowY', pos.y);
+          setCrowPlacement(room.ydoc, id, pos.x, pos.y, true);
         }
       }, true);
     },
@@ -601,16 +620,14 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
      * here: the UndoManager tracks the null origin, so going through `mutate`
      * put an automatic placement on the undo stack, and the first Undo after an
      * import then reverted the arrangement instead of the import.
+     *
+     * It is recorded as an arrangement and not as a move, so it never undoes
+     * where somebody deliberately put a table.
      */
     placeTables: (positions: Map<string, { x: number; y: number }>) => {
-      room.ydoc.transact(() => {
-        for (const [id, pos] of positions) {
-          const map = room.ydoc.getMap('entities').get(id) as Y.Map<unknown> | undefined;
-          if (!map) continue;
-          map.set('crowX', pos.x);
-          map.set('crowY', pos.y);
-        }
-      }, 'auto-place');
+      for (const [id, pos] of positions) {
+        setCrowPlacement(room.ydoc, id, pos.x, pos.y, false, 'auto-place');
+      }
     },
 
     /**
@@ -639,6 +656,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     peers,
     connected,
     directPeers,
+    transport,
     loaded,
     selection,
     pointer,

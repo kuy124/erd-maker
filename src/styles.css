@@ -1386,6 +1386,44 @@ body {
   align-items: center;
 }
 
+/*
+ * The room connection, in the header.
+ *
+ * A person who opened one room on two devices and sees nothing happen has to
+ * be able to tell a quiet room from a blocked one. The dot carries the state
+ * at a glance and the label says it in words.
+ */
+.connection-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px var(--s2);
+  border-radius: var(--r-pill);
+  font-size: var(--text-xs);
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.connection-pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--ink-tertiary);
+}
+
+.connection-pill[data-state='live'] .connection-pill__dot { background: var(--signal); }
+.connection-pill[data-state='local'] .connection-pill__dot { background: var(--signal-strong); }
+.connection-pill[data-state='waiting'] .connection-pill__dot { background: var(--ink-tertiary); }
+.connection-pill[data-state='blocked'] { color: var(--warn); }
+.connection-pill[data-state='blocked'] .connection-pill__dot { background: var(--warn); }
+.connection-pill[data-state='offline'] { color: var(--warn); }
+.connection-pill[data-state='offline'] .connection-pill__dot { background: var(--warn); }
+
+.connection-fix {
+  color: var(--warn);
+  white-space: nowrap;
+}
+
 .presence__avatar {
   width: 24px;
   height: 24px;
@@ -1739,6 +1777,10 @@ kbd { font: 13px var(--font-mono); }
   /* One column: a two-column swatch grid leaves each option about 140px, which
      cramps the palette name and shrinks the tap target. */
   .theme-picker__options { grid-template-columns: 1fr; }
+  /* The phone header keeps the state in words: the dot alone says nothing. */
+  .connection-pill { padding: 2px var(--s1); }
+  /* Sharing is in the menu on a phone, so the shortcut would only crowd it. */
+  .connection-fix { display: none; }
   .document-title { flex: 1; }
   .document-title .docname { width: 100%; min-width: 0; padding: 6px; font-size: 16px; }
   .topbar__spacer, .header-export, .header-share { display: none; }

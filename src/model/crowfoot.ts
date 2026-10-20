@@ -1,5 +1,5 @@
-import { legsFor, type ErdDocument, type Entity, type Leg, type RouteSide } from './types';
-import { foreignKeyColumnName, toSqlName } from './columnNames';
+import { legsFor, type ErdDocument, type Entity, type Leg, type Relationship, type RouteSide } from './types';
+import { foreignKeyColumnName, toSqlName, uniqueColumnName } from './columnNames';
 import { attributeType } from './dataTypes';
 import { leafAttributesOf } from './attributes';
 import { ENDPOINT_STUB, findSafeRoute, isRouteSafe, normalizeRoutePoints, simplifyRoute, type RoutePoint } from './connectorRouting';
@@ -37,9 +37,10 @@ const CHAR_MONO = 8.0;
  *
  * Clear of the PK/FK badge on one line. This was 46 when a generated key also
  * drew "gen" underneath, which pushed every name right for the sake of a marker
- * that has since gone.
+ * that has since gone; a junction table and a weak entity's inherited key both
+ * carry a "PK/FK" badge, and that badge is wider than "PK" or "FK".
  */
-export const CROW_NAME_X = 34;
+export const CROW_NAME_X = 44;
 /** Gap between the longest text and the table border, each side. */
 const CROW_GUTTER = 12;
 
@@ -63,9 +64,43 @@ export interface CrowRow {
   name: string;
   pk: boolean;
   fk: boolean;
+  /**
+   * What the row points at.
+   *
+   * `relationshipIds` names every relationship the row serves, so a table
+   * that references the same key twice still gives each relationship its own
+   * column and its own end of the line.
+   */
   references?: { entityId: string; columnId: string; label: string; relationshipIds?: string[] };
   type: string;
   generatedKey?: boolean;
+}
+
+/**
+ * The row a leg points at.
+ *
+ * Generated foreign-key rows used to be shared by every relationship that
+ * referenced the same key, so older files name them `foreign:<entity>:<key>`.
+ * That name still finds its row: it is the only row that ends with it. Nothing
+ * has to be rewritten in the shared document for that to work.
+ */
+export function rowForColumn(rows: CrowRow[], columnId: string): CrowRow | undefined {
+  const exact = rows.find((row) => row.id === columnId);
+  if (exact) return exact;
+  if (!columnId.startsWith('foreign:')) return undefined;
+  const suffix = columnId.slice('foreign:'.length);
+  return rows.find((row) => row.id.startsWith('foreign:') && row.id.endsWith(suffix));
+}
+
+/**
+ * The relationship's own name, when it can tell one column from another.
+ *
+ * A relationship nobody named yet is called "relationship", which says nothing
+ * about the column it would give its name to.
+ */
+function relationshipRole(rel: Relationship): string {
+  const name = toSqlName(rel.name);
+  return name && name !== 'relationship' ? name : '';
 }
 
 export interface ColumnEndpoint { entityId: string; columnId: string }
@@ -125,7 +160,17 @@ export function foreignKeyDirection(doc: ErdDocument, [a, b]: [RelationshipEnd, 
   if (identifying && (a.entity.kind === 'weak') !== (b.entity.kind === 'weak')) return a.entity.kind === 'weak' ? [a, b] : [b, a];
   if (a.leg.cardinality !== '1' && b.leg.cardinality === '1') return [a, b];
   if (b.leg.cardinality !== '1' && a.leg.cardinality === '1') return [b, a];
-  if (a.leg.cardinality !== '1' || b.leg.cardinality !== '1' || (!a.leg.columnId && !b.leg.columnId)) return null;
+  // Both sides many: the relationship becomes a table of its own.
+  if (a.leg.cardinality !== '1' || b.leg.cardinality !== '1') return null;
+  /*
+   * One to one still needs a foreign key somewhere.
+   *
+   * The second participant holds it, which is the side an explicit binding
+   * picks as well when both ends are keys. Leaving it out made the two tables
+   * look unrelated in the table view, and the exported schema carried no link
+   * between them at all.
+   */
+  if (!a.leg.columnId && !b.leg.columnId) return [b, a];
   // Explicit one-to-one bindings use the non-key field as the FK; two keys use the second end.
   const isKey = (end: RelationshipEnd) => baseRows(doc, end.entity).find((r) => r.id === end.leg.columnId)?.pk;
   return isKey(b) && !isKey(a) ? [a, b] : [b, a];
@@ -227,29 +272,47 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
     const selectedTarget = targetTable.rows.find((r) => r.id === target.leg.columnId);
     const keys = selectedTarget ? [selectedTarget] : targetTable.rows.filter((r) => r.pk);
     for (const key of keys) {
-      const recursive = source.entity.id === target.entity.id;
-      let name = identifying ? toSqlName(key.name) : foreignKeyColumnName(toSqlName(target.entity.name), toSqlName(key.name));
-      const legacyId = 'foreign:' + target.entity.id + ':' + key.id;
-      const id = recursive && source.leg.columnId !== legacyId ? 'foreign:' + rel.id + ':' + target.entity.id + ':' + key.id : legacyId;
-      let row = sourceTable.rows.find((r) => r.id === source.leg.columnId);
-      row ??= sourceTable.rows.find((r) => toSqlName(r.name) === name &&
-        (!recursive || (r.attributeId && !r.pk && !r.references) || r.references?.relationshipIds?.includes(rel.id)));
+      /*
+       * One column per relationship.
+       *
+       * The row used to be named after the key it referenced, so two
+       * relationships to the same table shared one column and both lines
+       * ended on it. The relationship is part of the name now, which is what
+       * keeps the two apart.
+       */
+      const id = 'foreign:' + rel.id + ':' + target.entity.id + ':' + key.id;
+      const base = foreignKeyColumnName(toSqlName(target.entity.name), toSqlName(key.name));
+      // An explicit binding wins; then the row this relationship owns already.
+      let row = source.leg.columnId ? rowForColumn(sourceTable.rows, source.leg.columnId) : undefined;
+      row ??= sourceTable.rows.find((r) => r.id === id);
       if (!row) {
-        if (recursive && sourceTable.rows.some(r => toSqlName(r.name) === name)) {
-          const base = foreignKeyColumnName(toSqlName(rel.name), toSqlName(key.name));
-          name = base;
-          for (let suffix = 2; sourceTable.rows.some(r => toSqlName(r.name) === name); suffix++) name = base + '_' + suffix;
+        /*
+         * A column of the same name that belongs to this table is the foreign
+         * key, not a shadow of it — unless another relationship already owns
+         * it, or it is the very key being referenced, which is what a table
+         * that points at itself would otherwise turn its own primary key into.
+         */
+        const reusable = sourceTable.rows.find((r) => toSqlName(r.name) === base && !r.references && r.id !== key.id);
+        if (reusable) row = reusable;
+        else {
+          const name = uniqueColumnName(sourceTable.rows.map((r) => toSqlName(r.name)), base, relationshipRole(rel));
+          row = { id, attributeId: null, name, pk: false, fk: false, type: key.type };
+          sourceTable.rows.push(row);
         }
-        row = { id, attributeId: null, name, pk: false, fk: false, type: key.type };
-        sourceTable.rows.push(row);
       }
       row.fk = true;
       if (identifying) row.pk = true;
       row.type = key.type;
       row.references = { entityId: target.entity.id, columnId: key.id, label: target.entity.name + '.' + key.name,
-        ...(recursive ? { relationshipIds: [...new Set([...(row.references?.relationshipIds ?? []), rel.id])] } : {}) };
+        relationshipIds: [...new Set([...(row.references?.relationshipIds ?? []), rel.id])] };
     }
   }
+  /*
+   * A many-to-many relationship is drawn as the line it always was: two ends,
+   * each with a foot. The junction table it becomes is the SQL export's job,
+   * not the diagram's, and drawing it here would put a table in the drawing
+   * that is not a shape anybody can select, move, or share.
+   */
   // A referenced key can itself be an FK processed later. Resolve types only
   // after every reference exists; the row bound also terminates cyclic models.
   const rows = tables.flatMap((table) => table.rows);
@@ -274,17 +337,20 @@ export function endpointRows(doc: ErdDocument, tables: CrowTable[], ends: [Relat
   const aTable = tables.find((t) => t.entityId === a.entity.id)!;
   const bTable = tables.find((t) => t.entityId === b.entity.id)!;
   const key = (t: CrowTable) => t.rows.find((r) => r.pk) ?? t.rows[0]!;
-  let aRow = aTable.rows.find((r) => r.id === a.leg.columnId) ?? key(aTable);
-  let bRow = bTable.rows.find((r) => r.id === b.leg.columnId) ?? key(bTable);
+  let aRow = (a.leg.columnId ? rowForColumn(aTable.rows, a.leg.columnId) : undefined) ?? key(aTable);
+  let bRow = (b.leg.columnId ? rowForColumn(bTable.rows, b.leg.columnId) : undefined) ?? key(bTable);
   const direction = foreignKeyDirection(doc, ends);
-  const recursive = a.entity.id === b.entity.id;
   const relationshipId = doc.relationships.find(rel => rel.id === a.leg.fromId || rel.id === a.leg.toId)?.id;
+  /*
+   * The automatic end is the column this relationship generated.
+   *
+   * Matching on the relationship rather than on the referenced key is what
+   * keeps two relationships to the same table on their own columns.
+   */
   if (direction?.[0].leg.id === a.leg.id && !a.leg.columnId) {
-    aRow = aTable.rows.find((r) => recursive ? r.references?.relationshipIds?.includes(relationshipId!) :
-      r.references?.entityId === b.entity.id && r.references.columnId === bRow.id) ?? aRow;
+    aRow = aTable.rows.find((r) => relationshipId && r.references?.relationshipIds?.includes(relationshipId)) ?? aRow;
   } else if (direction?.[0].leg.id === b.leg.id && !b.leg.columnId) {
-    bRow = bTable.rows.find((r) => recursive ? r.references?.relationshipIds?.includes(relationshipId!) :
-      r.references?.entityId === a.entity.id && r.references.columnId === aRow.id) ?? bRow;
+    bRow = bTable.rows.find((r) => relationshipId && r.references?.relationshipIds?.includes(relationshipId)) ?? bRow;
   }
   return [aRow, bRow];
 }
@@ -455,7 +521,9 @@ export function routeColumns(
     const first = saved[0]!, last = saved.at(-1)!;
     const points = simplifyRoute([a, { x: first.x, y: ay }, ...saved, { x: last.x, y: by }, b]);
     const middle = points[Math.floor(points.length / 2)]!;
-    if (isRouteSafe(points, guard)) return {
+    // A line somebody drew by hand may pass behind a table: that is their
+    // decision, and refusing it would replace their shape with the automatic one.
+    if (isRouteSafe(points, guard, true)) return {
       a, b, guard, manualAccepted: true, points, path: polyline(points),
       aToward: aStub, bToward: bStub,
       handle: middle, label: { x: middle.x + 26, y: middle.y }, labelAnchor: 'start' as const,
@@ -468,7 +536,7 @@ export function routeColumns(
     const points = simplifyRoute([a, aStub, { x: corner.x, y: ay }, corner,
       { x: bStub.x, y: corner.y }, bStub, b]);
     const path = polyline(points);
-    if (isRouteSafe(points, guard)) return {
+    if (isRouteSafe(points, guard, true)) return {
       a, b, guard, manualAccepted: true,
       aToward: aStub, bToward: bStub,
       path, points,

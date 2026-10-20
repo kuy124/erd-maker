@@ -2,7 +2,7 @@ import type { Doc, Map as YMap } from 'yjs';
 import type { Cardinality, Participation } from '../model/types';
 import { validParticipation } from '../model/issues';
 import { snapshotFromYdoc, upsertLeg } from './ydoc';
-import { deriveTables } from '../model/crowfoot';
+import { deriveTables, rowForColumn } from '../model/crowfoot';
 
 export interface RelationshipParticipant {
   legId?: string;
@@ -39,7 +39,7 @@ export function writeParticipants(
     const columnId = participant.columnId === undefined && oldEntity === participant.entityId ? old?.get('columnId') : participant.columnId;
     // An unchanged missing column remains a visible finding, so other properties can still be edited.
     if (columnId && (columnId !== old?.get('columnId') || oldEntity !== participant.entityId) &&
-        !tables.find((t) => t.entityId === participant.entityId)?.rows.some((r) => r.id === columnId)) {
+        !rowForColumn(tables.find((t) => t.entityId === participant.entityId)?.rows ?? [], String(columnId))) {
       throw new Error('That attribute is no longer available. Choose another connection attribute.');
     }
     return {

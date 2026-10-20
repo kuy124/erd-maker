@@ -447,10 +447,15 @@ test('crow’s-foot shows cardinality labels at both table endpoints', async ({ 
   await page.goto('/'); await ready(page);
   await importDocument(page, createExample('courses'));
   await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+  // A many-to-many relationship stays a line between the two tables, with a
+  // foot at each end. The junction table it becomes is the SQL export's job.
   await expect(page.locator('.layer-links .crow-link')).toHaveCount(1);
   await expect(page.locator('.layer-links [data-cardinality="many"]')).toHaveCount(2);
   await expect(page.locator('.layer-links [data-cardinality="one"]')).toHaveCount(0);
   await expect(page.locator('.crow-link__ratio')).toHaveText(['N', 'M']);
+  await expect(page.getByTestId('table-Student')).toBeVisible();
+  await expect(page.getByTestId('table-Course')).toBeVisible();
+  await expect(page.getByTestId('table-enrolls in')).toHaveCount(0);
   const doc = createExample('orders');
   doc.legs.forEach((leg) => { leg.cardinality = '1'; });
   await importDocument(page, doc);

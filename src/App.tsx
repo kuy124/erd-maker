@@ -121,6 +121,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileMenuTrigger = useRef<HTMLButtonElement>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
+  /** The share dialog opens with a snapshot in it when the room cannot be reached. */
+  const [shareSnapshot, setShareSnapshot] = useState(false);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
   const [leftTab, setLeftTab] = useState<'build' | 'diagram'>('build');
@@ -525,8 +527,17 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     };
   }, []);
 
+  /*
+   * Who is here, and what they are looking at.
+   *
+   * The notation is each person's own choice, and a peer reading another
+   * notation draws no cursor — so without this, a collaborator who cannot be
+   * seen looks like a collaborator who is not there.
+   */
   const peerSummary = state.peers.length === 0 ? 'Editing alone' :
-    'Editing with ' + state.peers.map((peer) => peer.name).join(', ');
+    'Editing with ' + state.peers.map((peer) =>
+      peer.name + ' (' + (peer.view === 'crowfoot' ? 'crow’s-foot' : 'Chen') + ')').join(', ');
+  const connection = connectionState(state);
   const closeDialog = useCallback(() => setDialog(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
   const closeFileMenu = useCallback(() => setFileMenuAt(null), []);
@@ -732,6 +743,20 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             }}>{view === 'chen' ? 'Chen' : "Crow's-foot"}</button>)}
         </div>
         <span className="topbar__spacer" />
+        {/*
+          The room connection, where a person can see it.
+
+          The status bar carries the same news for screen readers, but it is
+          hidden: somebody who opened one room on two devices and sees nothing
+          happen has to be able to tell a quiet room from a blocked one, and
+          that answer cannot be something only a screen reader gets.
+        */}
+        <span className="connection-pill" data-state={connection.state} title={connection.note}>
+          <span className="connection-pill__dot" aria-hidden="true" />
+          {connection.label}
+        </span>
+        {connection.fix ? <button type="button" className="btn btn--ghost connection-fix"
+          onClick={() => { setShareSnapshot(true); setDialog('share'); }}>Share a snapshot</button> : null}
         {state.peers.length > 0 ? <div className="presence" title={peerSummary} aria-label={peerSummary}>
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}
@@ -801,7 +826,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       <footer className="statusbar visually-hidden">
         <span className="diagram-counts">{state.doc.entities.length} entities · {state.doc.relationships.length} relationships · {state.doc.attributes.length} attributes</span>
         <span className="statusbar__spacer" />
-        <span className="collaboration-status">{peerSummary}{state.directPeers > 0 ? ' · Direct connection' : state.connected ? ' · Same browser' : ''}</span>
+        <span className="collaboration-status">{peerSummary}{state.directPeers > 0 ? ' · Direct connection' : state.connected ? ' · Same browser' : ''} · {connection.note}</span>
       </footer>
       {connectFrom ? <div className="connection-guidance" role="status">Pick a shape to connect <button type="button" className="btn btn--ghost" onClick={() => setConnectFrom(null)}>Cancel</button></div> : null}
       <nav className="panel-navigation" aria-label="Workspace panels">
@@ -819,7 +844,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       {state.notice ? <div className="feedback" role="status"><span>{state.notice}</span>
         {state.notice.endsWith(' deleted.') ? <button type="button" className="btn" disabled={!state.canUndo} onClick={state.undo}>Undo</button> : null}
         <button type="button" className="btn btn--ghost" aria-label="Dismiss notification" onClick={state.clearNotice}>×</button></div> : null}
-      {dialog === 'share' ? <ShareDialog state={editor} onClose={closeDialog} /> : null}
+      {dialog === 'share' ? <ShareDialog state={editor} onClose={closeDialog} includeSnapshot={shareSnapshot} /> : null}
       {dialog === 'export' ? <ExportDialog state={editor} svgRef={svgRef} onClose={closeDialog} /> : null}
       {dialog === 'examples' ? <ExamplesDialog onOpen={openDocument} onClose={closeDialog} /> : null}
       {dialog === 'theme' ? (
@@ -875,4 +900,35 @@ function NameField({ state }: { state: EditorState }) {
 function initials(name: string): string {
   return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
 }
+
+/**
+ * What to say about the room connection.
+ *
+ * Two different failures look identical from inside the room: nobody is here,
+ * or the network will not let the room be reached. The signalling server finds
+ * people in other devices and the direct connection carries the edits, and
+ * either can fail on its own, so the status says which one it is and what to
+ * do about it.
+ */
+function connectionState(state: EditorState): { state: string; label: string; note: string; fix: boolean } {
+  if (state.transport.direct > 0) {
+    return { state: 'live', label: 'Live', fix: false,
+      note: 'Live edits are flowing between the browsers in this room.' };
+  }
+  if (state.peers.length > 0) {
+    return { state: 'local', label: 'Same browser', fix: false,
+      note: 'The other people here are in this browser. A device elsewhere cannot see them.' };
+  }
+  if (state.transport.blocked > 0) {
+    return { state: 'blocked', label: 'Blocked', fix: true,
+      note: 'Your peer was found, but the network between the two browsers refused the connection. Share a snapshot link instead.' };
+  }
+  if (!state.transport.signalling) {
+    return { state: 'offline', label: 'Offline', fix: true,
+      note: 'The signalling server cannot be reached, so people in other devices cannot be found. Share a snapshot link instead.' };
+  }
+  return { state: 'waiting', label: 'Waiting', fix: false,
+    note: 'Nobody else is in this room yet. Share the room link to bring somebody in.' };
+}
+
 export { PRESENCE_COLORS };

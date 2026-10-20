@@ -44,6 +44,32 @@ it('moves a straight horizontal line into a channel while keeping horizontal end
   ]);
 });
 
+it('snaps a dragged section onto the line of the section beside it', () => {
+  // A split line: two runs joined by a short connector. Dragging the second run
+  // back near the first puts them on one line again, without the person having
+  // to land it exactly.
+  const points = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 40 },
+    { x: 400, y: 40 }, { x: 400, y: 80 }, { x: 600, y: 80 }];
+  const guard = { a: points[0]!, b: points.at(-1)!, aStub: { x: 36, y: 0 }, bStub: { x: 564, y: 80 }, obstacles: [] };
+  // Close to the first run: it snaps onto it, and the two are one line again.
+  expect(moveRouteSegment(points, 2, -35)).toEqual([
+    { x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 80 }, { x: 600, y: 80 },
+  ]);
+  // Too far to be meant: it stays where it was put.
+  expect(moveRouteSegment(points, 2, -20)[2]!.y).toBe(20);
+  expect(isRouteSafe(moveRouteSegment(points, 2, -35), guard)).toBe(true);
+});
+
+it('lets a line drawn by hand pass behind a table', () => {
+  const table = { minX: 100, minY: -50, maxX: 200, maxY: 50 };
+  const guard = { a: { x: 0, y: 0 }, b: { x: 400, y: 0 }, aStub: { x: 36, y: 0 }, bStub: { x: 364, y: 0 }, obstacles: [table] };
+  const across = [{ x: 0, y: 0 }, { x: 400, y: 0 }];
+  // The automatic route keeps clear of a table...
+  expect(isRouteSafe(across, guard)).toBe(false);
+  // ...but a line somebody shaped by hand may go behind one.
+  expect(isRouteSafe(across, guard, true)).toBe(true);
+});
+
 it('rejects malformed, diagonal and non-finite saved routes', () => {
   for (const value of [[], [null, null], [{ x: 0, y: 0 }, { x: 1, y: 1 }],
     [{ x: Infinity, y: 0 }, { x: 1, y: 0 }]]) expect(normalizeRoutePoints(value)).toBeUndefined();

@@ -72,6 +72,49 @@ export function roundedRoutePath(points: RoutePoint[], guard: RouteGuard): strin
   return points.length > 1 ? path + ` L${end.x} ${end.y}` : path;
 }
 
+/**
+ * How close a dragged section must come to the line of the section beside it
+ * to snap onto it.
+ *
+ * A split line is two runs of the same line, and dragging one of them away
+ * leaves a jog. Landing it back exactly on the other half takes a steady hand,
+ * so the section snaps when it is close enough: the two become one run again
+ * without the person having to line them up.
+ */
+export const SNAP_DISTANCE = 10;
+
+/** The coordinate of the line the section beside the moved one runs along. */
+function neighbourLine(points: RoutePoint[], index: number, axis: 'x' | 'y'): number[] {
+  const lines: number[] = [];
+  const parallel = (a: RoutePoint, b: RoutePoint) => (axis === 'x' ? a.x === b.x : a.y === b.y);
+  /*
+   * The run the moved section continues.
+   *
+   * A split line is two runs joined by a short perpendicular connector, so the
+   * run to line up with is one step further along, past that connector.
+   */
+  for (const step of [-1, 1]) {
+    let at = index + step;
+    while (at >= 0 && at + 1 < points.length) {
+      const a = points[at]!, b = points[at + 1]!;
+      if (parallel(a, b)) { lines.push(a[axis]); break; }
+      at += step;
+    }
+  }
+  return lines;
+}
+
+/** The nearest of the candidate lines, when it is close enough to be meant. */
+function snapTo(value: number, lines: number[]): number {
+  let best = value;
+  let distance = SNAP_DISTANCE;
+  for (const line of lines) {
+    const gap = Math.abs(line - value);
+    if (gap < distance) { distance = gap; best = line; }
+  }
+  return best;
+}
+
 /** Move the grabbed segment along its normal, keeping the two ports fixed. */
 export function moveRouteSegment(points: RoutePoint[], index: number, delta: number,
   stubs?: { start: number; end: number }): RoutePoint[] {
@@ -93,7 +136,10 @@ export function moveRouteSegment(points: RoutePoint[], index: number, delta: num
     const limit = end.x + endDirection * endLength;
     x = endDirection > 0 ? Math.max(x, limit) : Math.min(x, limit);
   }
-  const movedA = horizontal ? { x: a.x, y: Math.round(a.y + delta) } : { x, y: a.y };
+  // A section that lands on the line of the section beside it becomes one run.
+  const movedY = snapTo(Math.round(a.y + delta), horizontal ? neighbourLine(points, index, 'y') : []);
+  const movedX = snapTo(x, horizontal ? [] : neighbourLine(points, index, 'x'));
+  const movedA = horizontal ? { x: a.x, y: movedY } : { x: movedX, y: a.y };
   const movedB = horizontal ? { x: b.x, y: movedA.y } : { x: movedA.x, y: b.y };
   // A dragged outer run acquires a short horizontal stub at its anchored port.
   const direction = Math.sign(b.x - a.x) || 1;
@@ -110,7 +156,7 @@ export function moveRouteSegment(points: RoutePoint[], index: number, delta: num
 
 /** dbdiagram-style insertion: split at the section midpoint and slide the chosen half. */
 export function splitRouteSegment(points: RoutePoint[], index: number, guard: RouteGuard,
-  position?: RoutePoint, dragOffset?: number): RoutePoint[] | null {
+  position?: RoutePoint, dragOffset?: number, behindTables = false): RoutePoint[] | null {
   const a = points[index], b = points[index + 1];
   if (!a || !b) return null;
   const horizontal = a.y === b.y;
@@ -126,13 +172,21 @@ export function splitRouteSegment(points: RoutePoint[], index: number, guard: Ro
   for (const offset of dragOffset === undefined ? [32, -32] : [Math.round(dragOffset)]) {
     const split = moveRouteSegment(expanded, section, offset,
       { start: Math.abs(guard.aStub.x - guard.a.x), end: Math.abs(guard.bStub.x - guard.b.x) });
-    if (isRouteSafe(split, guard)) return split;
+    if (isRouteSafe(split, guard, behindTables)) return split;
   }
   return null;
 }
 
-/** A manual edit must leave symbols outside tables and cannot cross or double back. */
-export function isRouteSafe(points: RoutePoint[], guard: RouteGuard): boolean {
+/**
+ * A manual edit must leave symbols outside tables and cannot cross or double back.
+ *
+ * `behindTables` relaxes the one rule a person draws on purpose: a hand-drawn
+ * line may pass behind a table. The automatic route never does — a line drawn
+ * over a table hides the rows under it — but a line somebody shaped by hand is
+ * their decision, and refusing the drag over a table makes the line hard to
+ * move at all.
+ */
+export function isRouteSafe(points: RoutePoint[], guard: RouteGuard, behindTables = false): boolean {
   if (points.length < 2 || points.length > 130) return false;
   const { a, b, aStub, bStub, obstacles } = guard;
   const symbols = symbolBoxes(guard);
@@ -143,11 +197,12 @@ export function isRouteSafe(points: RoutePoint[], guard: RouteGuard): boolean {
     next.y !== a.y || previous.y !== b.y ||
     (next.x - a.x) * Math.sign(aStub.x - a.x) < Math.abs(aStub.x - a.x) ||
     (previous.x - b.x) * Math.sign(bStub.x - b.x) < Math.abs(bStub.x - b.x)) return false;
+  const tables = behindTables ? [] : obstacles;
   for (let i = 1; i < points.length; i++) {
     const p = points[i - 1]!, q = points[i]!;
     if (![p.x, p.y, q.x, q.y].every(Number.isFinite) ||
       (p.x !== q.x && p.y !== q.y) || (p.x === q.x && p.y === q.y)) return false;
-    if (obstacles.some(rect => crossesBox(p, q, rect)) ||
+    if (tables.some(rect => crossesBox(p, q, rect)) ||
       (i !== 1 && crossesBox(p, q, symbols[0]!)) ||
       (i !== points.length - 1 && crossesBox(p, q, symbols[1]!))) return false;
     for (let j = i + 2; j < points.length; j++) {

@@ -99,9 +99,9 @@ describe('generateSql — many to many', () => {
   });
 
   it('carries both foreign keys and makes them a composite primary key', () => {
-    expect(sql).toContain('FOREIGN KEY ("student_student_id") REFERENCES "student" ("student_id")');
-    expect(sql).toContain('FOREIGN KEY ("course_course_id") REFERENCES "course" ("course_id")');
-    expect(sql).toContain('PRIMARY KEY ("student_student_id", "course_course_id")');
+    expect(sql).toContain('FOREIGN KEY ("student_id") REFERENCES "student" ("student_id")');
+    expect(sql).toContain('FOREIGN KEY ("course_id") REFERENCES "course" ("course_id")');
+    expect(sql).toContain('PRIMARY KEY ("student_id", "course_id")');
   });
 });
 
@@ -124,8 +124,9 @@ describe('generateSql — weak entity', () => {
     const sql = generateSql(doc);
     expect(sql).toContain('CREATE TABLE "dependent"');
     expect(sql).toContain('"emp_id" INTEGER NOT NULL');
-    expect(sql).toContain('FOREIGN KEY ("emp_id") REFERENCES "employee" ("emp_id")');
-    expect(sql).toContain('PRIMARY KEY ("emp_id", "dep_name")');
+    // The inherited key is named after the table it comes from.
+    expect(sql).toContain('FOREIGN KEY ("employee_emp_id") REFERENCES "employee" ("emp_id")');
+    expect(sql).toContain('PRIMARY KEY ("employee_emp_id", "dep_name")');
   });
 });
 

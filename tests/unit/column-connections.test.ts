@@ -338,8 +338,10 @@ describe('SQL uses the connected fields', () => {
     doc.legs.forEach((l) => delete l.columnId); doc.attributes = doc.attributes.filter((a) => a.ownerId !== 'o');
     const rows = deriveTables(doc)[1]!.rows;
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ name: 'id', pk: true, fk: true, attributeId: null });
-    expect(generateSql(doc)).toContain('FOREIGN KEY ("id") REFERENCES "customer" ("id")');
+    // The inherited key is named after the table it comes from, so the weak
+    // table does not carry a second column called `id`.
+    expect(rows[0]).toMatchObject({ name: 'customer_id', pk: true, fk: true, attributeId: null });
+    expect(generateSql(doc)).toContain('FOREIGN KEY ("customer_id") REFERENCES "customer" ("id")');
   });
   it('keeps an identifying FK on the weak end when both selected attributes are keys', () => {
     const doc = shop(); doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';

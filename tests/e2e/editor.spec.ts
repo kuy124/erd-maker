@@ -1420,12 +1420,36 @@ test.describe('multiplayer', () => {
     // The status must NOT say "in this browser" — that wording is shown only
     // when no direct WebRTC connection exists.
     await expect(alice.locator('.collaboration-status')).toContainText('Direct connection', { timeout: 30_000 });
+    // And it has to be visible: somebody who opened one room on two devices and
+    // sees nothing happen has to be able to tell a quiet room from a blocked one.
+    await expect(alice.locator('.connection-pill')).toHaveAttribute('data-state', 'live', { timeout: 30_000 });
 
     await addNamedEntity(alice, 'Over the wire');
     await expect(node(bob, /Entity Over the wire/i)).toBeVisible({ timeout: 20_000 });
 
     await aliceContext.close();
     await bobContext.close();
+  });
+
+  test('a room that cannot reach the signalling server says so and offers a snapshot', async ({ browser }) => {
+    // The failure this covers is invisible from inside the room: nobody
+    // arrives and nothing says why. The status has to name the reason and
+    // point at the link that works when nobody is online.
+    const context = await browser.newContext();
+    await context.addInitScript(() => {
+      (window as unknown as { __ERD_SIGNALING__?: string[] }).__ERD_SIGNALING__ = ['ws://127.0.0.1:9'];
+    });
+    const page = await context.newPage();
+    await openApp(page);
+
+    await expect(page.locator('.connection-pill')).toHaveAttribute('data-state', 'offline', { timeout: 30_000 });
+    await expect(page.locator('.connection-pill')).toContainText('Offline');
+
+    await page.locator('.connection-fix').click();
+    await expect(page.getByLabel('Include diagram snapshot')).toBeChecked();
+    expect(await page.getByLabel('Share link').inputValue()).toContain('&d=');
+
+    await context.close();
   });
 
   test('a delete propagates to the other tab', async ({ browser }) => {

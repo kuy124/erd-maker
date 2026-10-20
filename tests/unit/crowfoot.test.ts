@@ -85,6 +85,58 @@ describe('deriveTables', () => {
     expect(customer.rows.find((r) => r.name === 'customer_id')!.type).toBe('INT');
     expect(customer.rows.find((r) => r.name === 'email')!.type).toBe('TEXT');
   });
+
+  it('gives two relationships to the same table a column each', () => {
+    const doc = shop();
+    doc.relationships.push({ id: 'r2', name: 'billing_customer', x: 200, y: 200, kind: 'strong' });
+    doc.legs.push(
+      { id: 'l3', fromId: 'c', toId: 'r2', cardinality: '1', participation: { min: 0, max: 1 } },
+      { id: 'l4', fromId: 'r2', toId: 'o', cardinality: 'N', participation: { min: 0, max: 'N' } },
+    );
+    const order = deriveTables(doc).find((t) => t.name === 'Order')!;
+    const keys = order.rows.filter((r) => r.fk);
+    // One column for each relationship, and each line ends on its own.
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys.map((r) => r.name)).size).toBe(2);
+    const links = deriveLinks(doc);
+    expect(new Set(links.map((l) => l.toColumnId)).size).toBe(2);
+  });
+
+  it('gives a one-to-one relationship a foreign key', () => {
+    const doc = shop();
+    doc.legs[1]!.cardinality = '1'; doc.legs[1]!.participation.max = 1;
+    const order = deriveTables(doc).find((t) => t.name === 'Order')!;
+    const key = order.rows.find((r) => r.fk);
+    expect(key?.name).toBe('customer_id');
+    expect(key?.pk).toBe(false);
+    expect(key?.references?.label).toBe('Customer.customer_id');
+  });
+
+  it('finds a foreign key row an older diagram bound by its old id', () => {
+    // Older files named the generated row after the key it referenced, so a
+    // room written by an earlier build still points at it. Nothing has to be
+    // re-shared for the binding to keep working.
+    const doc = shop();
+    doc.legs.forEach((leg) => delete leg.columnId);
+    doc.legs[1]!.columnId = 'foreign:c:attribute:c1';
+    const order = deriveTables(doc).find((t) => t.name === 'Order')!;
+    expect(order.rows.find((r) => r.fk)?.references?.label).toBe('Customer.customer_id');
+    expect(deriveLinks(doc)[0]!.toColumnId).toBe(order.rows.find((r) => r.fk)!.id);
+  });
+
+  it('names a weak entity’s inherited key after the table it comes from', () => {
+    const doc = shop();
+    doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';
+    doc.legs.forEach((leg) => delete leg.columnId);
+    // A weak entity with an id of its own keeps it.
+    doc.attributes.push({ id: 'o3', name: 'id', x: 0, y: 0, kind: 'simple', ownerId: 'o' });
+    const order = deriveTables(doc).find((t) => t.name === 'Order')!;
+    const inherited = order.rows.find((r) => r.fk);
+    expect(inherited).toMatchObject({ name: 'customer_id', pk: true });
+    expect(order.rows.filter((r) => r.fk)).toHaveLength(1);
+    expect(order.rows.find((r) => r.name === 'id')!.fk).toBe(false);
+    expect(order.rows.find((r) => r.name === 'order_id')!.fk).toBe(false);
+  });
 });
 
 describe('foreign key column naming', () => {
@@ -101,11 +153,11 @@ describe('foreign key column naming', () => {
     expect(foreignKeyColumnName('customer', 'id')).toBe('customer_id');
   });
 
-  it('prefixes a key that starts with the table name but names something else', () => {
-    // `order_line_id` belongs to the line entity, so in table `order` it still
-    // needs qualifying. Only the table name followed by a separator counts.
-    expect(foreignKeyColumnName('order', 'order_line_id')).toBe('order_order_line_id');
-    expect(foreignKeyColumnName('order', 'orders')).toBe('order_orders');
+  it('keeps a key that already carries the table name', () => {
+    // `customer_number` is the usual name for a key of `customer`, and prefixing
+    // it again gives `customer_customer_number`, which says nothing extra.
+    expect(foreignKeyColumnName('customer', 'customer_number')).toBe('customer_number');
+    expect(foreignKeyColumnName('order', 'order_line_id')).toBe('order_line_id');
   });
 });
 
@@ -122,7 +174,7 @@ describe('deriveLinks', () => {
     });
   });
 
-  it('produces two links for many-to-many so both ends get a foot', () => {
+  it('draws a many-to-many relationship as one line with a foot at each end', () => {
     const doc = emptyDocument();
     doc.entities.push(
       { id: 's', name: 'Student', x: 0, y: 0, kind: 'strong' },
@@ -136,6 +188,10 @@ describe('deriveLinks', () => {
     const links = deriveLinks(doc);
     expect(links).toHaveLength(2);
     expect(links.map((l) => l.manyEntityId).sort()).toEqual(['c', 's']);
+    // The relationship stays a line between two tables. A table of its own
+    // would be a shape nobody could select, move, or share.
+    const tables = deriveTables(doc);
+    expect(tables.map((t) => t.name)).toEqual(['Student', 'Course']);
   });
 
   it('ignores a relationship with fewer than two entity ends', () => {

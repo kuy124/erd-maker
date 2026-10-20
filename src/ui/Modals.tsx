@@ -103,13 +103,22 @@ function CloseGlyph() {
 export function ShareDialog({
   state,
   onClose,
+  includeSnapshot: startWithSnapshot = false,
 }: {
   state: EditorState;
   onClose: () => void;
+  /**
+   * Start with the snapshot ticked.
+   *
+   * The room cannot always be reached, and a link that carries the diagram
+   * works when nobody is online. When the app knows the live link will not
+   * carry, it opens this dialog ready to hand over a copy.
+   */
+  includeSnapshot?: boolean;
 }) {
   const [copied, setCopied] = useState<'link' | 'room' | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const [includeSnapshot, setIncludeSnapshot] = useState(false);
+  const [includeSnapshot, setIncludeSnapshot] = useState(startWithSnapshot);
   const linkRef = useRef<HTMLInputElement>(null);
   const roomRef = useRef<HTMLInputElement>(null);
   const linkId = useId();

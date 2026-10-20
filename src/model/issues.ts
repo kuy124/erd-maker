@@ -1,6 +1,6 @@
 import { legsFor, type ErdDocument } from './types';
 import { leafAttributesOf } from './attributes';
-import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection } from './crowfoot';
+import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, rowForColumn } from './crowfoot';
 
 export interface DiagramIssue {
   code: 'unnamed' | 'unattached-attribute' | 'missing-key' | 'incomplete-relationship' | 'invalid-participation' | 'missing-connection-attribute' | 'non-key-reference';
@@ -55,7 +55,7 @@ export function getDiagramIssues(doc: ErdDocument): DiagramIssue[] {
     if (leg.columnId) {
       const relationship = doc.relationships.find((r) => r.id === leg.fromId || r.id === leg.toId);
       const entityId = leg.fromId === relationship?.id ? leg.toId : leg.fromId;
-      if (relationship && !tables.find((t) => t.entityId === entityId)?.rows.some((r) => r.id === leg.columnId)) {
+      if (relationship && !rowForColumn(tables.find((t) => t.entityId === entityId)?.rows ?? [], leg.columnId)) {
         issues.push({ code: 'missing-connection-attribute', nodeId: relationship.id,
           message: (relationship.name || 'This relationship') + ' uses an unavailable attribute. Choose another connection attribute.' });
       }

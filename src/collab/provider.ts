@@ -151,6 +151,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     maxConns: 24,
     filterBcConns: true,
   });
+  watchPeers(provider);
 
   if (!connect) {
     // Still created, so awareness has a home, but with no transports.
@@ -232,6 +233,102 @@ export function connectedPeerCount(provider: WebrtcProvider): number {
   } catch {
     return 0;
   }
+}
+
+/** What the connection to the room is doing, so the app can explain it. */
+export interface TransportState {
+  /** The signalling server is reachable, so a peer in another device can be found. */
+  signalling: boolean;
+  /** Peers with an open direct connection. */
+  direct: number;
+  /** Peers the signalling server found, but the network refused to reach. */
+  blocked: number;
+}
+
+type PeerLink = { state: 'pending' | 'connected' | 'failed' };
+
+const peerLinks = new WeakMap<WebrtcProvider, Map<string, PeerLink>>();
+const transportListeners = new WeakMap<WebrtcProvider, Set<() => void>>();
+
+/**
+ * Listen for the connection changing.
+ *
+ * The provider's own events do not cover it: a data channel can open between
+ * two of its events, and that is the moment the room becomes live.
+ */
+export function onTransport(provider: WebrtcProvider, listener: () => void): () => void {
+  const listeners = transportListeners.get(provider) ?? new Set<() => void>();
+  transportListeners.set(provider, listeners);
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+/**
+ * The data channel of a peer, when there is one.
+ *
+ * The provider keeps its connections in a map that its own types do not
+ * describe, so it is reached through a narrow cast rather than a wide one.
+ */
+function peerChannel(provider: WebrtcProvider, id: string) {
+  const room = (provider as unknown as {
+    room?: { webrtcConns?: Map<string, { peer?: { on?: (name: string, fn: () => void) => void } }> };
+  }).room;
+  return room?.webrtcConns?.get(id)?.peer;
+}
+
+/**
+ * Watch the peers the signalling server introduces.
+ *
+ * A peer that is announced and then dropped before its data channel ever
+ * opened was blocked, not gone: something between the two browsers refused the
+ * connection. That is the difference between "nobody is in this room" and
+ * "this room cannot reach you", and the person waiting in the room has to be
+ * told which one it is.
+ */
+function watchPeers(provider: WebrtcProvider): void {
+  const links = new Map<string, PeerLink>();
+  peerLinks.set(provider, links);
+  provider.on('peers', (event: unknown) => {
+    const payload = (Array.isArray(event) ? event[0] : event) as { added?: string[]; removed?: string[] } | undefined;
+    for (const id of payload?.added ?? []) {
+      const link = links.get(id) ?? { state: 'pending' as PeerLink['state'] };
+      links.set(id, link);
+      // The connection is real only once the data channel opens.
+      peerChannel(provider, id)?.on?.('connect', () => {
+        link.state = 'connected';
+        announceTransport(provider);
+      });    }
+    for (const id of payload?.removed ?? []) {
+      const link = links.get(id);
+      if (!link) continue;
+      // A peer that was connected and left is gone. One that never connected was blocked.
+      if (link.state === 'connected') links.delete(id);
+      else link.state = 'failed';
+    }
+    announceTransport(provider);
+  });
+}
+
+/** Tell the app that the connection changed, so it can say so. */
+function announceTransport(provider: WebrtcProvider): void {
+  for (const listener of transportListeners.get(provider) ?? []) listener();
+}
+
+/** What the room connection is doing right now. */
+export function transportState(provider: WebrtcProvider): TransportState {
+  const links = peerLinks.get(provider);
+  let direct = 0;
+  let blocked = 0;
+  for (const link of links?.values() ?? []) {
+    if (link.state === 'connected') direct += 1;
+    else if (link.state === 'failed') blocked += 1;
+  }
+  return {
+    // lib0's websocket client reconnects on its own, so this is the live answer.
+    signalling: provider.signalingConns.some((conn) => conn.connected),
+    direct,
+    blocked,
+  };
 }
 
 export { DEFAULT_SIGNALLING };

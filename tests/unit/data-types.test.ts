@@ -130,7 +130,9 @@ describe('editable data types', () => {
     const doc = schema();
     Object.assign(doc.attributes[0]!, { name: 'id', kind: 'simple', dataType: 'UUID' });
     doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';
-    expect(generateSql(doc).match(/"id" UUID NOT NULL/g)).toHaveLength(2);
+    // The weak table borrows the parent's key as `customer_id`, with its type.
+    expect(generateSql(doc)).toContain('"customer_id" UUID NOT NULL');
+    expect(generateSql(doc)).toContain('FOREIGN KEY ("customer_id") REFERENCES "customer" ("id")');
   });
 
   it('inherits UUID keys into generated foreign keys', () => {
@@ -154,7 +156,8 @@ describe('editable data types', () => {
     expect(deriveTables(doc)[1]!.rows.find((r) => r.fk)).toMatchObject({ pk: true, type: 'UUID' });
     doc.entities[1]!.kind = 'strong'; doc.relationships[0]!.kind = 'strong';
     doc.legs[0]!.cardinality = 'M';
-    expect(generateSql(doc)).toContain('"customer_customer_id" UUID');
+    // The junction table names its columns after the table they point at.
+    expect(generateSql(doc)).toContain('FOREIGN KEY ("customer_id") REFERENCES "customer" ("customer_id")');
   });
 
   it('propagates inherited PK/FK types through a chain regardless of relationship order', () => {

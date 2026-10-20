@@ -327,6 +327,61 @@ export function setMeta(ydoc: Y.Doc, patch: Partial<{ name: string; view: 'chen'
   });
 }
 
+/**
+ * Where a table sits in the Crow's-foot view.
+ *
+ * Each browser writes its own entry, so two people never write the same key
+ * and the document never has to choose between them. The entry says when the
+ * move was made and whether it was deliberate, because a person dragging a
+ * table is a decision and the app arranging one is not: a deliberate move
+ * always wins, and between two of them the later one wins.
+ *
+ * Without this, the shared position is whichever write the document happens to
+ * keep, and a person who was offline while somebody else moved the table comes
+ * back and undoes the newer move.
+ */
+interface CrowPlacement { x: number; y: number; at: number; move: boolean }
+
+const CROW_PREFIX = 'crow_';
+
+/** This browser's own key, so two browsers never write the same entry. */
+function writerId(): string {
+  const key = 'erd:writer';
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) return stored;
+    const made = Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(key, made);
+    return made;
+  } catch {
+    // A browser that cannot keep state still needs a key that differs.
+    return 'anon' + Math.random().toString(36).slice(2, 10);
+  }
+}
+
+/** Records where this browser puts a table. */
+export function setCrowPlacement(ydoc: Y.Doc, entityId: string, x: number, y: number,
+  move: boolean, origin?: unknown): void {
+  const map = ydoc.getMap(ENTITIES).get(entityId) as Y.Map<unknown> | undefined;
+  if (!map) return;
+  const placement: CrowPlacement = { x, y, at: Date.now(), move };
+  ydoc.transact(() => { map.set(CROW_PREFIX + writerId(), placement); }, origin);
+}
+
+/** The position to show for a table: the newest deliberate move, else the newest arrangement. */
+export function crowPlacement(map: Y.Map<unknown>): { x: number; y: number } | undefined {
+  let best: CrowPlacement | undefined;
+  for (const [key, value] of map.entries()) {
+    if (!key.startsWith(CROW_PREFIX) || !value || typeof value !== 'object') continue;
+    const entry = value as Partial<CrowPlacement>;
+    if (typeof entry.x !== 'number' || typeof entry.y !== 'number' || typeof entry.at !== 'number') continue;
+    const placement: CrowPlacement = { x: entry.x, y: entry.y, at: entry.at, move: entry.move === true };
+    if (!best || (placement.move && !best.move) ||
+      (placement.move === best.move && placement.at > best.at)) best = placement;
+  }
+  return best ? { x: best.x, y: best.y } : undefined;
+}
+
 /** Materialises the Yjs state into the plain document the renderers consume. */
 export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
   const doc = emptyDocument();
@@ -336,8 +391,9 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
 
   ydoc.getMap(ENTITIES).forEach((value, key) => {
     const m = value as Y.Map<unknown>;
-    const crowX = readOptionalNumber(m, 'crowX');
-    const crowY = readOptionalNumber(m, 'crowY');
+    const placed = crowPlacement(m);
+    const crowX = placed?.x ?? readOptionalNumber(m, 'crowX');
+    const crowY = placed?.y ?? readOptionalNumber(m, 'crowY');
     doc.entities.push({
       id: key,
       name: readString(m, 'name', 'Entity'),

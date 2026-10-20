@@ -48,7 +48,7 @@ it('creates a unary relationship with two editable roles and one undo step', () 
   }
   writeParticipants(ydoc, id!, doc.legs.map((leg, i) => ({ legId: leg.id, entityId: 'e',
     cardinality: i ? 'M' : 'N', participation: { min: 0, max: 'N' } })), () => 'unused');
-  expect(generateSql(snapshotFromYdoc(ydoc))).toContain('"employee_employee_id_2"');
+  expect(generateSql(snapshotFromYdoc(ydoc))).toContain('"employee_id_2"');
 });
 
 it('routes unary roles through separate vertical entity stubs and diamond side corners', () => {
@@ -124,8 +124,11 @@ it('preserves explicit unary bindings to legacy generated foreign-key row IDs', 
   connectNodes(ydoc, 'e', 'e', kind => kind + ++count);
   const doc = snapshotFromYdoc(ydoc), legacyId = 'foreign:e:attribute:key';
   doc.legs.find(leg => leg.cardinality === 'N')!.columnId = legacyId;
-  expect(deriveTables(doc)[0]!.rows.find(row => row.id === legacyId)?.fk).toBe(true);
-  expect(deriveLinks(doc)[0]!.toColumnId).toBe(legacyId);
+  // The row is named after the relationship now, but a binding written by an
+  // older version still finds it.
+  const row = deriveTables(doc)[0]!.rows.find((r) => r.fk)!;
+  expect(row.fk).toBe(true);
+  expect(deriveLinks(doc)[0]!.toColumnId).toBe(row.id);
   expect(() => generateSql(doc)).not.toThrow();
 });
 

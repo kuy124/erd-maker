@@ -6,6 +6,7 @@ import {
   LEGS,
   RELATIONSHIPS,
   connectNodes,
+  crowPlacement,
   deleteNodeFromYdoc,
   seedDocument,
   setMeta,
@@ -306,5 +307,35 @@ describe('upserts', () => {
       participation: { min: 0, max: 1 },
     });
     expect(snapshotFromYdoc(ydoc).legs).toHaveLength(0);
+  });
+});
+
+describe('table placement', () => {
+  function placed(...entries: Array<[string, { x: number; y: number; at: number; move: boolean }]>) {
+    const doc = new Y.Doc();
+    const map = doc.getMap<unknown>('placements');
+    for (const [writer, entry] of entries) map.set('crow_' + writer, entry);
+    return crowPlacement(map);
+  }
+
+  it('keeps the newest placement, and a deliberate move over an arrangement', () => {
+    // Two people place the same table. The document keeps both, so the newest
+    // one decides — a person who was offline cannot undo a later move.
+    expect(placed(['a', { x: 10, y: 20, at: 100, move: true }],
+      ['b', { x: 30, y: 40, at: 200, move: true }])).toEqual({ x: 30, y: 40 });
+    expect(placed(['a', { x: 10, y: 20, at: 300, move: true }],
+      ['b', { x: 30, y: 40, at: 200, move: true }])).toEqual({ x: 10, y: 20 });
+    // The app arranging a table never overrules a person who moved one.
+    expect(placed(['a', { x: 10, y: 20, at: 100, move: true }],
+      ['b', { x: 30, y: 40, at: 900, move: false }])).toEqual({ x: 10, y: 20 });
+  });
+
+  it('reads the placement of a table out of the shared document', () => {
+    const ydoc = new Y.Doc();
+    seedDocument(ydoc, sample());
+    const entity = ydoc.getMap(ENTITIES).get('e1') as Y.Map<unknown>;
+    entity.set('crow_someone', { x: 111, y: 222, at: 5, move: true });
+    const snapshot = snapshotFromYdoc(ydoc);
+    expect(snapshot.entities.find((e) => e.id === 'e1')).toMatchObject({ crowX: 111, crowY: 222 });
   });
 });

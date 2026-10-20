@@ -281,7 +281,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             </ul>
           )}
           <button type="button" className="btn attribute-add" onClick={() => state.addAttribute(entity.x, entity.y, entity.id)}>Add attribute</button>
-          {doc.view === 'crowfoot' ? <p className="field__help">Select an attribute to choose its SQL data type. Rows marked “gen” are generated; foreign keys inherit the referenced type.</p> : null}
+          {doc.view === 'crowfoot' ? <p className="field__help">Select an attribute to choose its SQL data type. Rows marked “FK” or “PK” with no attribute behind them are generated; foreign keys inherit the referenced type.</p> : null}
         </div>
 
         <button type="button" className="btn btn--danger" onClick={() => state.remove([entity.id])}>
