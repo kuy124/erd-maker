@@ -76,6 +76,16 @@ function readOptionalNumber(map: Y.Map<unknown>, key: string): number | undefine
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
+/** The names a person gave their generated columns, when there are any. */
+function crowNames(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const names: Record<string, string> = {};
+  for (const [key, name] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof name === 'string' && name.trim()) names[key] = name;
+  }
+  return Object.keys(names).length ? names : undefined;
+}
+
 function readStringArray(map: Y.Map<unknown>, key: string): string[] {
   const v = map.get(key);
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -220,11 +230,16 @@ export function upsertLeg(ydoc: Y.Doc, leg: Leg): void {
     if (leg.columnId) {
       if (existing.get('columnId') !== leg.columnId) existing.set('columnId', leg.columnId);
     } else existing.delete('columnId');
+    const names = leg.columnNames && Object.keys(leg.columnNames).length ? leg.columnNames : undefined;
+    if (names) {
+      if (JSON.stringify(existing.get('columnNames')) !== JSON.stringify(names)) existing.set('columnNames', names);
+    } else existing.delete('columnNames');
     return;
   }
   const next = new Y.Map<unknown>();
   setFields(next, fields);
   if (leg.columnId) next.set('columnId', leg.columnId);
+  if (leg.columnNames && Object.keys(leg.columnNames).length) next.set('columnNames', leg.columnNames);
   map.set(leg.id, next);
 }
 
@@ -478,6 +493,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
         max: maxRaw === 'N' ? 'N' : Math.max(1, Math.floor(readNumber(m, 'max', 1))),
       },
       ...(typeof m.get('columnId') === 'string' && m.get('columnId') ? { columnId: m.get('columnId') as string } : {}),
+      ...(crowNames(m.get('columnNames')) ? { columnNames: crowNames(m.get('columnNames'))! } : {}),
     });
   });
 

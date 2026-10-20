@@ -65,7 +65,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
 
   const tables = useMemo(() => deriveTables(doc), [doc]);
   const links = useMemo(() => deriveLinks(doc).filter((link, index, all) =>
-    all.findIndex((other) => other.relId === link.relId) === index), [doc]);
+    all.findIndex((other) => other.id === link.id) === index), [doc]);
 
   useEffect(() => {
     if (tool !== 'connect' || (connectFrom && !tables.find((t) => t.entityId === connectFrom.entityId)?.rows.some((r) => r.id === connectFrom.columnId))) {
@@ -343,7 +343,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                           if (event.key !== 'Enter' && event.key !== ' ') return;
                           event.preventDefault(); event.stopPropagation();
                           if (tool === 'connect') chooseColumn({ entityId: table.entityId, columnId: row.id });
-                          else state.setSelection([row.attributeId ?? table.entityId]);
+                          else state.setSelection([row.attributeId ?? row.references?.relationshipIds?.[0] ?? table.entityId]);
                         }}
                         onPointerUp={(event) => { if (tool === 'connect') event.preventDefault(); }}
                         onPointerDown={(event) => {
@@ -359,10 +359,11 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                             if (!connectFrom) chooseColumn(end);
                             return;
                           }
-                          state.setSelection([row.attributeId ?? table.entityId]);
+                          state.setSelection([row.attributeId ?? row.references?.relationshipIds?.[0] ?? table.entityId]);
                         }}>
                         <title>{row.name + (row.attributeId ? ' — editable attribute' : ' — generated ' + (row.fk ? 'foreign key' : 'primary key')) +
                           (row.generatedKey ? '. Primary key generated; mark this attribute as Key to make it explicit' : '') +
+                          (row.fk && !row.attributeId ? '. Click to name this column' : '') +
                           (row.references ? '. Type ' + row.type + ' is inherited from ' + row.references.label :
                             '. Type ' + row.type + (doc.attributes.find((a) => a.id === row.attributeId)?.dataType ? ' is chosen in Properties' : ' is inferred from its name')) + '.'}</title>
                         <rect className="hit-target crow-row__hit" width={table.width} height={CROW_ROW_HEIGHT}

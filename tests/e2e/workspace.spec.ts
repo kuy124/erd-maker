@@ -201,8 +201,13 @@ test('table rows distinguish editable attributes, generated keys, and inferred t
   await page.getByRole('button', { name: 'Close panel', exact: true }).click();
   await canvas(page).getByRole('button', { name: /Generated foreign key/ }).click();
   await inspectSelection(page);
-  await expect(page.getByLabel('Entity name')).toHaveValue('Order');
-  await expect(properties(page)).toContainText('foreign keys inherit the referenced type');
+  // A generated foreign key belongs to the relationship that makes it, so
+  // clicking it opens that relationship, where its name can be given.
+  await expect(page.getByRole('heading', { name: 'Relationship' })).toBeVisible();
+  await expect(page.getByTestId('participant-column-name')).toBeVisible();
+  await page.getByTestId('participant-column-name').fill('shipped_to');
+  await expect(canvas(page).getByRole('button', { name: 'Generated foreign key shipped_to' })).toBeVisible();
+  await expect(properties(page)).toContainText('Name the columns the diagram generates here');
   const svg = (await exportDocument(page, 'SVG')).toString();
   expect(svg).not.toMatch(/selection-ring|hit-target|crow-link--selected/);
   const doc = await json(page);

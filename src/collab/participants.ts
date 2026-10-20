@@ -11,6 +11,8 @@ export interface RelationshipParticipant {
   participation: Participation;
   /** null clears the selection; omitted retains it when the entity is unchanged. */
   columnId?: string | null;
+  /** Names of this person's own for the generated columns, by referenced row. */
+  columnNames?: Record<string, string> | null;
 }
 
 /** Validate everything before touching the shared document; preserve orientation and IDs. */
@@ -42,11 +44,17 @@ export function writeParticipants(
         !rowForColumn(tables.find((t) => t.entityId === participant.entityId)?.rows ?? [], String(columnId))) {
       throw new Error('That attribute is no longer available. Choose another connection attribute.');
     }
+    // Names of the person's own belong to generated columns; naming a real
+    // attribute is the attribute's business, so the names go with it.
+    const columnNames = participant.columnNames === undefined && oldEntity === participant.entityId ?
+      old?.get('columnNames') : participant.columnNames;
     return {
       id, fromId: old?.get('toId') === relationshipId ? participant.entityId : relationshipId,
       toId: old?.get('toId') === relationshipId ? relationshipId : participant.entityId,
       cardinality: participant.cardinality, participation: participant.participation,
       ...(typeof columnId === 'string' && columnId ? { columnId } : {}),
+      ...(!columnId && columnNames && typeof columnNames === 'object' && Object.keys(columnNames).length ?
+        { columnNames: columnNames as Record<string, string> } : {}),
     };
   });
   ydoc.transact(() => {

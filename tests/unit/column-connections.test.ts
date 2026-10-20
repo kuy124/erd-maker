@@ -298,9 +298,11 @@ describe('SQL uses the connected fields', () => {
   it('uses the bound fields in a many-to-many junction and retains both directions in the view', () => {
     const doc = shop(); doc.legs[0]!.cardinality = 'N'; doc.legs[0]!.participation.max = 'N';
     doc.legs[1]!.columnId = 'attribute:o-key';
+    // One line between the two tables, with a foot at each end.
     expect(deriveLinks(doc).map((l) => [l.fromColumnId, l.toColumnId])).toEqual([
-      ['attribute:c-key', 'attribute:o-key'], ['attribute:o-key', 'attribute:c-key'],
+      ['attribute:c-key', 'attribute:o-key'],
     ]);
+    expect(deriveLinks(doc)[0]).toMatchObject({ fromMany: true, toMany: true });
     const db = new DatabaseSync(':memory:');
     try {
       db.exec('PRAGMA foreign_keys = ON'); db.exec(generateSql(doc));

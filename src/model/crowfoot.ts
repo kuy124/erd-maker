@@ -282,6 +282,17 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
        */
       const id = 'foreign:' + rel.id + ':' + target.entity.id + ':' + key.id;
       const base = foreignKeyColumnName(toSqlName(target.entity.name), toSqlName(key.name));
+      /*
+       * A name of the person's own wins over the inferred one.
+       *
+       * The inferred name says what the column points at, which is right most
+       * of the time and not always: two relationships to the same table want
+       * `billing_customer` and `shipping_customer`, and a hierarchy wants
+       * `parent_id`. A key of several columns has a name for each of its
+       * parts, so one column can be renamed without the others.
+       */
+      const chosen = source.leg.columnNames?.[key.id]
+        ? toSqlName(source.leg.columnNames[key.id]!) : base;
       // An explicit binding wins; then the row this relationship owns already.
       let row = source.leg.columnId ? rowForColumn(sourceTable.rows, source.leg.columnId) : undefined;
       row ??= sourceTable.rows.find((r) => r.id === id);
@@ -292,13 +303,16 @@ export function deriveTables(doc: ErdDocument): CrowTable[] {
          * it, or it is the very key being referenced, which is what a table
          * that points at itself would otherwise turn its own primary key into.
          */
-        const reusable = sourceTable.rows.find((r) => toSqlName(r.name) === base && !r.references && r.id !== key.id);
+        const reusable = sourceTable.rows.find((r) => toSqlName(r.name) === chosen && !r.references && r.id !== key.id);
         if (reusable) row = reusable;
         else {
-          const name = uniqueColumnName(sourceTable.rows.map((r) => toSqlName(r.name)), base, relationshipRole(rel));
+          const name = uniqueColumnName(sourceTable.rows.map((r) => toSqlName(r.name)), chosen, relationshipRole(rel));
           row = { id, attributeId: null, name, pk: false, fk: false, type: key.type };
           sourceTable.rows.push(row);
         }
+      } else if (source.leg.columnNames?.[key.id]) {
+        // A generated column that was renamed keeps the name it was given.
+        row.name = chosen;
       }
       row.fk = true;
       if (identifying) row.pk = true;
@@ -363,32 +377,76 @@ export function deriveLinks(doc: ErdDocument): CrowLink[] {
     const ends = binaryEnds(doc, rel.id);
     if (!ends) continue;
     const [a, b] = ends;
-    const [aRow, bRow] = endpointRows(doc, tables, ends);
     const aMany = a.leg.cardinality !== '1';
     const bMany = b.leg.cardinality !== '1';
+    const direction = foreignKeyDirection(doc, ends);
     const pair = [a.entity.id, b.entity.id].sort().join('|');
-    const lane = lanes.get(pair) ?? 0;
-    lanes.set(pair, lane + 1);
-    const link: CrowLink = {
-      id: rel.id, relId: rel.id, fromEntityId: a.entity.id, toEntityId: b.entity.id,
-      fromColumnId: aRow.id, toColumnId: bRow.id,
-      manyEntityId: aMany ? a.entity.id : b.entity.id, oneEntityId: aMany ? b.entity.id : a.entity.id,
-      label: rel.name, ratio: `${a.leg.cardinality}:${b.leg.cardinality}`,
-      fromMandatory: a.leg.participation.min >= 1, toMandatory: b.leg.participation.min >= 1,
-      fromMany: aMany, toMany: bMany, lane,
-      route: rel.route ?? 'auto',
-      // Absent stays absent, so a document with no dragged corners is unchanged.
-      ...(rel.bendX !== undefined && rel.bendY !== undefined ? { bend: { x: rel.bendX, y: rel.bendY } } : {}),
-      ...(rel.routePoints ? { routePoints: rel.routePoints } : {}),
-    };
-    links.push(link);
-    // Preserve the existing helper contract; the renderer draws the relationship once.
-    if (aMany && bMany) links.push({ ...link, id: `${rel.id}:reverse`,
-      fromEntityId: b.entity.id, toEntityId: a.entity.id, fromColumnId: bRow.id, toColumnId: aRow.id,
-      manyEntityId: b.entity.id, oneEntityId: a.entity.id, ratio: `${b.leg.cardinality}:${a.leg.cardinality}`,
-      fromMandatory: link.toMandatory, toMandatory: link.fromMandatory });
+    /*
+     * One line per column pair.
+     *
+     * A key made of several columns becomes a foreign key with a column for
+     * each part, and every one of those columns needs a line of its own: a
+     * column with no line looks like it leads nowhere.
+     */
+    const pairs = direction ? columnPairs(tables, direction, rel.id) : [];
+    if (!pairs.length) {
+      // Many to many, or a connection bound to a column on both sides: one
+      // line between the two rows, with a foot at each end.
+      const [aRow, bRow] = endpointRows(doc, tables, ends);
+      const lane = lanes.get(pair) ?? 0;
+      lanes.set(pair, lane + 1);
+      links.push({
+        id: rel.id, relId: rel.id, fromEntityId: a.entity.id, toEntityId: b.entity.id,
+        fromColumnId: aRow.id, toColumnId: bRow.id,
+        manyEntityId: aMany ? a.entity.id : b.entity.id, oneEntityId: aMany ? b.entity.id : a.entity.id,
+        label: rel.name, ratio: `${a.leg.cardinality}:${b.leg.cardinality}`,
+        fromMandatory: a.leg.participation.min >= 1, toMandatory: b.leg.participation.min >= 1,
+        fromMany: aMany, toMany: bMany, lane,
+        route: rel.route ?? 'auto',
+        ...(rel.bendX !== undefined && rel.bendY !== undefined ? { bend: { x: rel.bendX, y: rel.bendY } } : {}),
+        ...(rel.routePoints ? { routePoints: rel.routePoints } : {}),
+      });
+      continue;
+    }
+    // The line runs from the first end to the second, whichever side holds
+    // the foreign key.
+    const fromHoldsKey = direction![0].leg.id === a.leg.id;
+    for (const [index, columns] of pairs.entries()) {
+      const lane = lanes.get(pair) ?? 0;
+      lanes.set(pair, lane + 1);
+      links.push({
+        id: pairs.length > 1 ? `${rel.id}:${index}` : rel.id, relId: rel.id,
+        fromEntityId: a.entity.id, toEntityId: b.entity.id,
+        fromColumnId: fromHoldsKey ? columns.from.id : columns.to.id,
+        toColumnId: fromHoldsKey ? columns.to.id : columns.from.id,
+        manyEntityId: aMany ? a.entity.id : b.entity.id, oneEntityId: aMany ? b.entity.id : a.entity.id,
+        label: rel.name, ratio: `${a.leg.cardinality}:${b.leg.cardinality}`,
+        fromMandatory: a.leg.participation.min >= 1, toMandatory: b.leg.participation.min >= 1,
+        fromMany: aMany, toMany: bMany, lane,
+        route: rel.route ?? 'auto',
+        // Absent stays absent, so a document with no dragged corners is unchanged.
+        ...(rel.bendX !== undefined && rel.bendY !== undefined ? { bend: { x: rel.bendX, y: rel.bendY } } : {}),
+        ...(rel.routePoints ? { routePoints: rel.routePoints } : {}),
+      });
+    }
   }
   return links;
+}
+
+/**
+ * The columns one relationship joins, in the order the key is made of.
+ *
+ * The foreign-key columns on this side and the key columns on the other, each
+ * foreign key column with the key column it points at.
+ */
+function columnPairs(tables: CrowTable[], [source, target]: [RelationshipEnd, RelationshipEnd], relationshipId: string) {
+  const sourceTable = tables.find((t) => t.entityId === source.entity.id);
+  const targetTable = tables.find((t) => t.entityId === target.entity.id);
+  if (!sourceTable || !targetTable) return [];
+  return sourceTable.rows
+    .filter((row) => row.fk && row.references?.relationshipIds?.includes(relationshipId))
+    .map((row) => ({ from: row, to: targetTable.rows.find((r) => r.id === row.references!.columnId)! }))
+    .filter((pair) => Boolean(pair.to));
 }
 
 export const CROW_ROW_HEIGHT = 44;

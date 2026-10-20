@@ -338,7 +338,7 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
     // the drawing shows a detour framed a region the connector was not in, so
     // Fit left it running off the edge of the screen.
     const obstacles = tables.map(tableObstacle);
-    for (const link of deriveLinks(doc).filter((link, index, all) => all.findIndex((l) => l.relId === link.relId) === index)) {
+    for (const link of deriveLinks(doc).filter((link, index, all) => all.findIndex((l) => l.id === link.id) === index)) {
       const from = tables.find((t) => t.entityId === link.fromEntityId)!;
       const to = tables.find((t) => t.entityId === link.toEntityId)!;
       const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane,

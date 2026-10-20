@@ -123,6 +123,17 @@ export interface Leg {
   participation: Participation;
   /** Stable table-row ID for this entity's endpoint. Absent means automatic. */
   columnId?: string;
+  /**
+   * Names of this person's own for the generated columns.
+   *
+   * The foreign key the diagram infers is named after the table it points at,
+   * which is right most of the time and not always. This is where a person
+   * says what the columns are called: `shipped_to_customer`, `nim`. The key is
+   * the row id of the referenced column, so a key made of several columns can
+   * have a name for each of its parts. It applies to generated columns only —
+   * a real attribute keeps its own name.
+   */
+  columnNames?: Record<string, string>;
 }
 
 /**

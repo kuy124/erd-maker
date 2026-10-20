@@ -69,6 +69,7 @@ function toRows(doc: ErdDocument): unknown[] {
     list(doc.isas).map((i) => [i.id, i.x, i.y, i.parentId, i.childIds]),
     list(doc.legs).map((l) => [
       l.id, l.fromId, l.toId, l.columnId ?? '', l.cardinality, l.participation.min, l.participation.max,
+      l.columnNames && Object.keys(l.columnNames).length ? l.columnNames : '',
     ]),
     list(doc.groups).map((g) => [g.id, g.name, g.memberIds]),
   ];
@@ -102,6 +103,8 @@ function fromRows(rows: unknown[]): unknown {
     legs: rowsOf(legs).map((r) => ({
       id: r[0], fromId: r[1], toId: r[2], columnId: r[3], cardinality: r[4],
       participation: { min: r[5], max: r[6] },
+      // Names of the person's own for the generated columns; older links have none.
+      ...(r[7] && typeof r[7] === 'object' ? { columnNames: r[7] as Record<string, string> } : {}),
     })),
     groups: rowsOf(groups).map((r) => ({ id: r[0], name: r[1], memberIds: r[2] })),
   };
@@ -300,6 +303,8 @@ export function normalizeDocument(input: unknown): ErdDocument {
           fromId: o.fromId,
           toId: o.toId,
           ...(typeof o.columnId === 'string' && o.columnId ? { columnId: o.columnId } : {}),
+          ...(o.columnNames && typeof o.columnNames === 'object' ?
+            { columnNames: o.columnNames as Record<string, string> } : {}),
           cardinality: card,
           participation: {
             min: Math.max(0, Math.floor(asNumber(part?.min, 0))),

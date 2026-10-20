@@ -3,7 +3,7 @@ import type { EditorState } from '../state/useEditor';
 import type { Cardinality, Participation } from '../model/types';
 import type { RelationshipParticipant } from '../collab/participants';
 import { validParticipation } from '../model/issues';
-import { binaryEnds, deriveTables, endpointRows, type CrowRow } from '../model/crowfoot';
+import { binaryEnds, deriveTables, endpointRows, foreignKeyDirection, type CrowRow } from '../model/crowfoot';
 
 /** Keep unfinished numeric input local. Only a valid pair enters the shared document. */
 export function ParticipationFields({ value, onChange }: {
@@ -54,15 +54,36 @@ export function RelationshipParticipants({ state, relationshipId }: {
   const [nextDraft, setNextDraft] = useState(0);
   const tables = deriveTables(state.doc);
   const automaticName = (legId: string | undefined) => {
-    const doc = { ...state.doc, legs: state.doc.legs.map((leg) => leg.id === legId ? { ...leg, columnId: undefined } : leg) };
+    // The name the diagram would infer on its own, with the person's own names
+    // and any explicit binding set aside.
+    const doc = { ...state.doc, legs: state.doc.legs.map((leg) => leg.id === legId ?
+      { ...leg, columnId: undefined, columnNames: undefined } : leg) };
     const ends = binaryEnds(doc, relationshipId);
     return ends ? endpointRows(doc, deriveTables(doc), ends)[ends[0].leg.id === legId ? 0 : 1].name : undefined;
   };
   const participants: RelationshipParticipant[] = state.doc.legs.flatMap((leg) => {
     const entityId = leg.fromId === relationshipId ? leg.toId : leg.toId === relationshipId ? leg.fromId : null;
     return entityId && state.doc.entities.some((entity) => entity.id === entityId) ?
-      [{ legId: leg.id, entityId, cardinality: leg.cardinality, participation: leg.participation, columnId: leg.columnId }] : [];
+      [{ legId: leg.id, entityId, cardinality: leg.cardinality, participation: leg.participation,
+        columnId: leg.columnId, columnNames: leg.columnNames }] : [];
   });
+  /*
+   * The side that holds the foreign key.
+   *
+   * That is the side whose columns the diagram generates, so that is the side
+   * whose columns can be given a name of their own.
+   */
+  const ends = binaryEnds(state.doc, relationshipId);
+  const direction = ends ? foreignKeyDirection(state.doc, ends) : null;
+  const keyLegId = direction?.[0].leg.id;
+  /** The generated columns of one side, with the key column each points at. */
+  const generatedColumns = (legId: string | undefined) => {
+    if (!legId || !direction) return [];
+    const source = direction[0].leg.id === legId ? direction[0] : direction[1];
+    const table = tables.find((t) => t.entityId === source.entity.id);
+    if (!table) return [];
+    return table.rows.filter((row) => row.fk && row.references?.relationshipIds?.includes(relationshipId));
+  };
   const write = (legId: string | undefined, patch: Partial<RelationshipParticipant>) => {
     state.setParticipants(relationshipId, participants.map((row) => row.legId === legId ? { ...row, ...patch } : row));
   };
@@ -79,6 +100,7 @@ export function RelationshipParticipants({ state, relationshipId }: {
     {participants.map((row, index) => <ParticipantRow key={row.legId} state={state} row={row} index={index}
       columns={tables.find((t) => t.entityId === row.entityId)?.rows ?? []}
       automaticName={automaticName(row.legId)}
+      generatedColumns={generatedColumns(row.legId === keyLegId ? row.legId : undefined)}
       onChange={(patch) => write(row.legId, patch)}
       onRemove={() => state.setParticipants(relationshipId, participants.filter((item) => item.legId !== row.legId))} />)}
     {drafts.map((draft, index) => <ParticipantRow key={'draft-' + draft} state={state} index={participants.length + index}
@@ -97,9 +119,12 @@ export function RelationshipParticipants({ state, relationshipId }: {
   </section>;
 }
 
-function ParticipantRow({ state, row, index, columns = [], automaticName, onChange, onRemove }: {
+function ParticipantRow({ state, row, index, columns = [], automaticName, generatedColumns = [], onChange, onRemove }: {
   state: EditorState; row: RelationshipParticipant; index: number;
-  columns?: CrowRow[]; automaticName?: string;
+  columns?: CrowRow[];
+  automaticName?: string;
+  /** The generated columns of this side, each of which can be named. */
+  generatedColumns?: CrowRow[];
   onChange: (patch: Partial<RelationshipParticipant>) => void; onRemove: () => void;
 }) {
   const id = useId();
@@ -126,6 +151,20 @@ function ParticipantRow({ state, row, index, columns = [], automaticName, onChan
           {column.generatedKey ? ' — generated PK' : column.attributeId ? '' : ' — generated'}
         </option>)}
       </select>
+      {generatedColumns.length && !row.columnId ? generatedColumns.map((column) => {
+        const keyId = column.references?.columnId ?? column.id;
+        return <div key={column.id}>
+          <label className="field__label" htmlFor={id + '-column-name-' + column.id}>
+            Foreign key name at {name}
+          </label>
+          <input id={id + '-column-name-' + column.id} className="field__input field__input--mono"
+            data-testid="participant-column-name" value={row.columnNames?.[keyId] ?? ''} placeholder={column.name}
+            onChange={(event) => onChange({ columnNames: { ...row.columnNames, [keyId]: event.target.value } })} />
+        </div>;
+      }) : null}
+      {generatedColumns.length && !row.columnId ? <p className="field__help">
+        Name the columns the diagram generates here. Leave them empty to use the inferred names.
+      </p> : null}
       <label className="field__label" htmlFor={id + '-card'}>Cardinality at {name}</label>
       <select id={id + '-card'} className="field__select" value={row.cardinality}
         onChange={(event) => {

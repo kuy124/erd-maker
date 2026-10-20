@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveLinks, deriveTables, tableHeight } from '../../src/model/crowfoot';
-import { foreignKeyColumnName } from '../../src/model/sql';
+import { foreignKeyColumnName, generateSql } from '../../src/model/sql';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 
 function shop(): ErdDocument {
@@ -124,8 +124,20 @@ describe('deriveTables', () => {
     expect(deriveLinks(doc)[0]!.toColumnId).toBe(order.rows.find((r) => r.fk)!.id);
   });
 
-  it('names a weak entity’s inherited key after the table it comes from', () => {
+  it('uses the name a person gives a generated foreign key', () => {
     const doc = shop();
+    // The name lives on the leg that holds the column, so it belongs to the
+    // connection rather than to the table it points at. It is keyed by the
+    // referenced column, so a key of several columns has a name for each part.
+    doc.legs[1]!.columnNames = { 'attribute:c1': 'shipped_to_customer' };
+    const order = deriveTables(doc).find((t) => t.name === 'Order')!;
+    const key = order.rows.find((r) => r.fk);
+    expect(key?.name).toBe('shipped_to_customer');
+    expect(key?.references?.label).toBe('Customer.customer_id');
+    expect(generateSql(doc)).toContain('FOREIGN KEY ("shipped_to_customer") REFERENCES "customer" ("customer_id")');
+  });
+
+  it('names a weak entity’s inherited key after the table it comes from', () => {    const doc = shop();
     doc.entities[1]!.kind = 'weak'; doc.relationships[0]!.kind = 'weak';
     doc.legs.forEach((leg) => delete leg.columnId);
     // A weak entity with an id of its own keeps it.
@@ -186,12 +198,38 @@ describe('deriveLinks', () => {
       { id: 'l2', fromId: 'r', toId: 'c', cardinality: 'M', participation: { min: 0, max: 'N' } },
     );
     const links = deriveLinks(doc);
-    expect(links).toHaveLength(2);
-    expect(links.map((l) => l.manyEntityId).sort()).toEqual(['c', 's']);
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ fromEntityId: 's', toEntityId: 'c', fromMany: true, toMany: true, ratio: 'N:M' });
     // The relationship stays a line between two tables. A table of its own
     // would be a shape nobody could select, move, or share.
     const tables = deriveTables(doc);
     expect(tables.map((t) => t.name)).toEqual(['Student', 'Course']);
+  });
+
+  it('draws a line for every column of a composite key', () => {
+    const doc = emptyDocument();
+    doc.entities.push(
+      { id: 'u', name: 'Pengguna', x: 0, y: 0, kind: 'strong' },
+      { id: 'n', name: 'Notifikasi', x: 0, y: 0, kind: 'strong' },
+    );
+    doc.attributes.push(
+      { id: 'u1', name: 'id_pengguna', x: 0, y: 0, kind: 'key', ownerId: 'u' },
+      { id: 'u2', name: 'nim', x: 0, y: 0, kind: 'key', ownerId: 'u' },
+      { id: 'n1', name: 'id', x: 0, y: 0, kind: 'key', ownerId: 'n' },
+    );
+    doc.relationships.push({ id: 'r', name: 'dikirim_ke', x: 0, y: 0, kind: 'strong' });
+    doc.legs.push(
+      { id: 'l1', fromId: 'u', toId: 'r', cardinality: '1', participation: { min: 1, max: 1 } },
+      { id: 'l2', fromId: 'r', toId: 'n', cardinality: 'N', participation: { min: 0, max: 'N' } },
+    );
+    const table = deriveTables(doc).find((t) => t.name === 'Notifikasi')!;
+    // One foreign-key column for each part of the key.
+    expect(table.rows.filter((r) => r.fk).map((r) => r.name)).toEqual(['pengguna_id_pengguna', 'pengguna_nim']);
+    // And a line for each of them, so no column leads nowhere.
+    const links = deriveLinks(doc);
+    expect(links).toHaveLength(2);
+    expect(links.map((l) => l.toColumnId)).toEqual(table.rows.filter((r) => r.fk).map((r) => r.id));
+    expect(links.map((l) => l.fromColumnId)).toEqual(['attribute:u1', 'attribute:u2']);
   });
 
   it('ignores a relationship with fewer than two entity ends', () => {
