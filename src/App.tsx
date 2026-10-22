@@ -10,6 +10,7 @@ import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight, table
 import { placeRouteCaption } from './model/connectorRouting';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
+import { readVersions, saveVersion } from './model/versions';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
 import { useEditor, type EditorState } from './state/useEditor';
 import { ExportDialog } from './ui/ExportDialog';
@@ -121,6 +122,14 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileMenuTrigger = useRef<HTMLButtonElement>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versionName, setVersionName] = useState('');
+  const [versions, setVersions] = useState(() => readVersions(state.room));
+  const [arrangeUndo, setArrangeUndo] = useState(false);
+  const checkpoint = (label: string) => {
+    try { setVersions(saveVersion(state.room, state.doc, label)); }
+    catch { setError('Could not save this version. Browser storage may be full or unavailable.'); }
+  };
   /** The share dialog opens with a snapshot in it when the room cannot be reached. */
   const [shareSnapshot, setShareSnapshot] = useState(false);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
@@ -365,6 +374,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   }, [state, showPanel]);
 
   const tidy = useCallback(() => {
+    checkpoint('Before Auto Arrange');
+    setArrangeUndo(false);
     const arranged = applyLayout(shown);
     if (isCrowFoot) {
       // Tables are arranged in the Crow's-foot positions, so Tidy writes those
@@ -376,7 +387,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           const old = before.get(id);
           return old && (old.crowX !== point.x || old.crowY !== point.y);
         }));
-      if (moved.size) state.applyTablePositions(moved);
+      if (moved.size) { state.applyTablePositions(moved); setArrangeUndo(true); }
+      fitToDoc({ ...arranged, entities: arranged.entities.map(entity => ({ ...entity, crowX: entity.x, crowY: entity.y })) });
       return;
     }
     const positions = new Map<string, { x: number; y: number }>();
@@ -385,7 +397,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       const old = before.get(node.id);
       if (old && (old.x !== node.x || old.y !== node.y)) positions.set(node.id, { x: node.x, y: node.y });
     }
-    if (positions.size) state.applyPositions(positions);
+    if (positions.size) { state.applyPositions(positions); setArrangeUndo(true); }
     fitToDoc(arranged);
   }, [state, fitToDoc, shown, isCrowFoot]);
 
@@ -777,6 +789,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="history-tools">
           <button type="button" className="btn btn--ghost icon-control" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={state.undo}>↶</button>
           <button type="button" className="btn btn--ghost icon-control" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={state.redo}>↷</button>
+          <button type="button" className="btn btn--ghost" onClick={() => { setVersions(readVersions(state.room)); setVersionsOpen(!versionsOpen); }}>Versions</button>
         </div>
         <div className="drawing-tools">
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Select tool" title="Select (V)" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}><WorkspaceIcon name="select" /></button>
@@ -786,7 +799,33 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Pan tool" title="Pan (H)" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}><WorkspaceIcon name="pan" /></button>
         </div>
         <button type="button" className="btn btn--ghost arrange-btn icon-control" aria-label="Auto-arrange" onClick={tidy} title="Auto-arrange"><WorkspaceIcon name="arrange" /></button>
+        {arrangeUndo && <button type="button" className="btn btn--ghost" title="Undo the latest edit; immediately after arranging, restores the previous layout" disabled={!state.canUndo} onClick={() => { state.undo(); setArrangeUndo(false); }}>Undo</button>}
       </div>
+      {versionsOpen && <Modal title="Versions" onClose={() => setVersionsOpen(false)}>
+        <p>Last 20 versions, saved in this browser. A version is saved before each Auto Arrange.</p>
+        <form onSubmit={event => {
+          event.preventDefault();
+          checkpoint(versionName.trim() || 'Manual save');
+        }}>
+          <label htmlFor="version-name">Version name</label>
+          <input id="version-name" value={versionName} maxLength={100}
+            placeholder="e.g. Before adding invoices" onChange={event => setVersionName(event.target.value)} />
+          <button type="submit" className="btn">Save version</button>
+        </form>
+        <button type="button" className="btn btn--ghost" onClick={() => setVersionsOpen(false)}>Close</button>
+        <ul>{versions.map(version => <li key={version.id}>
+          {version.label} · {new Date(version.date).toLocaleString()}{' '}
+          <button type="button" className="btn btn--ghost" onClick={() => {
+            if (!window.confirm('Restore this version? Your current diagram will be saved first. This also changes the shared diagram.')) return;
+            try { setVersions(saveVersion(state.room, state.doc, 'Before restore')); }
+            catch { setError('Could not save the current diagram. Restore cancelled.'); return; }
+            state.replaceDocument(version.doc);
+            fitToDoc(version.doc);
+            setArrangeUndo(false);
+          }}>Restore</button>
+        </li>)}</ul>
+        {!versions.length && <p>No saved versions yet.</p>}
+      </Modal>}
 
       <div className="workspace" id="canvas-region">
         <div className="workspace-panel workspace-panel--left" data-open={openPanel === 'build' || openPanel === 'diagram'}>

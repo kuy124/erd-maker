@@ -1,7 +1,6 @@
 # Deploys the built app to GitHub Pages.
 #
-# Only the build is needed here: the app is entirely static and does all of its
-# networking peer to peer, so there is nothing to deploy but the files.
+# Pages hosts the static frontend; the Cloudflare Worker handles live sync.
 #
 # Deploying from a branch rather than a workflow keeps the build reproducible
 # and inspectable, and Pages serves the repository subpath directly, which is
@@ -42,6 +41,8 @@ jobs:
       # reaches Pages.
       - run: npm test
       - run: npm run build
+        env:
+          VITE_SYNC_URL: wss://erd-sync.cerberus-tusk-proxy.workers.dev
 
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -20,7 +20,11 @@
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { WebrtcProvider } from 'y-webrtc';
+import { WebsocketProvider } from 'y-websocket';
 import type { Awareness } from 'y-protocols/awareness';
+import { needsReconnect } from './recovery';
+
+const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
 
 export interface PeerState {
   clientId: number;
@@ -123,6 +127,17 @@ export function resolveSignallingServers(): string[] {
   return fromGlobal() ?? fromQuery() ?? fromEnv() ?? DEFAULT_SIGNALLING;
 }
 
+/** Deployment-owned TURN credentials; never embed a private long-lived secret. */
+export function resolveIceServers(raw = import.meta.env?.VITE_ICE_SERVERS as string | undefined): RTCIceServer[] {
+  if (!raw) return [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }];
+  const servers: unknown = JSON.parse(raw);
+  if (!Array.isArray(servers) || !servers.length || !servers.every(server => server &&
+    (typeof server.urls === 'string' || Array.isArray(server.urls) && server.urls.every((url: unknown) => typeof url === 'string')))) {
+    throw new Error('VITE_ICE_SERVERS must be a JSON array of ICE servers.');
+  }
+  return servers;
+}
+
 /**
  * The local awareness state shape. Kept small: it is broadcast on every
  * pointer move, and every byte here is paid for on every peer's connection.
@@ -140,6 +155,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   const ydoc = new Y.Doc();
   const connect = options.connect ?? true;
   const persist = options.persist ?? true;
+  const relayUrl = import.meta.env.VITE_SYNC_URL as string | undefined;
 
   const persistence = new IndexeddbPersistence(`erd:${room}`, ydoc);
 
@@ -147,11 +163,21 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     // The room id is the encryption key; the same id on two peers means the
     // same key, so a relay only ever holds ciphertext.
     password: room,
-    signaling: options.signalling ?? resolveSignallingServers(),
+    signaling: relayUrl ? [] : options.signalling ?? resolveSignallingServers(),
     maxConns: 24,
     filterBcConns: true,
+    peerOpts: { config: { iceServers: resolveIceServers() } },
   });
   watchPeers(provider);
+  const relay = relayUrl ? new WebsocketProvider(relayUrl, room, ydoc, {
+    awareness: provider.awareness, connect, maxBackoffTime: 10000,
+  }) : undefined;
+  if (relay) {
+    relays.set(provider, relay);
+    provider.disconnect();
+    relay.on('status', () => announceTransport(provider));
+    relay.awareness.on('change', () => announceTransport(provider));
+  }
 
   if (!connect) {
     // Still created, so awareness has a home, but with no transports.
@@ -175,6 +201,43 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
    */
   const announceLeave = () => provider.awareness.setLocalState(null);
   window.addEventListener('pagehide', announceLeave);
+  let lastReconnect = 0;
+  const reconnect = () => {
+    if (!connect || navigator.onLine === false) return;
+    if (relay) {
+      if (!relay.wsconnected && !relay.wsconnecting) relay.connect();
+      return;
+    }
+    const status = transportState(provider);
+    if (status.direct > 0 || Date.now() - lastReconnect < 10000) return;
+    lastReconnect = Date.now();
+    provider.disconnect();
+    // y-webrtc appends on connect but does not empty this array on disconnect.
+    // Do not accumulate destroyed signalling clients after every retry.
+    provider.signalingConns.length = 0;
+    peerLinks.get(provider)?.clear();
+    provider.connect();
+    announceTransport(provider);
+  };
+  let suspendedPresence: ReturnType<Awareness['getLocalState']> = null;
+  const rememberPresence = () => { suspendedPresence = provider.awareness.getLocalState(); };
+  // Capture before announceLeave clears presence on a bfcache navigation.
+  window.addEventListener('pagehide', rememberPresence, true);
+  const resume = () => {
+    if (suspendedPresence && !provider.awareness.getLocalState()) {
+      provider.awareness.setLocalState(suspendedPresence);
+      suspendedPresence = null;
+    }
+    if (needsReconnect(transportState(provider), navigator.onLine !== false)) reconnect();
+  };
+  const onVisible = () => { if (document.visibilityState === 'visible') resume(); };
+  window.addEventListener('online', reconnect);
+  window.addEventListener('pageshow', resume);
+  document.addEventListener('visibilitychange', onVisible);
+  // lib0 retries individual sockets; also refresh failed room introductions.
+  const retry = window.setInterval(() => {
+    if (document.visibilityState === 'visible' && needsReconnect(transportState(provider), navigator.onLine !== false)) reconnect();
+  }, 45000);
 
   return {
     room,
@@ -185,6 +248,12 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     whenLoaded: persistence.whenSynced.then(() => undefined),
     destroy: () => {
       window.removeEventListener('pagehide', announceLeave);
+      window.removeEventListener('pagehide', rememberPresence, true);
+      window.removeEventListener('online', reconnect);
+      window.removeEventListener('pageshow', resume);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(retry);
+      relay?.destroy();
       provider.destroy();
       persistence.destroy();
       ydoc.destroy();
@@ -226,6 +295,8 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
 
 /** Number of peers currently connected through the WebRTC provider. */
 export function connectedPeerCount(provider: WebrtcProvider): number {
+  const relay = relays.get(provider);
+  if (relay) return relay.wsconnected ? Math.max(0, relay.awareness.getStates().size - 1) : 0;
   try {
     // `room.webrtcConns` is the provider's live connection map.
     const room = (provider as unknown as { room?: { webrtcConns?: Map<unknown, unknown> } }).room;
@@ -291,7 +362,7 @@ function watchPeers(provider: WebrtcProvider): void {
   provider.on('peers', (event: unknown) => {
     const payload = (Array.isArray(event) ? event[0] : event) as { added?: string[]; removed?: string[] } | undefined;
     for (const id of payload?.added ?? []) {
-      const link = links.get(id) ?? { state: 'pending' as PeerLink['state'] };
+      const link: PeerLink = { state: 'pending' };
       links.set(id, link);
       // The connection is real only once the data channel opens.
       peerChannel(provider, id)?.on?.('connect', () => {
@@ -316,6 +387,8 @@ function announceTransport(provider: WebrtcProvider): void {
 
 /** What the room connection is doing right now. */
 export function transportState(provider: WebrtcProvider): TransportState {
+  const relay = relays.get(provider);
+  if (relay) return { signalling: relay.wsconnected, direct: connectedPeerCount(provider), blocked: 0 };
   const links = peerLinks.get(provider);
   let direct = 0;
   let blocked = 0;

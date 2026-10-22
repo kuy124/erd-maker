@@ -1,0 +1,8 @@
+{
+  "name": "erd-sync",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev", "deploy": "wrangler deploy" },
+  "dependencies": { "yjs": "^13.6.20", "y-protocols": "^1.0.6", "lib0": "^0.2.99" },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}

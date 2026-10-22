@@ -12,18 +12,18 @@
  * small, and this version is deterministic, which means the button always
  * produces the same picture and the tests can assert exact coordinates.
  *
- * The layout only moves entities, relationships and ISAs. Attributes keep
- * their relative arrangement and follow their owner, because their position is
- * usually a deliberate choice by the person drawing.
+ * Connected components get separate bands. Chen attributes are stacked beside
+ * their owners; Crow's-foot lays out only the visible tables and their links.
  */
 
 import { NODE_SIZE, type ErdDocument, type Positioned } from './types';
-import { deriveTables, tableHeight } from './crowfoot';
+import { deriveLinks, deriveTables, tableHeight } from './crowfoot';
 import { ATTRIBUTE_ROW_GAP, findAttributeSlot } from './placement';
 import { descendantAttributeIds } from './attributes';
+import { segmentBetween, segmentForLeg, type Point } from '../canvas/geometry';
 
 const V_GAP = 120;
-const LAYER_GAP = 240;
+const LAYER_GAP = 120;
 
 export interface LayoutResult {
   positions: Map<string, { x: number; y: number }>;
@@ -42,8 +42,10 @@ function buildGraph(doc: ErdDocument): Map<string, GraphNode> {
   };
 
   for (const e of doc.entities) add(e.id);
-  for (const r of doc.relationships) add(r.id);
-  for (const i of doc.isas) add(i.id);
+  if (doc.view !== 'crowfoot') {
+    for (const r of doc.relationships) add(r.id);
+    for (const i of doc.isas) add(i.id);
+  }
 
   const link = (a: string, b: string) => {
     const na = graph.get(a);
@@ -53,7 +55,11 @@ function buildGraph(doc: ErdDocument): Map<string, GraphNode> {
     if (!nb.neighbors.includes(a)) nb.neighbors.push(a);
   };
 
-  for (const leg of doc.legs) link(leg.fromId, leg.toId);
+  if (doc.view === 'crowfoot') {
+    for (const edge of deriveLinks(doc)) link(edge.fromEntityId, edge.toEntityId);
+  } else {
+    for (const leg of doc.legs) link(leg.fromId, leg.toId);
+  }
   for (const isa of doc.isas) {
     if (isa.parentId) link(isa.id, isa.parentId);
     for (const child of isa.childIds) link(isa.id, child);
@@ -104,8 +110,7 @@ function assignLayers(graph: Map<string, GraphNode>, root: string): Map<string, 
 
 /**
  * Orders nodes within each layer by barycentre over already-placed earlier
- * layers. Two sweeps (down then up) is enough for diagrams of this size and
- * keeps the result stable.
+ * layers. Alternate down/up sweeps to reduce crossings deterministically.
  */
 function orderLayers(
   graph: Map<string, GraphNode>,
@@ -122,7 +127,21 @@ function orderLayers(
     return buckets[layer]!.indexOf(id);
   };
 
-  for (let sweep = 0; sweep < 2; sweep += 1) {
+  const crossings = () => {
+    let count = 0;
+    for (let layer = 0; layer < layerCount - 1; layer++) {
+      const edges = buckets[layer]!.flatMap(id => graph.get(id)!.neighbors
+        .filter(next => layers.get(next) === layer + 1).map(next => [indexIn(id), indexIn(next)] as const));
+      for (let i = 0; i < edges.length; i++) for (let j = i + 1; j < edges.length; j++) {
+        if ((edges[i]![0] - edges[j]![0]) * (edges[i]![1] - edges[j]![1]) < 0) count++;
+      }
+    }
+    return count;
+  };
+  let best = buckets.map(bucket => [...bucket]);
+  let bestCrossings = crossings();
+
+  for (let sweep = 0; sweep < 8; sweep += 1) {
     const forward = sweep % 2 === 0;
     const order = forward
       ? Array.from({ length: layerCount }, (_, i) => i)
@@ -145,13 +164,105 @@ function orderLayers(
       scored.sort((a, b) => (a.score === b.score ? (a.id < b.id ? -1 : 1) : a.score - b.score));
       buckets[layerIndex] = scored.map((s) => s.id);
     }
+    const count = crossings();
+    if (count < bestCrossings) {
+      bestCrossings = count;
+      best = buckets.map(bucket => [...bucket]);
+    }
   }
-  return buckets;
+  return best;
+}
+
+/** Interior intersections count; merely meeting at a port does not. */
+function linesCross(a: Point, b: Point, c: Point, d: Point): boolean {
+  const cross = (p: Point, q: Point, r: Point) => (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const abC = cross(a, b, c), abD = cross(a, b, d);
+  const cdA = cross(c, d, a), cdB = cross(c, d, b);
+  if (Math.abs(abC) < 1e-6 && Math.abs(abD) < 1e-6) {
+    const axis = Math.abs(b.x - a.x) > Math.abs(b.y - a.y) ? 'x' : 'y';
+    return Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis])) -
+      Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis])) > 1;
+  }
+  return abC * abD < 0 && cdA * cdB < 0;
+}
+
+function lineHitsBox(a: Point, b: Point, box: Point & { w: number; h: number }): boolean {
+  // Clip against an inset rectangle: a tangent to the silhouette is harmless.
+  let low = 0, high = 1;
+  for (const axis of ['x', 'y'] as const) {
+    const min = box[axis] + 2, max = box[axis] + (axis === 'x' ? box.w : box.h) - 2;
+    const delta = b[axis] - a[axis];
+    if (Math.abs(delta) < 1e-6) {
+      if (a[axis] <= min || a[axis] >= max) return false;
+    } else {
+      const t1 = (min - a[axis]) / delta, t2 = (max - a[axis]) / delta;
+      low = Math.max(low, Math.min(t1, t2));
+      high = Math.min(high, Math.max(t1, t2));
+      if (low >= high) return false;
+    }
+  }
+  return true;
+}
+
+function clearAttributeSlot(doc: ErdDocument, attr: ErdDocument['attributes'][number], owner: Positioned, preferred: Point): Point {
+  const size = NODE_SIZE.attribute, ownerSize = sizeFor(doc, owner.id);
+  const siblings = doc.attributes.filter(a => a.ownerId === owner.id);
+  const index = siblings.length;
+  const boxes = [...doc.entities, ...doc.relationships, ...doc.isas, ...doc.attributes]
+    .map(node => ({ ...node, ...sizeFor(doc, node.id) }));
+  const segments: Array<[Point, Point]> = [];
+  const add = (segment: ReturnType<typeof segmentBetween>) => {
+    if (!segment) return;
+    const points = segment.points ?? [segment.from, segment.to];
+    for (let i = 1; i < points.length; i++) segments.push([points[i - 1]!, points[i]!]);
+  };
+  for (const leg of doc.legs) add(segmentForLeg(doc, leg));
+  for (const isa of doc.isas) {
+    for (const id of [isa.parentId, ...isa.childIds]) if (id) add(segmentBetween(doc, isa.id, id));
+  }
+  for (const a of doc.attributes) if (a.ownerId) add(segmentBetween(doc, a.ownerId, a.id));
+  const candidates = [preferred];
+  // ponytail: bounded local search, not a global router; use global routing if dense graphs need it.
+  for (let ring = 0; ring < 4; ring++) {
+    const gap = 60 + ring * 70;
+    for (const direction of [-1, 1]) {
+      // Try both sides of the owner centre before extending a one-sided fan.
+      for (const offset of [...new Set([0, index, -index])]) {
+      candidates.push(
+        { x: direction > 0 ? owner.x + ownerSize.w + gap : owner.x - size.w - gap,
+          y: owner.y + (ownerSize.h - size.h) / 2 + offset * (size.h + ATTRIBUTE_ROW_GAP) },
+        { x: owner.x + (ownerSize.w - size.w) / 2 + offset * (size.w + ATTRIBUTE_ROW_GAP),
+          y: direction > 0 ? owner.y + ownerSize.h + gap : owner.y - size.h - gap },
+      );
+      }
+    }
+  }
+  const score = (point: Point) => {
+    const next = { ...attr, ...point };
+    const segment = segmentBetween({ ...doc, attributes: [...doc.attributes, next] }, owner.id, attr.id);
+    if (!segment) return Infinity;
+    const side = (p: Point) => p.x + size.w <= owner.x ? 'left' : p.x >= owner.x + ownerSize.w ? 'right' :
+      p.y < owner.y ? 'top' : 'bottom';
+    let cost = Math.hypot(point.x - owner.x, point.y - owner.y) / 10000;
+    // Keep siblings on a consistent side unless that would obstruct a line.
+    if (siblings.length && side(point) !== side(siblings[0]!)) cost += 10;
+    for (const box of boxes) {
+      if (point.x < box.x + box.w + 12 && point.x + size.w + 12 > box.x &&
+        point.y < box.y + box.h + 12 && point.y + size.h + 12 > box.y) cost += 1000000;
+      if (box.id !== owner.id && lineHitsBox(segment.from, segment.to, box)) cost += 10000;
+    }
+    for (const [a, b] of segments) {
+      if (lineHitsBox(a, b, { ...point, ...size })) cost += 10000;
+      if (linesCross(a, b, segment.from, segment.to)) cost += 100;
+    }
+    return cost;
+  };
+  return candidates.map(point => ({ point, cost: score(point) }))
+    .sort((a, b) => a.cost - b.cost)[0]!.point;
 }
 
 /**
- * Arranges every graph node. Returns absolute top-left positions, centred so
- * the diagram lands around the origin.
+ * Arranges every visible graph node. Returns absolute top-left positions.
  */
 export function autoArrange(doc: ErdDocument): LayoutResult {
   const tableSizes = new Map(
@@ -159,9 +270,20 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
       [table.entityId, { w: table.width, h: tableHeight(table) }] as const),
   );
   const renderedSize = (id: string) => tableSizes.get(id) ?? sizeFor(doc, id);
-  const graph = buildGraph(doc);
+  const remaining = buildGraph(doc);
   const positions = new Map<string, { x: number; y: number }>();
-  if (graph.size === 0) return { positions };
+  let componentY = 0;
+  while (remaining.size) {
+    const graph = new Map<string, GraphNode>();
+    const queue = [[...remaining.keys()].sort()[0]!];
+    for (let index = 0; index < queue.length; index++) {
+      const id = queue[index]!;
+      const node = remaining.get(id);
+      if (!node) continue;
+      graph.set(id, node);
+      remaining.delete(id);
+      queue.push(...node.neighbors);
+    }
 
   // Root at an entity, so the diagram reads entity → relationship → entity
   // rather than starting on a diamond. Among entities, prefer one that is an
@@ -175,7 +297,9 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
   for (const node of graph.values()) {
     const isEntity = doc.entities.some((e) => e.id === node.id);
     if (!isEntity) continue;
-    const score = (isIsaParent.has(node.id) ? 1000 : 0) + node.neighbors.length;
+    const distances = assignLayers(graph, node.id);
+    const radius = Math.max(...distances.values());
+    const score = (isIsaParent.has(node.id) ? 100000 : 0) - radius * 100 + node.neighbors.length;
     if (score > bestScore || (score === bestScore && node.id < root)) {
       bestScore = score;
       root = node.id;
@@ -201,7 +325,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
   const columnWidth = (bucket: string[]): number =>
     bucket.reduce((max, id) => {
       const size = renderedSize(id);
-      return Math.max(max, size.w);
+      return Math.max(max, size.w + attributeWidth(doc, id));
     }, 0);
 
   const columnWidths = buckets.map(columnWidth);
@@ -213,12 +337,41 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
     cursor += width + LAYER_GAP;
   }
 
+  const heights = buckets.map(bucket => bucket.reduce((sum, id) =>
+    sum + Math.max(renderedSize(id).h, attributeBlock(doc, id)) + V_GAP, -V_GAP));
+  const componentHeight = Math.max(...heights);
+  // ponytail: choose a compact serpentine grid, not a global graph embedding.
+  // Score its actual bounds so tall layers do not waste a full-height row each.
+  const grid = (columns: number) => {
+    const widths = Array.from({ length: columns }, () => 0);
+    const rowHeights = Array.from({ length: Math.ceil(layerCount / columns) }, () => 0);
+    for (let i = 0; i < layerCount; i++) {
+      const row = Math.floor(i / columns);
+      const column = row % 2 === 0 ? i % columns : columns - 1 - i % columns;
+      widths[column] = Math.max(widths[column]!, columnWidths[i]!);
+      rowHeights[row] = Math.max(rowHeights[row]!, heights[i]!);
+    }
+    const width = widths.reduce((sum, w) => sum + w, 0) + (columns - 1) * LAYER_GAP;
+    const height = rowHeights.reduce((sum, h) => sum + h, 0) + (rowHeights.length - 1) * (LAYER_GAP + 120);
+    return { columns, widths, rowHeights, height, score: Math.max(width / 1.6, height) ** 2 + width * height * 0.1 };
+  };
+  const bestGrid = Array.from({ length: layerCount }, (_, i) => grid(i + 1))
+    .filter(candidate => candidate.columns >= Math.min(3, layerCount))
+    .sort((a, b) => a.score - b.score)[0]!;
+  const columnsPerRow = bestGrid.columns;
+  const folded = layerCount > columnsPerRow;
   for (let layerIndex = 0; layerIndex < layerCount; layerIndex += 1) {
     const bucket = buckets[layerIndex]!;
-    let y = 0;
+    const row = folded ? Math.floor(layerIndex / columnsPerRow) : 0;
+    const column = row % 2 === 0 ? layerIndex % columnsPerRow : columnsPerRow - 1 - layerIndex % columnsPerRow;
+    const rowHeight = folded ? bestGrid.rowHeights[row]! : componentHeight;
+    const rowY = folded ? bestGrid.rowHeights.slice(0, row).reduce((sum, h) => sum + h + LAYER_GAP + 120, 0) : 0;
+    let y = componentY + rowY + (rowHeight - heights[layerIndex]!) / 2;
     for (const id of bucket) {
       const size = renderedSize(id);
-      positions.set(id, { x: columnCenters[layerIndex]! - size.w / 2, y });
+      const x = folded ? bestGrid.widths.slice(0, column).reduce((sum, w) => sum + w + LAYER_GAP, 0)
+        : columnCenters[layerIndex]! - columnWidths[layerIndex]! / 2;
+      positions.set(id, { x, y });
       /*
        * Reserve room for the attributes hanging off this shape.
        *
@@ -229,8 +382,10 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
        * nodes. Crow's-foot tables are exempt: a table already contains its
        * attributes as rows, so `renderedSize` has counted them.
        */
-      y += size.h + attributeBlock(doc, id) + V_GAP;
+      y += Math.max(size.h, attributeBlock(doc, id)) + V_GAP;
     }
+  }
+  componentY += bestGrid.height + LAYER_GAP + 120;
   }
 
   return { positions };
@@ -245,6 +400,20 @@ function attributeBlock(doc: ErdDocument, id: string): number {
   return owned * NODE_SIZE.attribute.h + owned * ATTRIBUTE_ROW_GAP;
 }
 
+/** Reserve every composite attribute column, not just the first one. */
+function attributeWidth(doc: ErdDocument, id: string): number {
+  if (doc.view === 'crowfoot') return 0;
+  const descendants = descendantAttributeIds(doc, id);
+  let frontier = [id];
+  let depth = 0;
+  while (frontier.length) {
+    const parents = new Set(frontier);
+    frontier = doc.attributes.filter(a => a.ownerId && parents.has(a.ownerId) && descendants.delete(a.id)).map(a => a.id);
+    if (frontier.length) depth++;
+  }
+  return depth * (60 + NODE_SIZE.attribute.w);
+}
+
 export function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } {
   if (doc.entities.some((e) => e.id === id)) return NODE_SIZE.entity;
   if (doc.attributes.some((a) => a.id === id)) return NODE_SIZE.attribute;
@@ -255,8 +424,8 @@ export function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } 
 
 /**
  * Applies a layout to a document, returning a new document with every node
- * moved. Attributes follow their owner by their original offset, which
- * preserves whatever arrangement the person chose for them.
+ * moved. Chen attributes are placed in columns beside their owners; hidden
+ * shapes in Crow's-foot are left alone.
  */
 export function applyLayout(doc: ErdDocument): ErdDocument {
   const { positions } = autoArrange(doc);
@@ -270,6 +439,7 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
   const movedEntities = doc.entities.map(move);
   const movedRelationships = doc.relationships.map(move);
   const movedIsas = doc.isas.map(move);
+  if (doc.view === 'crowfoot') return { ...doc, entities: movedEntities };
 
   const entityDelta = new Map<string, { dx: number; dy: number }>();
   for (const before of [...doc.entities, ...doc.relationships, ...doc.isas]) {
@@ -316,7 +486,8 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     // Place against what has been arranged so far, so siblings stack rather
     // than each claiming the same slot.
     const slot = findAttributeSlot({ ...placed, attributes: movedAttributes }, owner.id);
-    const next = slot ? { ...shifted, x: slot.x, y: slot.y } : shifted;
+    const clear = slot ? clearAttributeSlot({ ...placed, attributes: movedAttributes }, shifted, owner, slot) : undefined;
+    const next = clear ? { ...shifted, ...clear } : shifted;
     movedAttributes.push(next);
     placedAttributes.set(attr.id, next);
     placed = { ...placed, attributes: movedAttributes };

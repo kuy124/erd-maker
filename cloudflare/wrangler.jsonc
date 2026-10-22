@@ -1,0 +1,8 @@
+{
+  "name": "erd-sync",
+  "main": "worker.js",
+  "compatibility_date": "2026-01-01",
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "DiagramRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DiagramRoom"] }],
+  "vars": { "ALLOWED_ORIGINS": "https://kuy124.github.io" }
+}

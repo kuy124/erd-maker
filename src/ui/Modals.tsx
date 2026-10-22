@@ -188,8 +188,8 @@ export function ShareDialog({
           aria-label="Room code"
         />
         <p className="field__help">
-          The room code is also the encryption key for live edits. Anyone with it can join, so treat it
-          like a password.
+          Anyone with this room code can join, so treat it like a password.
+          {import.meta.env.VITE_SYNC_URL ? ' Live edits pass through the sync server, which can read the diagram.' : ' The code also encrypts peer-to-peer live edits.'}
         </p>
       </div>
 

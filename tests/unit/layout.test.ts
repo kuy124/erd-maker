@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyLayout, autoArrange, sizeFor } from '../../src/model/layout';
+import { segmentBetween, segmentForLeg } from '../../src/canvas/geometry';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 import { boundsOf } from '../../src/canvas/geometry';
 
@@ -93,6 +94,39 @@ describe('autoArrange', () => {
     expect(autoArrange(doc).positions.size).toBe(1);
   });
 
+  it('centres a hub against its branches instead of crowding the top branch', () => {
+    const doc = chain();
+    doc.entities.push({ id: 'e3', name: 'Invoice', x: 0, y: 0, kind: 'strong' });
+    doc.relationships.push({ id: 'r2', name: 'receives', x: 0, y: 0, kind: 'strong' });
+    doc.legs.push(
+      { ...doc.legs[0]!, id: 'l3', toId: 'r2' },
+      { ...doc.legs[1]!, id: 'l4', fromId: 'r2', toId: 'e3' },
+    );
+    const { positions } = autoArrange(doc);
+    expect(positions.get('e1')!.y + sizeFor(doc, 'e1').h / 2).toBe(
+      (positions.get('r1')!.y + positions.get('r2')!.y + sizeFor(doc, 'r1').h) / 2,
+    );
+  });
+
+  it('keeps disconnected components in separate bands', () => {
+    const doc = chain();
+    doc.entities.push({ id: 'lonely', name: 'Lonely', x: 0, y: 0, kind: 'strong' });
+    const { positions } = autoArrange(doc);
+    expect(positions.get('lonely')!.y).toBeGreaterThan(Math.max(...['e1', 'e2', 'r1'].map(id => positions.get(id)!.y)) + 72);
+  });
+
+  it('lays out only visible tables in Crow’s Foot and leaves hidden shapes alone', () => {
+    const doc = chain();
+    doc.view = 'crowfoot';
+    doc.attributes.push({ id: 'a1', ownerId: 'e1', kind: 'key', name: 'id', x: 123, y: 456 });
+    const { positions } = autoArrange(doc);
+    expect([...positions.keys()].sort()).toEqual(['e1', 'e2']);
+    const next = applyLayout(doc);
+    expect(next.relationships).toEqual(doc.relationships);
+    expect(next.attributes).toEqual(doc.attributes);
+    expect(applyLayout(next)).toEqual(next);
+  });
+
   it('lays out isa parents and children', () => {
     const doc = emptyDocument();
     doc.entities.push(
@@ -108,6 +142,24 @@ describe('autoArrange', () => {
 });
 
 describe('applyLayout', () => {
+  it('keeps a long chain compact instead of stretching it into a banner', () => {
+    const doc = emptyDocument();
+    for (let i = 0; i < 10; i++) {
+      doc.entities.push({ id: `e${i}`, name: `Entity ${i}`, kind: 'strong', x: 0, y: 0 });
+      if (!i) continue;
+      doc.relationships.push({ id: `r${i}`, name: 'relates', kind: 'strong', x: 0, y: 0 });
+      for (const [j, entity] of [`e${i - 1}`, `e${i}`].entries()) {
+        doc.legs.push({ id: `l${i}-${j}`, fromId: entity, toId: `r${i}`, cardinality: '1', participation: { min: 0, max: 1 } });
+      }
+    }
+    const next = applyLayout(doc);
+    const nodes = [...next.entities, ...next.relationships];
+    const width = Math.max(...nodes.map(n => n.x + sizeFor(next, n.id).w)) - Math.min(...nodes.map(n => n.x));
+    const height = Math.max(...nodes.map(n => n.y + sizeFor(next, n.id).h)) - Math.min(...nodes.map(n => n.y));
+    expect(width / height).toBeLessThan(2.5);
+    expect(width).toBeLessThan(1600);
+    expect(applyLayout(next)).toEqual(next);
+  });
   it('moves graph nodes to their computed positions', () => {
     const doc = chain();
     const next = applyLayout(doc);
@@ -115,7 +167,7 @@ describe('applyLayout', () => {
     expect(next.entities.find((e) => e.id === 'e1')!.x).toBe(positions.get('e1')!.x);
   });
 
-  it('carries an attribute along with its owner, and places it beside it', () => {
+  it('keeps attributes and their connectors clear of the relationship line', () => {
     const doc = chain();
     doc.attributes.push({ id: 'a1', name: 'email', x: -120, y: 40, kind: 'simple', ownerId: 'e1' });
 
@@ -123,21 +175,30 @@ describe('applyLayout', () => {
     const owner = next.entities.find((e) => e.id === 'e1')!;
     const attr = next.attributes[0]!;
 
-    // Beside, not on top: the old contract kept whatever offset the attribute
-    // happened to have, which once the owner had been rearranged put it straight
-    // back on the owner. Measured at 30 overlapping pairs on a three-table
-    // schema before this changed.
-    expect(attr.x).toBeGreaterThan(owner.x);
-    const overlapBottom = Math.min(owner.y + 72, attr.y + 42);
-    expect(overlapBottom - Math.max(owner.y, attr.y)).toBeGreaterThan(0);
+    expect(attr.x + 130 <= owner.x || attr.x >= owner.x + 150 ||
+      attr.y + 42 <= owner.y || attr.y >= owner.y + 72).toBe(true);
 
-    // Two attributes owned by the same shape stack rather than share a slot.
+    // Siblings can use different sides when the usual column would block a leg.
     doc.attributes.push({ id: 'a2', name: 'phone', x: -120, y: 100, kind: 'simple', ownerId: 'e1' });
     const both = applyLayout(doc);
     const first = both.attributes.find((a) => a.id === 'a1')!;
     const second = both.attributes.find((a) => a.id === 'a2')!;
-    expect(Math.abs(first.x - second.x)).toBeLessThan(1);
-    expect(Math.abs(first.y - second.y)).toBeGreaterThan(42);
+    expect(Math.abs(first.x - second.x) >= 130 || Math.abs(first.y - second.y) >= 42).toBe(true);
+    for (const attribute of both.attributes) {
+      const link = segmentBetween(both, attribute.ownerId!, attribute.id)!;
+      for (const leg of both.legs) {
+        const line = segmentForLeg(both, leg)!;
+        for (let step = 1; step < 100; step++) {
+          const t = step / 100;
+          const x = line.from.x + (line.to.x - line.from.x) * t;
+          const y = line.from.y + (line.to.y - line.from.y) * t;
+          expect(x > attribute.x && x < attribute.x + 130 && y > attribute.y && y < attribute.y + 42).toBe(false);
+          // No shared horizontal run with an attribute connector.
+          if (line.from.y === line.to.y && link.from.y === link.to.y) expect(link.from.y).not.toBe(line.from.y);
+        }
+      }
+    }
+    expect(applyLayout(both)).toEqual(both);
   });
 
   it('leaves a floating attribute untouched', () => {
