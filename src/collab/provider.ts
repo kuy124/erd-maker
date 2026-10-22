@@ -21,7 +21,7 @@ import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { WebrtcProvider } from 'y-webrtc';
 import { WebsocketProvider } from 'y-websocket';
-import type { Awareness } from 'y-protocols/awareness';
+import { Awareness } from 'y-protocols/awareness';
 import { needsReconnect } from './recovery';
 
 const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
@@ -170,8 +170,9 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   });
   watchPeers(provider);
   const relay = relayUrl ? new WebsocketProvider(relayUrl, room, ydoc, {
-    awareness: provider.awareness, connect, maxBackoffTime: 10000,
+    awareness: new Awareness(ydoc), connect, maxBackoffTime: 10000,
   }) : undefined;
+  const presence = relay?.awareness ?? provider.awareness;
   if (relay) {
     relays.set(provider, relay);
     provider.disconnect();
@@ -199,7 +200,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
    * `pagehide` rather than `unload` because the latter blocks navigation and is
    * unreliable on mobile, and because a bfcache restore re-fires it.
    */
-  const announceLeave = () => provider.awareness.setLocalState(null);
+  const announceLeave = () => presence.setLocalState(null);
   window.addEventListener('pagehide', announceLeave);
   let lastReconnect = 0;
   const reconnect = () => {
@@ -220,12 +221,12 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     announceTransport(provider);
   };
   let suspendedPresence: ReturnType<Awareness['getLocalState']> = null;
-  const rememberPresence = () => { suspendedPresence = provider.awareness.getLocalState(); };
+  const rememberPresence = () => { suspendedPresence = presence.getLocalState(); };
   // Capture before announceLeave clears presence on a bfcache navigation.
   window.addEventListener('pagehide', rememberPresence, true);
   const resume = () => {
-    if (suspendedPresence && !provider.awareness.getLocalState()) {
-      provider.awareness.setLocalState(suspendedPresence);
+    if (suspendedPresence && !presence.getLocalState()) {
+      presence.setLocalState(suspendedPresence);
       suspendedPresence = null;
     }
     if (needsReconnect(transportState(provider), navigator.onLine !== false)) reconnect();
@@ -242,7 +243,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   return {
     room,
     ydoc,
-    awareness: provider.awareness,
+    awareness: presence,
     provider,
     persistence,
     whenLoaded: persistence.whenSynced.then(() => undefined),
@@ -254,6 +255,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(retry);
       relay?.destroy();
+      if (relay) presence.destroy();
       provider.destroy();
       persistence.destroy();
       ydoc.destroy();

@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const Y = require('../node_modules/yjs');
-const { WebsocketProvider } = require('../node_modules/y-websocket');
-const WebSocket = require('../node_modules/ws');
+const require = createRequire(new URL('../package.json', import.meta.url));
+const Y = require('yjs');
+const { WebsocketProvider } = require('y-websocket');
+const WebSocket = require('ws');
+const { Awareness, removeAwarenessStates } = require('y-protocols/awareness');
 
 class BrowserSocket extends WebSocket {
-  constructor(url, protocols) { super(url, protocols, { origin: 'http://127.0.0.1:5173' }); }
+  constructor(url, protocols) { super(url, protocols, { origin: process.env.CHECK_ORIGIN ?? 'https://kuy124.github.io' }); }
 }
 const docs = [new Y.Doc(), new Y.Doc()];
 const room = 'test-' + crypto.randomUUID();
 const providers = docs.map(doc => new WebsocketProvider('ws://127.0.0.1:8787', room, doc,
   { WebSocketPolyfill: BrowserSocket, disableBc: true }));
+const legacyPresence = new Awareness(docs[0]);
 const wait = async predicate => {
   for (let i = 0; i < 100; i++) {
     if (predicate()) return;
@@ -26,6 +28,8 @@ try {
   docs[1].getMap('check').set('reply', 'received');
   await wait(() => docs[0].getMap('check').get('reply') === 'received');
   providers[0].awareness.setLocalStateField('name', 'Alice');
+  removeAwarenessStates(legacyPresence, [docs[0].clientID], 'disconnect');
+  assert.equal(providers[0].awareness.getLocalState().name, 'Alice', 'Legacy disconnect must not clear cloud presence');
   await wait(() => [...providers[1].awareness.getStates().values()].some(s => s.name === 'Alice'));
   const status = await new Promise((resolve, reject) => {
     const socket = new WebSocket('ws://127.0.0.1:8787/' + room, { origin: 'https://untrusted.example' });
@@ -37,5 +41,6 @@ try {
   console.log('PASS: bidirectional sync, awareness, origin restrictions');
 } finally {
   providers.forEach(p => p.destroy());
+  legacyPresence.destroy();
   docs.forEach(doc => doc.destroy());
 }

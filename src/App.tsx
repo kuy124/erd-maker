@@ -865,7 +865,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       <footer className="statusbar visually-hidden">
         <span className="diagram-counts">{state.doc.entities.length} entities · {state.doc.relationships.length} relationships · {state.doc.attributes.length} attributes</span>
         <span className="statusbar__spacer" />
-        <span className="collaboration-status">{peerSummary}{state.directPeers > 0 ? ' · Direct connection' : state.connected ? ' · Same browser' : ''} · {connection.note}</span>
+        <span className="collaboration-status">{peerSummary}{state.directPeers > 0 ? import.meta.env.VITE_SYNC_URL ? ' · Cloud sync' : ' · Direct connection' : state.connected ? ' · Same browser' : ''} · {connection.note}</span>
       </footer>
       {connectFrom ? <div className="connection-guidance" role="status">Pick a shape to connect <button type="button" className="btn btn--ghost" onClick={() => setConnectFrom(null)}>Cancel</button></div> : null}
       <nav className="panel-navigation" aria-label="Workspace panels">
@@ -950,6 +950,12 @@ function initials(name: string): string {
  * do about it.
  */
 function connectionState(state: EditorState): { state: string; label: string; note: string; fix: boolean } {
+  if (import.meta.env.VITE_SYNC_URL) {
+    if (!state.transport.signalling) return { state: 'offline', label: 'Reconnecting', fix: true,
+      note: 'Reconnecting to cloud sync. Your edits stay saved in this browser.' };
+    return { state: 'live', label: state.peers.length ? 'Live' : 'Connected', fix: false,
+      note: state.peers.length ? 'Connected to cloud sync with collaborators.' : 'Connected to cloud sync. Share this room link to invite collaborators.' };
+  }
   if (state.transport.direct > 0) {
     return { state: 'live', label: 'Live', fix: false,
       note: 'Live edits are flowing between the browsers in this room.' };
