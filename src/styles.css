@@ -1920,3 +1920,6 @@ kbd { font: 13px var(--font-mono); }
 .peer-cursor--typing .peer-cursor__typing .d2 { animation-delay: 160ms; }
 .peer-cursor--typing .peer-cursor__typing .d3 { animation-delay: 320ms; }
 @keyframes typing { 0% { transform: translateY(0); } 50% { transform: translateY(-4px); } 100% { transform: translateY(0); } }
+
+.canvas-wrap[data-tool='entity'], .canvas-wrap[data-tool='attribute'], .canvas-wrap[data-tool='relationship'], .canvas-wrap[data-tool='isa'] { cursor: crosshair; }
+.canvas-wrap.is-dragging { cursor: grabbing; }
