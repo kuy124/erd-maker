@@ -93,7 +93,9 @@ test('a collaborator is renamed where they can see it', async ({ browser }) => {
     await alice.getByRole('button', { name: 'Done', exact: true }).click();
 
     await bob.goto(link);
-    await expect(bob.getByRole('heading', { name: 'Waiting for the diagram' })).toBeVisible({ timeout: 30_000 });
+    // The link carries a snapshot even of an empty room, so Bob lands in the
+    // room straight away instead of waiting for Alice's tab to connect.
+    await expect(bob.getByLabel('Your name')).toBeVisible({ timeout: 30_000 });
     // Presence names the person, which is the whole point of asking.
     await expect(bob.locator('.collaboration-status')).toContainText('Priya', { timeout: 30_000 });
 

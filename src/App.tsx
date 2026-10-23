@@ -716,8 +716,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         {/* Not `.canvas-empty__hint`: that is hidden on phones, and a phone is
             exactly where a second person opens a shared link. */}
         <p className="canvas-empty__body">
-          Room <code>{state.room}</code>. If that tab is closed, ask them to send a snapshot link
-          instead — it carries the diagram and opens with nobody online.
+          Room <code>{state.room}</code>. If that tab is closed, ask them to share the link again
+          from Share — a link made there carries the diagram and opens with nobody online.
         </p>
       </div>
     </div>

@@ -14,7 +14,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { copyText } from '../export';
 import { downloadText, fileStem, serializeJson } from '../export';
 import { buildShareUrl } from '../model/snapshot';
-import { allNodes } from '../model/types';
 import type { EditorState } from '../state/useEditor';
 
 interface ModalProps {
@@ -106,17 +105,15 @@ export function ShareDialog({ state, onClose }: { state: EditorState; onClose: (
   const [copied, setCopied] = useState<'link' | 'room' | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   /*
-   * Ticked by default.
+   * Ticked, always.
    *
    * The room id alone carries no diagram: whoever opens that link stares at
    * "waiting for the diagram" until the sharer's tab is open and reachable.
-   * A snapshot opens instantly and still joins the live room, so it is the
-   * default; unticking gives the shorter live-only link when that is wanted.
-   *
-   * An empty diagram has nothing to carry, so there the short link is the
-   * honest one and the tick starts off.
+   * A snapshot opens instantly and still joins the live room, so every link
+   * the app hands out carries the diagram. Unticking is there for someone who
+   * really wants the shorter live-only link.
    */
-  const [includeSnapshot, setIncludeSnapshot] = useState(() => allNodes(state.doc).length > 0);
+  const [includeSnapshot, setIncludeSnapshot] = useState(true);
   const linkRef = useRef<HTMLInputElement>(null);
   const roomRef = useRef<HTMLInputElement>(null);
   const linkId = useId();
