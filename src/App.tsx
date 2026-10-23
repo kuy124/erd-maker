@@ -718,7 +718,10 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <p className="canvas-empty__body">
           Room <code>{state.room}</code>. If that tab is closed, ask them to share the link again
           from Share — a link made there carries the diagram and opens with nobody online.
-        </p>
+
+           Nothing is loading because this room has no diagram on the server yet: ask the sharer to
+           open the live site with that diagram and use Share → Copy link.
+         </p>
       </div>
     </div>
   ) : null;
