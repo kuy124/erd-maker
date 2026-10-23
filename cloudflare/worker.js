@@ -25,8 +25,20 @@ export class DiagramRoom {
     this.presence = new awareness.Awareness(this.doc);
     this.presence.setLocalState(null);
     this.clients = new Map();
-    // ponytail: active-room memory, browser IndexedDB supplies durable diagrams.
-    // Add durable snapshots if rooms must survive without any client reopening.
+    /*
+     * Rooms outlive their last connection.
+     *
+     * A share link names only the room, so whoever opens it expects the
+     * diagram whether or not anybody else is online. Keeping the room in
+     * Durable Object storage is what makes that true: the object is evicted
+     * when idle, and without this the link opened onto an empty canvas.
+     *
+     * ponytail: one blob per room, written when the room empties. Add
+     * periodic writes if a deploy or crash must never lose the last edits.
+     */
+    this.ready = ctx.storage.get('doc').then((saved) => {
+      if (saved) Y.applyUpdate(this.doc, new Uint8Array(saved));
+    });
     this.doc.on('update', update => {
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 0);
@@ -55,9 +67,19 @@ export class DiagramRoom {
     this.clients.delete(socket);
     if (ids) awareness.removeAwarenessStates(this.presence, [...ids], null);
     try { socket.close(); } catch { /* Already closed. */ }
+    // The last client leaving is the moment the room would otherwise be lost.
+    if (this.clients.size === 0) this.save();
+  }
+
+  save() {
+    const written = this.ctx.storage.put('doc', Y.encodeStateAsUpdate(this.doc));
+    // Keep the object alive until the write lands; eviction right after the
+    // last disconnect is exactly when this matters.
+    try { this.ctx.waitUntil(written); } catch { /* No waitUntil outside a handler. */ }
   }
 
   async fetch() {
+    await this.ready;
     if (this.clients.size >= 32) return new Response('Room full', { status: 429 });
     const [client, socket] = Object.values(new WebSocketPair());
     socket.accept();

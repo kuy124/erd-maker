@@ -87,11 +87,11 @@ Each person picks their own notation, stored per room and browser. JSON files an
 ## Rooms and sharing
 
 - New diagrams open in new rooms. Browser Back returns with the work saved.
-- **Share** gives a short room link. Keep the tab open until the other person joins; before then they see **Waiting for the diagram** and your room code instead of an empty canvas.
-- **Include diagram snapshot** gives a longer link that works with nobody online. Snapshots store compressed rows, about 40% shorter than older links. Both link types allow editing.
+- **Share** gives a short room link. The room is kept on the sync server, so the link opens the diagram even when nobody else is online; while it loads you may see **Waiting for the diagram** and the room code.
+- **Include diagram snapshot** puts the diagram in the link itself: longer, and it opens with no server at all. It starts ticked when the app has no sync server to keep rooms. Both link types allow editing.
 - **Save a copy** writes JSON that needs no server and survives chat apps. **Import** replaces the room you are in; Undo brings the old diagram back, and an invalid file leaves the room intact.
 - **Your name** is asked on an empty diagram, stored per browser, and sent to peers as you type.
-- No server means a diagram lives in its room and in this browser.
+- A diagram lives in its room, in this browser, and — when a sync server is set up — on that server, so a link still opens later.
 
 The header names the connection state:
 
@@ -108,9 +108,9 @@ A peer’s cursor appears only in the same notation, since the two views place o
 <details>
 <summary><strong>⚙️ For developers: how connections work</strong></summary>
 
-Tabs in one browser sync over BroadcastChannel; separate browsers use WebRTC with a signaling server. Presence comes from connected peers and is shown apart from browser storage. **Offline** and **Blocked** offer **Share a snapshot**, opening Share with a ready link.
+Tabs in one browser sync over BroadcastChannel; separate browsers use a sync server when one is configured, and WebRTC with a signaling server otherwise. Presence comes from connected peers and is shown apart from browser storage. **Offline** and **Blocked** offer **Share**, where a snapshot link can be copied.
 
-Default server: `wss://signaling.fly.dev`. Override with `?signaling=`, `window.__ERD_SIGNALING__`, or `VITE_SIGNALING`. If direct connections are blocked, editing and snapshot links still work; cross-device live edits do not arrive.
+With `VITE_SYNC_URL` set, the app talks to Cloudflare's `cloudflare/worker.js` instead of the signaling servers; that worker writes a room to storage when the last person leaves, which is what lets a short link open with nobody online. Without it, default server: `wss://signaling.fly.dev`. Override with `?signaling=`, `window.__ERD_SIGNALING__`, or `VITE_SIGNALING`. If direct connections are blocked, editing and snapshot links still work; cross-device live edits do not arrive.
 
 </details>
 

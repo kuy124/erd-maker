@@ -40,6 +40,9 @@ jobs:
       # Typecheck and unit tests run before the build so a broken commit never
       # reaches Pages.
       - run: npm test
+      # A share link is only short because the worker keeps the room, so a
+      # broken room object must not ship.
+      - run: node cloudflare/check-room.mjs
       - run: npm run build
         env:
           VITE_SYNC_URL: wss://erd-sync.cerberus-tusk-proxy.workers.dev

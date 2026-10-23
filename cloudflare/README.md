@@ -36,21 +36,22 @@ Users only open a share link. You, the app owner, do this setup once.
   not authentication. Do not use this deployment for sensitive diagrams.
 - Unlike the old encrypted P2P transport, the sync server can read diagrams.
   Traffic is encrypted in transit using TLS, not end-to-end encrypted.
-- Room content lives in server memory while active, and in each browser's
-  IndexedDB. After server eviction/restart, a returning browser resyncs its
-  copy. This is not a server backup or shared version-history service.
+- Room content lives in server memory while active, and is written to Durable
+  Object storage when the last collaborator leaves, so a share link opens with
+  nobody online. Nothing expires it yet: an abandoned room occupies storage
+  until the worker is cleared. This is still not a backup or version history.
 - Limits: 32 connections/room, 512 KiB/message, 200 messages/second/connection.
   Oversized diagrams may need these limits raised and a chunked protocol.
 - All collaborators must use the rebuilt frontend with the same sync URL.
 
 ## Local check
 
-Run `npm run dev` here, then in another terminal at the repository root:
+`node cloudflare/check-room.mjs` (from the repository root) needs no server: it
+drives the room object with a stand-in for Durable Object storage and proves a
+room still opens after everyone has left. Run `npm install` in this directory
+first.
 
-```sh
-node cloudflare/check.mjs
-```
-
-The check opens two independent Yjs clients, verifies a document update reaches
-the other client, and checks the origin allowlist. It does not test the public
+With `npm run dev` running here, `node cloudflare/check.mjs` from the repository
+root opens two independent Yjs clients, verifies a document update reaches the
+other client, and checks the origin allowlist. It does not test the public
 Cloudflare deployment or cross-network availability.

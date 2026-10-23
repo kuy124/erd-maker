@@ -105,15 +105,16 @@ export function ShareDialog({ state, onClose }: { state: EditorState; onClose: (
   const [copied, setCopied] = useState<'link' | 'room' | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   /*
-   * Ticked, always.
+   * Unticked only when a sync server holds the room.
    *
-   * The room id alone carries no diagram: whoever opens that link stares at
-   * "waiting for the diagram" until the sharer's tab is open and reachable.
-   * A snapshot opens instantly and still joins the live room, so every link
-   * the app hands out carries the diagram. Unticking is there for someone who
-   * really wants the shorter live-only link.
+   * The room id alone carries no diagram: whoever opens such a link stares at
+   * "waiting for the diagram" until the sharer's tab is open and reachable —
+   * unless the room lives on the sync worker, which keeps it after everyone
+   * leaves. So the short link is the default exactly where it works, and
+   * everywhere else the link carries the diagram so it opens with nobody
+   * online. Ticking or unticking overrides either way.
    */
-  const [includeSnapshot, setIncludeSnapshot] = useState(true);
+  const [includeSnapshot, setIncludeSnapshot] = useState(!import.meta.env.VITE_SYNC_URL);
   const linkRef = useRef<HTMLInputElement>(null);
   const roomRef = useRef<HTMLInputElement>(null);
   const linkId = useId();
@@ -152,8 +153,9 @@ export function ShareDialog({ state, onClose }: { state: EditorState; onClose: (
       }
     >
       <p className="note" style={{ marginTop: 0 }}>
-        This link opens with a copy of the diagram, so nobody has to wait for you to be online.
-        Later edits sync live while you are both here.
+        {includeSnapshot
+          ? 'The diagram is inside this link, so it opens even with nobody online.'
+          : 'This is the short link. The diagram comes from the room, so it opens as soon as the sync server or another open tab can supply it.'}
       </p>
 
       <div className="field">
@@ -170,7 +172,7 @@ export function ShareDialog({ state, onClose }: { state: EditorState; onClose: (
           }} />
           Include diagram snapshot
         </label>
-        <p className="field__help">On by default: the longer link that opens the diagram even when nobody is online.</p>
+        <p className="field__help">A longer link that carries the diagram, so it opens with nobody online.</p>
       </div>
 
       <div className="field">

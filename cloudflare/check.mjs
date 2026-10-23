@@ -6,6 +6,34 @@ const { WebsocketProvider } = require('y-websocket');
 const WebSocket = require('ws');
 const { Awareness, removeAwarenessStates } = require('y-protocols/awareness');
 
+/*
+ * A room has to outlive its last connection.
+ *
+ * A short share link names only the room, so a joiner can arrive hours after
+ * everyone closed their tabs. Drive the storage contract directly: no
+ * WebSocket, no server, just the object and a stand-in for Durable Object
+ * storage.
+ */
+const saved = new Map();
+const state = { storage: {
+  get: async key => saved.get(key),
+  put: async (key, value) => { saved.set(key, value); },
+}, waitUntil() {} };
+const early = new DiagramRoom(state);
+await early.ready;
+const source = new Y.Doc();
+source.getMap('check').set('kept', 'after everyone left');
+Y.applyUpdate(early.doc, Y.encodeStateAsUpdate(source));
+early.save();
+await new Promise(resolve => setTimeout(resolve, 0));
+assert.ok(saved.get('doc'), 'Room was never written to storage');
+
+const later = new DiagramRoom({ storage: state.storage, waitUntil() {} });
+await later.ready;
+assert.equal(later.doc.getMap('check').get('kept'), 'after everyone left',
+  'A visitor arriving after everyone left got an empty room');
+console.log('PASS: a room survives with nobody connected');
+
 class BrowserSocket extends WebSocket {
   constructor(url, protocols) { super(url, protocols, { origin: process.env.CHECK_ORIGIN ?? 'https://kuy124.github.io' }); }
 }
