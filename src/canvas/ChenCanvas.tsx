@@ -29,10 +29,11 @@ interface Props {
   emptyActions?: React.ReactNode;
   /** Replaces the empty-canvas card entirely; see `emptyState` in App. */
   emptyState?: React.ReactNode;
+  /** Optional follow peer callback. */
+  onFollowPeer?: (id: number) => void;
 }
 
-
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState, onFollowPeer }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -779,7 +780,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
           ) : null}
 
           {/* Peer cursors. The name always travels with the colour. */}
-          <PeerCursors peers={peers} view="chen" />
+          <PeerCursors peers={peers} view="chen" onFollow={(id) => onFollowPeer?.(id)} />
         </g>
       </svg>
 

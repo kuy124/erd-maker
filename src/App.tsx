@@ -173,6 +173,21 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   };
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
+  const [followPeer, setFollowPeer] = useState<number | null>(null);
+  useEffect(() => {
+    if (followPeer === null) return;
+    const peer = state.peers.find((item) => item.clientId === followPeer);
+    if (!peer?.cursor) return;
+    const frame = requestAnimationFrame(() => {
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const cursor = peer.cursor;
+      if (!cursor) return;
+      const next = { x: rect.width / 2 - cursor.x * state.viewport.zoom, y: rect.height / 2 - cursor.y * state.viewport.zoom };
+      state.setViewport((v) => ({ ...v, ...next }));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [followPeer, state.peers, state.viewport.zoom, state]);
   const [leftTab, setLeftTab] = useState<'build' | 'diagram'>('build');
   const [rightTab, setRightTab] = useState<'properties' | 'help'>('properties');
   const [error, setError] = useState<string | null>(null);
@@ -547,6 +562,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           break;
         case 'i': event.preventDefault(); toggleFocus(); break;
         case 'escape':
+          setFollowPeer(null);
           if (focusMode) { event.preventDefault(); toggleFocus(); }
           else { setConnectFrom(null); state.setSelection([]); closePanel(); }
           break;
@@ -954,8 +970,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="canvas-stage" onContextMenu={openMenu} onDoubleClick={revealProperties} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} /> :
-            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} />}
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} onFollowPeer={setFollowPeer} /> :
+            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} onFollowPeer={setFollowPeer} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>

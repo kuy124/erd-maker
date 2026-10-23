@@ -38,9 +38,10 @@ interface Props {
   emptyState?: React.ReactNode;
   /** Commits shared table positions separately from the Chen arrangement. */
   onTablePositions?: (positions: Map<string, { x: number; y: number }>) => void;
+  onFollowPeer?: (id: number) => void;
 }
 
-export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions, onFollowPeer }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -485,7 +486,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
             />
           ) : null}
 
-          <PeerCursors peers={peers} view="crowfoot" />
+          <PeerCursors peers={peers} view="crowfoot" onFollow={(id) => onFollowPeer?.(id)} />
         </g>
       </svg>
 

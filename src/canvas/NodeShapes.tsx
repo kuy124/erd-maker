@@ -285,7 +285,7 @@ export function CardinalityMarker({ origin, toward, many, required, className = 
  * filtered out rather than drawn in the wrong place: an arrow that lies about
  * where somebody is pointing is worse than no arrow.
  */
-export function PeerCursors({ peers, view }: { peers: PeerState[]; view: 'chen' | 'crowfoot' }) {
+export function PeerCursors({ peers, view, onFollow }: { peers: PeerState[]; view: 'chen' | 'crowfoot'; onFollow?: (id: number) => void }) {
   const visible = peers.filter((peer) => peer.view === view && peer.cursor);
   // Keep stacked peer names from covering each other by nudging chips.
   const names = visible.map((peer) => {
@@ -302,6 +302,8 @@ export function PeerCursors({ peers, view }: { peers: PeerState[]; view: 'chen' 
           <g key={peer.clientId}
             className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}${peer.typing ? ' peer-cursor--typing' : ''}`}
             data-peer-id={peer.clientId}
+            style={{ cursor: onFollow ? 'pointer' : undefined }}
+            onClick={() => onFollow?.(peer.clientId)}
             transform={`translate(${peer.cursor.x} ${peer.cursor.y})`}>
             <g transform={`translate(${offset} 0)`}>
               <circle className="peer-cursor__ring" cx="0" cy="0" r="8" fill="none" stroke={peer.color} strokeWidth="1.5" />
