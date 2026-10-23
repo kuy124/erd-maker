@@ -132,7 +132,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
   const nameRef = useRef<HTMLInputElement | null>(null);
   const superclassRef = useRef<HTMLSelectElement | null>(null);
   useEffect(() => {
-    if (!nameFocusReady || selection.length !== 1 || selection[0] !== state.justCreated) return;
+    if (true) return; // auto-focus disabled
     const focus = () => {
       const field = nameRef.current ?? superclassRef.current;
       if (!field || document.activeElement === field) return;

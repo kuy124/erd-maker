@@ -29,7 +29,9 @@ import {
 } from '../collab/ydoc';
 import { writeParticipants, type RelationshipParticipant } from '../collab/participants';
 import { validParticipation } from '../model/issues';
-import { findAttributeSlot } from '../model/placement';
+import { segmentForLeg } from '../canvas/geometry';
+import { NODE_SIZE } from '../model/types';
+import { findAttributeSlot, overlaps } from '../model/placement';
 import { emptyDocument, ROUTE_SIDES, type EntityKind, type ErdDocument, type RouteSide } from '../model/types';
 import type { ColumnEndpoint } from '../model/crowfoot';
 import { normalizeDataType, type DataType } from '../model/dataTypes';
@@ -451,15 +453,70 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
         setNotice('This shape cannot own an attribute.');
         return '';
       }
-      const slot = findAttributeSlot(live, ownerId);
-      const nextX = slot ? slot.x : x;
-      const nextY = slot ? slot.y : y;
+// Spawn around the owner instead of only down one column, so repeated
+      // additions circle the entity instead of dropping in a straight stack.
+// Keep entities attribute-free overlap by searching rings around owner. Smart
+      // placement tries larger rings, more angles and avoids siblings/legs.
+      let nextX = x;
+      let nextY = y;
+      const ownerEntity = ownerId ? live.entities.find((entity) => entity.id === ownerId) : undefined;
+      if (ownerEntity) {
+        const attrSize = NODE_SIZE.attribute;
+        const ownerCx = ownerEntity.x + NODE_SIZE.entity.w / 2;
+        const ownerCy = ownerEntity.y + NODE_SIZE.entity.h / 2;
+        const siblings = live.attributes.filter((a) => a.ownerId === ownerId);
+        const otherBoxes = [
+          { x: ownerEntity.x, y: ownerEntity.y, w: NODE_SIZE.entity.w, h: NODE_SIZE.entity.h },
+          ...siblings.map((a) => ({ x: a.x, y: a.y, w: attrSize.w, h: attrSize.h })),
+        ];
+        const pad = 12;
+        const legBoxes = (live.legs || []).flatMap((leg: any) => {
+          const seg = segmentForLeg(live, leg);
+          if (!seg) return [];
+          const pts = seg.points ?? [seg.from, seg.to];
+          const xs = pts.map((p: any) => p.x);
+          const ys = pts.map((p: any) => p.y);
+          return [{
+            x: Math.min(...xs) - pad,
+            y: Math.min(...ys) - pad,
+            w: Math.max(...xs) - Math.min(...xs) + pad * 2,
+            h: Math.max(...ys) - Math.min(...ys) + pad * 2,
+          }];
+        });
+        const overlapsAny = (cx: number, cy: number) =>
+          [...otherBoxes, ...legBoxes].some((b) => overlaps({ x: cx, y: cy, w: attrSize.w, h: attrSize.h }, b, 6));
+
+        let found = false;
+        for (let ring = 0; ring < 24 && !found; ring++) {
+          const radius = 95 + ring * 55;
+          const divisions = 10 + ring * 4;
+          for (let i = 0; i < divisions && !found; i++) {
+            const angle = (i / divisions) * Math.PI * 2;
+            const candidateX = Math.round(ownerCx + radius * Math.cos(angle) - attrSize.w / 2);
+            const candidateY = Math.round(ownerCy + radius * Math.sin(angle) - attrSize.h / 2);
+            // Keep on named neighborhood; reject overlaps with owner or siblings.
+            if (overlapsAny(candidateX, candidateY)) continue;
+            nextX = candidateX;
+            nextY = candidateY;
+            found = true;
+          }
+        }
+        if (!found) {
+          // Fallback: place just below owner's last sibling spacing.
+          const fallback = findAttributeSlot(live, ownerId);
+          if (fallback) { nextX = fallback.x; nextY = fallback.y; }
+        }
+      } else {
+        const slot = findAttributeSlot(live, ownerId);
+        if (slot) { nextX = slot.x; nextY = slot.y; }
+      }
       // Numbered rather than all called "attribute", so a diagram with several
       // attributes does not look like a row of identical shapes.
       const index = live.attributes.filter((a) => a.ownerId === ownerId).length + 1;
       const name = ownerId ? String(index) : 'attribute';
       mutate(() => upsertAttribute(room.ydoc, { id, name, x: nextX, y: nextY, kind: 'simple', ownerId }), true);
-      setSelection([id]);
+      // Keep an entity's own panel visible so attributes can be added repeatedly.
+      if (!ownerId) setSelection([id]);
       setJustCreated(id);
       return id;
     },

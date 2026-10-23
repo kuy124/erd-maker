@@ -284,10 +284,9 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     });
   }, [isCrowFoot, state.loaded, state.doc, fitToDoc]);
 
-  useEffect(() => {
-    if (!state.justCreated || !state.selection.includes(state.justCreated)) return;
-    showPanel('properties');
-  }, [state.justCreated, showPanel]);
+  // Shapes are created on the canvas without auto-opening the properties panel,
+  // so the user can add several in a row without the keyboard being stolen.
+  // Their panel is still available from the toolbar / Alt+P.
 
   useEffect(() => {
     if (!state.justCreated || openPanel !== 'properties' || !state.selection.includes(state.justCreated)) return;
@@ -385,7 +384,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       const id = state.addRelationship(slot.x, slot.y);
       if (view === 'chen') setConnectFrom(id);
     } else state.addIsa(slot.x, slot.y);
-    showPanel('properties');
   }, [state, showPanel]);
 
   const tidy = useCallback(() => {

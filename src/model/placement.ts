@@ -37,7 +37,7 @@ const SLOT_COLUMNS = 4;
 const ORIGIN_X = 120;
 const ORIGIN_Y = 120;
 
-function overlaps(a: Box, b: Box, gap: number): boolean {
+export function overlaps(a: Box, b: Box, gap: number): boolean {
   return (
     a.x < b.x + b.w + gap &&
     a.x + a.w + gap > b.x &&
