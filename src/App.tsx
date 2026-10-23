@@ -191,8 +191,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         const targetY = rect.height / 2 - cursor.y * followStateRef.current.viewport.zoom;
         followStateRef.current.setViewport((v) => ({
           ...v,
-          x: v.x + (targetX - v.x) * 0.12,
-          y: v.y + (targetY - v.y) * 0.12,
+          x: v.x + (targetX - v.x) * 0.08,
+          y: v.y + (targetY - v.y) * 0.08,
         }));
       }
       frame = requestAnimationFrame(tick);
