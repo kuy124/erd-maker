@@ -215,7 +215,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             data-testid="inspector-name"
             ref={nameRef}
             className="field__input"
-            value={entity.name}
+            defaultValue={entity.name}
             onChange={(event) => state.updateEntity(entity.id, { name: event.target.value })}
             autoComplete="off"
           />
@@ -309,7 +309,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             data-testid="inspector-name"
             ref={nameRef}
             className="field__input"
-            value={attribute.name}
+            defaultValue={attribute.name}
             onChange={(event) => state.updateAttribute(attribute.id, { name: event.target.value })}
             autoComplete="off"
           />

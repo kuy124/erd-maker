@@ -117,8 +117,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     const onInput = (event: Event) => {
       const target = event.target as HTMLElement | null;
       if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA')) return;
-      awareness.setLocalStateField('typing', true);
       if (timer !== null) window.clearTimeout(timer);
+      awareness.setLocalStateField('typing', true);
       timer = window.setTimeout(() => awareness.setLocalStateField('typing', false), 700);
     };
     const onBlur = () => {
