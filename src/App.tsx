@@ -834,6 +834,13 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}
         </div> : null}
+        {state.peers.length > 0 ? (
+          <select className="follow-picker" aria-label="Follow a collaborator" value={followPeer ?? ''}
+            onChange={(event) => setFollowPeer(event.target.value ? Number(event.target.value) : null)}>
+            <option value="">Follow: none</option>
+            {state.peers.map((peer) => <option key={peer.clientId} value={peer.clientId}>{peer.name}</option>)}
+          </select>
+        ) : null}
         <div className="file-actions">
           <button type="button" className="btn btn--ghost icon-control header-export" aria-label="Export"
             title="Export diagram" onClick={() => setDialog('export')}><WorkspaceIcon name="export" /></button>
