@@ -176,18 +176,25 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const [followPeer, setFollowPeer] = useState<number | null>(null);
   useEffect(() => {
     if (followPeer === null) return;
-    const peer = state.peers.find((item) => item.clientId === followPeer);
-    if (!peer?.cursor) return;
-    const frame = requestAnimationFrame(() => {
+    let frame: number;
+    const tick = () => {
+      const peer = state.peers.find((item) => item.clientId === followPeer);
+      const cursor = peer?.cursor;
       const rect = svgRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const cursor = peer.cursor;
-      if (!cursor) return;
-      const next = { x: rect.width / 2 - cursor.x * state.viewport.zoom, y: rect.height / 2 - cursor.y * state.viewport.zoom };
-      state.setViewport((v) => ({ ...v, ...next }));
-    });
+      if (cursor && rect) {
+        const targetX = rect.width / 2 - cursor.x * state.viewport.zoom;
+        const targetY = rect.height / 2 - cursor.y * state.viewport.zoom;
+        state.setViewport((v) => ({
+          ...v,
+          x: v.x + (targetX - v.x) * 0.15,
+          y: v.y + (targetY - v.y) * 0.15,
+        }));
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [followPeer, state.peers, state.viewport.zoom, state]);
+  }, [followPeer, state]);
   const [leftTab, setLeftTab] = useState<'build' | 'diagram'>('build');
   const [rightTab, setRightTab] = useState<'properties' | 'help'>('properties');
   const [error, setError] = useState<string | null>(null);

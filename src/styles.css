@@ -1923,3 +1923,6 @@ kbd { font: 13px var(--font-mono); }
 
 .canvas-wrap[data-tool='entity'], .canvas-wrap[data-tool='attribute'], .canvas-wrap[data-tool='relationship'], .canvas-wrap[data-tool='isa'] { cursor: crosshair; }
 .canvas-wrap.is-dragging { cursor: grabbing; }
+
+.follow-picker { background: transparent; border: 1px solid color-mix(in srgb, var(--ink) 40%, transparent); border-radius: 999px; padding: 6px 12px; font: inherit; transition: all 150ms ease; }
+.follow-picker:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
