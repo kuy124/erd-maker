@@ -57,6 +57,19 @@ function readSession(): Session {
   };
 }
 
+// Labels the app itself writes in checkpoint(); shown as auto-saved so they
+// don't read like snapshots the user named.
+const AUTO_VERSION_LABELS = new Set(['Before Auto Arrange', 'Before restore']);
+
+function timeAgo(iso: string): string {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h ago`;
+  if (minutes < 7 * 24 * 60) return `${Math.round(minutes / (24 * 60))} d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export function App() {
   const [session, setSession] = useState(readSession);
   useEffect(() => {
@@ -124,11 +137,16 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const [dialog, setDialog] = useState<Dialog>(null);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versionName, setVersionName] = useState('');
+  const versionInput = useRef<HTMLInputElement>(null);
+  const [versionFeedback, setVersionFeedback] = useState<{ message: string; error: boolean } | null>(null);
   const [versions, setVersions] = useState(() => readVersions(state.room));
+  // Row-level inline confirmations; replaces window.confirm, which has no
+  // styling, steals focus from the dialog, and traps keyboard users.
+  const [pendingVersion, setPendingVersion] = useState<{ id: string; action: 'restore' | 'delete' } | null>(null);
   const [arrangeUndo, setArrangeUndo] = useState(false);
   const checkpoint = (label: string) => {
-    try { setVersions(saveVersion(state.room, state.doc, label)); }
-    catch { setError('Could not save this version. Browser storage may be full or unavailable.'); }
+    try { setVersions(saveVersion(state.room, state.doc, label)); return true; }
+    catch { setError('Could not save this version. Browser storage may be full or unavailable.'); return false; }
   };
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
@@ -790,7 +808,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="history-tools">
           <button type="button" className="btn btn--ghost icon-control" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={state.undo}>↶</button>
           <button type="button" className="btn btn--ghost icon-control" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={state.redo}>↷</button>
-          <button type="button" className="btn btn--ghost" onClick={() => { setVersions(readVersions(state.room)); setVersionsOpen(!versionsOpen); }}>Versions</button>
+          <button type="button" className="btn btn--ghost" onClick={() => { setVersions(readVersions(state.room)); setVersionFeedback(null); setPendingVersion(null); setVersionsOpen(!versionsOpen); }}>Versions</button>
         </div>
         <div className="drawing-tools">
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Select tool" title="Select (V)" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}><WorkspaceIcon name="select" /></button>
@@ -802,36 +820,98 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <button type="button" className="btn btn--ghost arrange-btn icon-control" aria-label="Auto-arrange" onClick={tidy} title="Auto-arrange"><WorkspaceIcon name="arrange" /></button>
         {arrangeUndo && <button type="button" className="btn btn--ghost" title="Undo the latest edit; immediately after arranging, restores the previous layout" disabled={!state.canUndo} onClick={() => { state.undo(); setArrangeUndo(false); }}>Undo</button>}
       </div>
-      {versionsOpen && <Modal title="Versions" onClose={() => setVersionsOpen(false)}>
-        <p>Last 20 versions, saved in this browser. A version is saved before each Auto Arrange.</p>
-        <form onSubmit={event => {
+      {versionsOpen && <Modal title="Version history" onClose={() => setVersionsOpen(false)} footer={
+        <>
+          <span className={`note version-feedback${versionFeedback?.error ? ' field__help--error' : ''}`}
+            role={versionFeedback?.error ? 'alert' : 'status'}>{versionFeedback?.message}</span>
+          <button type="button" className="btn" onClick={() => setVersionsOpen(false)}>Done</button>
+        </>
+      }>
+        <p className="note version-intro">
+          Only the newest 20 snapshots are kept in this browser. Auto Arrange saves one automatically.
+        </p>
+        <form className="version-save" onSubmit={event => {
           event.preventDefault();
-          const name = versionName.trim() || 'Manual save';
-          checkpoint(name);
+          const name = versionName.trim();
+          if (!name) return;
+          if (!checkpoint(name)) {
+            setVersionFeedback({ message: 'Could not save this version. Browser storage may be full or unavailable.', error: true });
+            return;
+          }
+          setVersionName('');
+          setVersionFeedback({ message: `Saved “${name}”.`, error: false });
+          versionInput.current?.focus();
         }}>
-          <label htmlFor="version-name">Version name</label>
-          <input id="version-name" value={versionName} maxLength={100}
-            placeholder="Name this snapshot (e.g. Before regroup)" autoFocus
-            onChange={event => setVersionName(event.target.value)} />
-          <button type="submit" className="btn" disabled={!versionName.trim()}>Save version</button>
+          <label className="field__label" htmlFor="version-name">Version name</label>
+          <div className="version-save__controls">
+            <input id="version-name" className="field__input" ref={versionInput} value={versionName}
+              maxLength={100} required autoComplete="off" autoFocus aria-describedby="version-name-help"
+              placeholder="e.g. Before adding invoices"
+              onChange={event => { setVersionName(event.target.value); setVersionFeedback(null); }} />
+            <button type="submit" className="btn btn--primary" disabled={!versionName.trim()}>Save version</button>
+          </div>
+          <div className="version-save__hint">
+            <p id="version-name-help" className="field__help">Give this snapshot a name you’ll recognize later.</p>
+            <span aria-hidden="true">{versionName.length}/100</span>
+          </div>
         </form>
-        <button type="button" className="btn btn--ghost" onClick={() => setVersionsOpen(false)}>Close</button>
-        <ul>{versions.map(version => <li key={version.id}>
-          <strong>{version.label}</strong> · {new Date(version.date).toLocaleString()}{' '}
-          <button type="button" className="btn btn--ghost" onClick={() => {
-            if (!window.confirm('Restore this version? Your current diagram will be saved first. This also changes the shared diagram.')) return;
-            try { setVersions(saveVersion(state.room, state.doc, 'Before restore')); }
-            catch { setError('Could not save the current diagram. Restore cancelled.'); return; }
-            state.replaceDocument(version.doc);
-            fitToDoc(version.doc);
-            setArrangeUndo(false);
-          }}>Restore</button>
-          <button type="button" className="btn btn--ghost" onClick={() => {
-            if (!window.confirm('Delete this version?')) return;
-            setVersions(deleteVersion(state.room, version.id));
-          }}>Delete</button>
-        </li>)}</ul>
-        {!versions.length && <p>No saved versions yet.</p>}
+        <section aria-labelledby="version-history-title">
+          <div className="version-history__heading">
+            <h3 id="version-history-title">Saved versions</h3>
+            <span>{versions.length} / 20</span>
+          </div>
+          {versions.length ? <ul className="version-list" aria-label="Saved versions">
+            {versions.map(version => {
+              const auto = AUTO_VERSION_LABELS.has(version.label);
+              const confirming = pendingVersion?.id === version.id ? pendingVersion.action : null;
+              const run = () => {
+                setPendingVersion(null);
+                if (confirming === 'delete') {
+                  try {
+                    setVersions(deleteVersion(state.room, version.id));
+                    setVersionFeedback({ message: `Deleted “${version.label}”.`, error: false });
+                  } catch { setVersionFeedback({ message: 'Could not delete this version. Browser storage may be unavailable.', error: true }); }
+                  return;
+                }
+                try { setVersions(saveVersion(state.room, state.doc, 'Before restore')); }
+                catch { setVersionFeedback({ message: 'Could not save the current diagram. Restore cancelled.', error: true }); return; }
+                state.replaceDocument(version.doc);
+                fitToDoc(version.doc);
+                setArrangeUndo(false);
+                setVersionFeedback({ message: `Restored “${version.label}”. Your previous diagram was saved first.`, error: false });
+              };
+              return <li key={version.id} className={`version-row${auto ? ' version-row--auto' : ''}`}>
+                <div className="version-row__details">
+                  <strong className="version-row__name">{version.label}</strong>
+                  <time className="version-row__date" dateTime={version.date} title={new Date(version.date).toLocaleString()}>
+                    {timeAgo(version.date)}{auto ? ' · saved automatically' : ''}
+                  </time>
+                  {confirming && <p className="version-row__prompt">{
+                    confirming === 'restore'
+                      ? 'Restoring saves your current diagram as a version first, and changes the shared diagram.'
+                      : 'Deleting a version cannot be undone.'}</p>}
+                </div>
+                <div className="version-row__actions">
+                  {confirming ? <>
+                    <button type="button" autoFocus className={`btn ${confirming === 'restore' ? 'btn--primary' : 'btn--danger'}`}
+                      aria-label={`Confirm ${confirming} ${version.label}`} onClick={run}>
+                      {confirming === 'restore' ? 'Restore' : 'Delete'}</button>
+                    <button type="button" className="btn btn--ghost" aria-label={`Cancel ${confirming} ${version.label}`}
+                      onClick={() => setPendingVersion(null)}>Cancel</button>
+                  </> : <>
+                    <button type="button" className="btn" aria-label={`Restore ${version.label}`}
+                      onClick={() => setPendingVersion({ id: version.id, action: 'restore' })}>Restore</button>
+                    <button type="button" className="btn btn--ghost btn--danger" aria-label={`Delete ${version.label}`}
+                      onClick={() => setPendingVersion({ id: version.id, action: 'delete' })}>Delete</button>
+                  </>}
+                </div>
+              </li>;
+            })}
+          </ul> : <div className="version-empty">
+            <strong>No saved versions yet</strong>
+            <p className="note">Name your first snapshot above. You can restore it whenever you need it.</p>
+          </div>}
+        </section>
       </Modal>}
 
       <div className="workspace" id="canvas-region">

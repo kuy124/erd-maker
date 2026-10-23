@@ -26,16 +26,16 @@ interface ModalProps {
 export function Modal({ title, onClose, children, footer }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
-
+  const previouslyFocused = useRef(document.activeElement as HTMLElement | null);
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement as HTMLElement | null;
     const node = ref.current;
-    // Focus the first control so the keyboard lands inside the dialog.
-    const focusable = node?.querySelector<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    focusable?.focus();
+    // Respect a child's autoFocus; otherwise land on the first control.
+    if (!node?.contains(document.activeElement)) {
+      node?.querySelector<HTMLElement>(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )?.focus();
+    }
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -65,7 +65,8 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
     document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
-      previouslyFocused?.focus?.();
+      // StrictMode replays effects without removing the dialog.
+      if (!node?.isConnected) previouslyFocused.current?.focus?.();
     };
   }, []);
 
