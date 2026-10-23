@@ -41,6 +41,8 @@ export interface PeerState {
    * a peer's arrow in the other one points at a shape that is not there.
    */
   view: 'chen' | 'crowfoot';
+  /** Client id that this peer is following (null when alone/not following). */
+  following: number | null;
   /** True while this peer holds the pointer down: drives click animation. */
   pressing: boolean;
   /** True while this peer is typing in a text field. */
@@ -163,6 +165,8 @@ export interface LocalPresence {
   selectedIds: string[];
   /** Which notation this browser is looking at. */
   view: 'chen' | 'crowfoot';
+  /** Client id that this peer is following (null when alone/not following). */
+  following: number | null;
   /** Ephemeral in-flight drag; peers see carried shapes move before drop. */
   dragging: {
     ids: string[];
@@ -334,6 +338,7 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
       view: raw.view === 'crowfoot' ? 'crowfoot' : 'chen',
       pressing: raw.pressing === true,
       typing: raw.typing === true,
+      following: typeof raw.following === 'number' ? raw.following : null,
       dragging,
     });
   });

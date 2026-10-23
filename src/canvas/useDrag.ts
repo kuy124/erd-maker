@@ -49,9 +49,15 @@ export function usePeerCursor(
    * every pointer move.
    */
   pointer?: React.MutableRefObject<{ x: number; y: number } | null>,
+  hidden?: boolean,
 ): void {
   const latest = useRef({ toWorld, awareness });
   latest.current = { toWorld, awareness };
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
+  useEffect(() => {
+    if (hidden) awareness.setLocalStateField('cursor', null);
+  }, [hidden, awareness]);
 
   useEffect(() => {
     let lastSent = 0;
@@ -79,7 +85,7 @@ export function usePeerCursor(
       // Don't blast awareness updates while typing in the properties fields.
       const active = document.activeElement;
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
-
+      if (hiddenRef.current) return;
       if (pointer) pointer.current = { x: event.clientX, y: event.clientY };
       pending = event;
       if (timer !== null) return; // A send is already queued; it will pick this up.

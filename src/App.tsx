@@ -177,6 +177,9 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const followStateRef = useRef(state);
   followStateRef.current = state;
   useEffect(() => {
+    room.awareness.setLocalStateField('following', followPeer);
+  }, [room, followPeer]);
+  useEffect(() => {
     if (followPeer === null) return;
     let frame: number;
     const tick = () => {
@@ -843,6 +846,9 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}
         </div> : null}
+        {state.peers.some((peer) => peer.following === room.ydoc.clientID) ? (
+          <span className="follow-badge">Someone is following you live</span>
+        ) : null}
         {state.peers.length > 0 ? (
           <select className="follow-picker" aria-label="Follow a collaborator" value={followPeer ?? ''}
             onChange={(event) => setFollowPeer(event.target.value ? Number(event.target.value) : null)}>
@@ -986,8 +992,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="canvas-stage" onContextMenu={openMenu} onDoubleClick={revealProperties} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} onFollowPeer={setFollowPeer} /> :
-            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} onFollowPeer={setFollowPeer} />}
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} onFollowPeer={setFollowPeer} followActive={followPeer !== null} /> :
+            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} onFollowPeer={setFollowPeer} followActive={followPeer !== null} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>

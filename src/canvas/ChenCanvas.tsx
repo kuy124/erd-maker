@@ -31,9 +31,10 @@ interface Props {
   emptyState?: React.ReactNode;
   /** Optional follow peer callback. */
   onFollowPeer?: (id: number) => void;
+  followActive?: boolean;
 }
 
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState, onFollowPeer }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState, onFollowPeer, followActive }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -136,7 +137,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
   }, [drag.drag, state.awareness]);
 
   // Independent of dragging: moving the mouse is enough to be seen.
-usePeerCursor(toWorld, state.awareness, state.pointer);
+usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
 
   // Node under the pointer, topmost first so later-drawn wins.
   const nodeAt = useCallback(

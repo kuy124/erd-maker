@@ -39,9 +39,10 @@ interface Props {
   /** Commits shared table positions separately from the Chen arrangement. */
   onTablePositions?: (positions: Map<string, { x: number; y: number }>) => void;
   onFollowPeer?: (id: number) => void;
+  followActive?: boolean;
 }
 
-export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions, onFollowPeer }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions, onFollowPeer, followActive }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -146,7 +147,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   }, [drag.drag, state.awareness]);
 
   // The table view had no presence at all; moving the mouse is now enough to be seen.
-  usePeerCursor(toWorld, state.awareness, state.pointer);
+  usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
 
   const chooseColumn = (end: ColumnEndpoint) => {
     if (connectFrom) {
