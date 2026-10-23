@@ -348,9 +348,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   useEffect(() => {
     if (!openPanel || !focusPanel.current) return;
     focusPanel.current = false;
-    svgRef.current?.closest('.app')?.querySelector<HTMLElement>(
-      '.workspace-panel[data-open="true"] :is(.rail, .outline, .inspector, .help-panel) :is(button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href])',
-    )?.focus({ preventScroll: true });
+    svgRef.current?.closest('.app');
   }, [openPanel]);
 
   useLayoutEffect(() => {
