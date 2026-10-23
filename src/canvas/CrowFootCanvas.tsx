@@ -103,6 +103,25 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   });
   const pressedTable = useRef<string | null>(null);
 
+  // Auto-follow the dragged table offscreen.
+  useEffect(() => {
+    if (!drag.drag?.moved) return;
+    const tick = (event: PointerEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const threshold = 56;
+      let dx = 0, dy = 0;
+      if (event.clientX < rect.left + threshold) dx = 9;
+      else if (event.clientX > rect.right - threshold) dx = -9;
+      if (event.clientY < rect.top + threshold) dy = 9;
+      else if (event.clientY > rect.bottom - threshold) dy = -9;
+      if (dx || dy) state.setViewport((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+    };
+    window.addEventListener('pointermove', tick);
+    return () => window.removeEventListener('pointermove', tick);
+  }, [drag.drag, state]);
+
   // Show a grabbing cursor on the canvas while we carry a table.
   useEffect(() => {
     containerRef.current?.classList.toggle('is-dragging', Boolean(drag.drag?.moved));
