@@ -27,6 +27,7 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
+
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const node = ref.current;
@@ -66,7 +67,7 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
       document.removeEventListener('keydown', onKeyDown, true);
       previouslyFocused?.focus?.();
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
