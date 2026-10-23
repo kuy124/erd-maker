@@ -806,16 +806,18 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <p>Last 20 versions, saved in this browser. A version is saved before each Auto Arrange.</p>
         <form onSubmit={event => {
           event.preventDefault();
-          checkpoint(versionName.trim() || 'Manual save');
+          const name = versionName.trim() || 'Manual save';
+          checkpoint(name);
         }}>
           <label htmlFor="version-name">Version name</label>
           <input id="version-name" value={versionName} maxLength={100}
-            placeholder="e.g. Before adding invoices" onChange={event => setVersionName(event.target.value)} />
+            placeholder="Name this snapshot (e.g. Before regroup)" autoFocus
+            onChange={event => setVersionName(event.target.value)} />
           <button type="submit" className="btn">Save version</button>
         </form>
         <button type="button" className="btn btn--ghost" onClick={() => setVersionsOpen(false)}>Close</button>
         <ul>{versions.map(version => <li key={version.id}>
-          {version.label} · {new Date(version.date).toLocaleString()}{' '}
+          <strong>{version.label}</strong> · {new Date(version.date).toLocaleString()}{' '}
           <button type="button" className="btn btn--ghost" onClick={() => {
             if (!window.confirm('Restore this version? Your current diagram will be saved first. This also changes the shared diagram.')) return;
             try { setVersions(saveVersion(state.room, state.doc, 'Before restore')); }
