@@ -243,5 +243,5 @@ test('document actions remain reachable from the compact phone header', async ({
   await page.getByRole('button', { name: 'Diagram actions', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Share', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByLabel('Share link')).toHaveValue(new RegExp('#room=[a-z2-9]{' + ROOM_ID_LENGTH + '}$'));
+  await expect(page.getByLabel('Share link')).toHaveValue(new RegExp('#room=[a-z2-9]{' + ROOM_ID_LENGTH + '}(&d=.+)?$'));
 });

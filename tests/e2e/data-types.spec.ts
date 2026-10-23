@@ -150,6 +150,8 @@ test('chosen types survive JSON import, reload, and an offline snapshot link', a
 test('live collaborators receive type changes and local Undo preserves their rename', async ({ page: alice, browser }) => {
   await importDocument(alice); await selectAttribute(alice, 'id');
   await documentAction(alice, 'Share');
+  // The short link: this test is about live sync, not the snapshot.
+  await alice.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).uncheck();
   const link = await alice.getByLabel('Share link').inputValue();
   expect(new URLSearchParams(new URL(link).hash.slice(1)).has('d')).toBe(false);
   await alice.getByRole('button', { name: 'Done', exact: true }).click();

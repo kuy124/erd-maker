@@ -96,7 +96,7 @@ export async function inspectSelection(page: Page) {
   }
 }
 
-/** Request a portable snapshot explicitly; the default share link is a live room. */
+/** Request a portable snapshot explicitly; the share dialog also opens with one by default. */
 export async function snapshotShareLink(page: Page) {
   await page.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).check();
   return page.getByLabel('Share link').inputValue();

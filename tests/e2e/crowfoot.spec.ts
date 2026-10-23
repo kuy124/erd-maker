@@ -88,9 +88,11 @@ test.describe('crow tables', () => {
       await alice.getByRole('button', { name: 'Done', exact: true }).click();
 
       await bob.goto(link);
-      // The room arrives in whatever notation Bob already uses, so the shapes
-      // show up as Chen entities until he asks for tables — notation is each
-      // person's own choice, and a short link does not override it.
+      // The snapshot carries the sharer's notation, so Bob opens in tables.
+      // Notation is still his own choice afterwards: switching to Chen must
+      // show the same schema as entities.
+      await expect(table(bob, 'Customer')).toBeVisible({ timeout: 30_000 });
+      await bob.getByRole('button', { name: 'Chen', exact: true }).click();
       await expect(shape(bob, 'Entity Customer')).toBeVisible({ timeout: 30_000 });
       await bob.getByRole('button', { name: "Crow's-foot", exact: true }).click();
       await expect(table(bob, 'Customer')).toBeVisible();

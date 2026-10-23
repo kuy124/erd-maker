@@ -5,14 +5,16 @@
  * export (SVG, PNG, JSON, SQL). Both trap focus, close on Escape, and restore
  * focus on close, which is the minimum a dialog has to do.
  *
- * Sharing defaults to a short live-room link. An optional snapshot makes the
- * link longer but lets a new visitor open a copy with nobody online.
+ * Sharing defaults to a snapshot link: the diagram is in the link, so whoever
+ * opens it does not have to wait for the sharer to be online. Unticking gives
+ * the short live-room-only link.
  */
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { copyText } from '../export';
 import { downloadText, fileStem, serializeJson } from '../export';
 import { buildShareUrl } from '../model/snapshot';
+import { allNodes } from '../model/types';
 import type { EditorState } from '../state/useEditor';
 
 interface ModalProps {
@@ -100,25 +102,21 @@ function CloseGlyph() {
 
 /* ------------------------------------------------------------------ share */
 
-export function ShareDialog({
-  state,
-  onClose,
-  includeSnapshot: startWithSnapshot = false,
-}: {
-  state: EditorState;
-  onClose: () => void;
-  /**
-   * Start with the snapshot ticked.
-   *
-   * The room cannot always be reached, and a link that carries the diagram
-   * works when nobody is online. When the app knows the live link will not
-   * carry, it opens this dialog ready to hand over a copy.
-   */
-  includeSnapshot?: boolean;
-}) {
+export function ShareDialog({ state, onClose }: { state: EditorState; onClose: () => void }) {
   const [copied, setCopied] = useState<'link' | 'room' | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
-  const [includeSnapshot, setIncludeSnapshot] = useState(startWithSnapshot);
+  /*
+   * Ticked by default.
+   *
+   * The room id alone carries no diagram: whoever opens that link stares at
+   * "waiting for the diagram" until the sharer's tab is open and reachable.
+   * A snapshot opens instantly and still joins the live room, so it is the
+   * default; unticking gives the shorter live-only link when that is wanted.
+   *
+   * An empty diagram has nothing to carry, so there the short link is the
+   * honest one and the tick starts off.
+   */
+  const [includeSnapshot, setIncludeSnapshot] = useState(() => allNodes(state.doc).length > 0);
   const linkRef = useRef<HTMLInputElement>(null);
   const roomRef = useRef<HTMLInputElement>(null);
   const linkId = useId();
@@ -157,7 +155,8 @@ export function ShareDialog({
       }
     >
       <p className="note" style={{ marginTop: 0 }}>
-        Share a short link to this live room. Keep the diagram open until the other person joins.
+        This link opens with a copy of the diagram, so nobody has to wait for you to be online.
+        Later edits sync live while you are both here.
       </p>
 
       <div className="field">
@@ -174,7 +173,7 @@ export function ShareDialog({
           }} />
           Include diagram snapshot
         </label>
-        <p className="field__help">Use a longer link that opens a copy even when nobody is online.</p>
+        <p className="field__help">On by default: the longer link that opens the diagram even when nobody is online.</p>
       </div>
 
       <div className="field">
@@ -194,8 +193,8 @@ export function ShareDialog({
       </div>
 
       <p className="note note--warn">
-        Live changes need a direct browser connection. If the connection is blocked, use a snapshot
-        link to share a copy.
+        Live changes need a direct browser connection. Without one the link still opens the
+        diagram, but later edits will not reach the other browser.
       </p>
 
       {/*

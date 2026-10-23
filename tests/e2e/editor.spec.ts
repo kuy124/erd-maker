@@ -1441,6 +1441,8 @@ test.describe('multiplayer', () => {
     });
     const page = await context.newPage();
     await openApp(page);
+    // Something worth carrying: an empty diagram has no snapshot to offer.
+    await addNamedEntity(page, 'Owner');
 
     await expect(page.locator('.connection-pill')).toHaveAttribute('data-state', 'offline', { timeout: 30_000 });
     await expect(page.locator('.connection-pill')).toContainText('Offline');

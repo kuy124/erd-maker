@@ -130,8 +130,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     try { setVersions(saveVersion(state.room, state.doc, label)); }
     catch { setError('Could not save this version. Browser storage may be full or unavailable.'); }
   };
-  /** The share dialog opens with a snapshot in it when the room cannot be reached. */
-  const [shareSnapshot, setShareSnapshot] = useState(false);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [openPanel, setOpenPanel] = useState<Panel | null>(null);
   const [leftTab, setLeftTab] = useState<'build' | 'diagram'>('build');
@@ -768,7 +766,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           {connection.label}
         </span>
         {connection.fix ? <button type="button" className="btn btn--ghost connection-fix"
-          onClick={() => { setShareSnapshot(true); setDialog('share'); }}>Share a snapshot</button> : null}
+          onClick={() => setDialog('share')}>Share a snapshot</button> : null}
         {state.peers.length > 0 ? <div className="presence" title={peerSummary} aria-label={peerSummary}>
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}
@@ -883,7 +881,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       {state.notice ? <div className="feedback" role="status"><span>{state.notice}</span>
         {state.notice.endsWith(' deleted.') ? <button type="button" className="btn" disabled={!state.canUndo} onClick={state.undo}>Undo</button> : null}
         <button type="button" className="btn btn--ghost" aria-label="Dismiss notification" onClick={state.clearNotice}>×</button></div> : null}
-      {dialog === 'share' ? <ShareDialog state={editor} onClose={closeDialog} includeSnapshot={shareSnapshot} /> : null}
+      {dialog === 'share' ? <ShareDialog state={editor} onClose={closeDialog} /> : null}
       {dialog === 'export' ? <ExportDialog state={editor} svgRef={svgRef} onClose={closeDialog} /> : null}
       {dialog === 'examples' ? <ExamplesDialog onOpen={openDocument} onClose={closeDialog} /> : null}
       {dialog === 'theme' ? (

@@ -33,32 +33,37 @@ async function openOrders(page: Page, doc = createExample('orders'), url = '/') 
 }
 
 for (const width of [320, 1440]) {
-  test(`short and snapshot share links copy the selected URL at ${width}px`, async ({ page, context }) => {
+  test(`share links carry the diagram by default and a short link on request at ${width}px`, async ({ page, context }) => {
     await page.setViewportSize({ width, height: 900 });
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await openOrders(page);
     await documentAction(page, 'Share');
     const checkbox = page.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true });
-    await expect(checkbox).not.toBeChecked();
-    const short = await page.getByLabel('Share link').inputValue();
-    expect(new URL(short).hash).toMatch(new RegExp('^#room=[a-z2-9]{' + ROOM_ID_LENGTH + '}$'));
-    expect(parseShareHash(new URL(short).hash).doc).toBeUndefined();
-    await page.getByRole('button', { name: 'Copy link', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(short);
 
-    const portable = await snapshotShareLink(page);
-    expect(portable.length).toBeGreaterThan(short.length);
+    // The default link carries the diagram, so whoever opens it does not have
+    // to wait for the sharer to be online.
+    await expect(checkbox).toBeChecked();
+    const portable = await page.getByLabel('Share link').inputValue();
     expect(parseShareHash(new URL(portable).hash).doc?.entities.map((entity) => entity.name)).toEqual(['Customer', 'Order']);
     await page.getByRole('button', { name: 'Copy link', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(portable);
+
+    // Unticked is the short live-room-only link, for somebody already here.
     await checkbox.uncheck();
-    await expect(page.getByLabel('Share link')).toHaveValue(short);
+    const short = await page.getByLabel('Share link').inputValue();
+    expect(new URL(short).hash).toMatch(new RegExp('^#room=[a-z2-9]{' + ROOM_ID_LENGTH + '}$'));
+    expect(parseShareHash(new URL(short).hash).doc).toBeUndefined();
+    expect(portable.length).toBeGreaterThan(short.length);
+    await page.getByRole('button', { name: 'Copy link', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Link copied', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(short);
+
+    // The tick is per-dialog, so reopening starts from the default again.
     await page.getByRole('button', { name: 'Done', exact: true }).click();
     await documentAction(page, 'Share');
-    await expect(checkbox).not.toBeChecked();
-    await expect(page.getByLabel('Share link')).toHaveValue(short);
+    await expect(checkbox).toBeChecked();
+    await expect(page.getByLabel('Share link')).toHaveValue(portable);
   });
 }
 
@@ -67,6 +72,8 @@ test('a short URL joins the live diagram in a separate browser context', async (
   for (const node of allNodes(doc)) { node.x += 3500; node.y += 1800; }
   await openOrders(alice, doc);
   await documentAction(alice, 'Share');
+  // The short link: this test is the live-join path, not the snapshot path.
+  await alice.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).uncheck();
   const link = await alice.getByLabel('Share link').inputValue();
   expect(new URL(link).hash).not.toContain('&d=');
   await alice.getByRole('button', { name: 'Done', exact: true }).click();
@@ -121,6 +128,8 @@ test('short links retain a query-configured collaboration server', async ({ brow
   try {
     await openOrders(alice, createExample('orders'), '/?signaling=ws%3A%2F%2F127.0.0.1%3A4444&temporary=discard');
     await documentAction(alice, 'Share');
+    // The short link is the one that must keep carrying the server.
+    await alice.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).uncheck();
     const link = await alice.getByLabel('Share link').inputValue();
     expect(new URL(link).searchParams.get('signaling')).toBe('ws://127.0.0.1:4444');
     expect(new URL(link).searchParams.has('temporary')).toBe(false);
@@ -148,6 +157,7 @@ test('a short link with nobody online waits instead of showing an empty diagram'
     await openRoom(alice);
     await addNamedEntity(alice, 'Owner');
     await documentAction(alice, 'Share');
+    await alice.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).uncheck();
     link = await alice.getByLabel('Share link').inputValue();
   } finally {
     // The owner leaves before the joiner arrives: this is the whole scenario.
@@ -252,6 +262,7 @@ test.describe('room boundaries', () => {
       // Positive control: the transport is working right now, so the isolation
       // assertion below is about rooms rather than about a dead server.
       await documentAction(alice, 'Share');
+      await alice.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).uncheck();
       const link = await alice.getByLabel('Share link').inputValue();
       expect(parseShareHash(new URL(link).hash).doc).toBeUndefined();
       await alice.getByRole('button', { name: 'Done', exact: true }).click();
@@ -288,6 +299,7 @@ test.describe('room boundaries', () => {
       await addNamedEntity(alice, 'Shared');
 
       await documentAction(alice, 'Share');
+      await alice.getByRole('checkbox', { name: 'Include diagram snapshot', exact: true }).uncheck();
       const link = await alice.getByLabel('Share link').inputValue();
       expect(new URL(link).hash).not.toContain('&d=');
       await alice.getByRole('button', { name: 'Done', exact: true }).click();
