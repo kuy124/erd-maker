@@ -41,6 +41,16 @@ export interface PeerState {
    * a peer's arrow in the other one points at a shape that is not there.
    */
   view: 'chen' | 'crowfoot';
+  /** True while this peer holds the pointer down: drives click animation. */
+  pressing: boolean;
+  /** In-flight positions while the peer carries (drags) shapes. Ephemeral. */
+  dragging: {
+    ids: string[];
+    /** Where each shape sat when the drag started; the peer-offset is added to these. */
+    start: Record<string, { x: number; y: number }>;
+    dx: number;
+    dy: number;
+  } | null;
 }
 
 export interface RoomHandle {
@@ -149,6 +159,15 @@ export interface LocalPresence {
   selectedIds: string[];
   /** Which notation this browser is looking at. */
   view: 'chen' | 'crowfoot';
+  /** Ephemeral in-flight drag; peers see carried shapes move before drop. */
+  dragging: {
+    ids: string[];
+    start: Record<string, { x: number; y: number }>;
+    dx: number;
+    dy: number;
+  } | null;
+  /** True while the pointer button is held: drives click/press animations. */
+  pressing: boolean;
 }
 
 export function createRoom(room: string, options: RoomOptions = {}): RoomHandle {
@@ -270,12 +289,28 @@ function readSelectedIds(raw: Partial<LocalPresence> & { selectedId?: unknown })
   return [];
 }
 
+/** Reads an ephemeral drag, tolerating old or missing shapes. */
+function readDragging(raw: Partial<LocalPresence>): PeerState['dragging'] {
+  const d = (raw as { dragging?: unknown }).dragging;
+  if (!d || typeof d !== 'object') return null;
+  const candidate = d as Partial<{ ids: unknown; start: unknown; dx: unknown; dy: unknown }>;
+  if (!Array.isArray(candidate.ids) || !candidate.start || typeof candidate.start !== 'object' || typeof candidate.dx !== 'number' || typeof candidate.dy !== 'number') return null;
+  const ids = candidate.ids.filter((id): id is string => typeof id === 'string');
+  const start: Record<string, { x: number; y: number }> = {};
+  for (const [key, value] of Object.entries(candidate.start as Record<string, unknown>)) {
+    const p = value as { x?: unknown; y?: unknown } | null;
+    if (p && typeof p.x === 'number' && typeof p.y === 'number') start[key] = { x: p.x, y: p.y };
+  }
+  return { ids, start, dx: candidate.dx, dy: candidate.dy };
+}
+
 /** Reads every remote peer's presence, excluding our own client. */
 export function readPeers(awareness: Awareness, localClientId: number): PeerState[] {
   const peers: PeerState[] = [];
   awareness.getStates().forEach((state, clientId) => {
     if (clientId === localClientId) return;
     const raw = state as Partial<LocalPresence>;
+    const dragging = readDragging(raw);
     peers.push({
       clientId,
       name: typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : `Peer ${clientId}`,
@@ -290,6 +325,8 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
       // A peer on an older build never published a view. Chen was the default
       // then, so assuming Chen keeps them visible instead of silently gone.
       view: raw.view === 'crowfoot' ? 'crowfoot' : 'chen',
+      pressing: raw.pressing === true,
+      dragging,
     });
   });
   return peers.sort((a, b) => a.clientId - b.clientId);

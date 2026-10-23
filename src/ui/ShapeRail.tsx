@@ -1,4 +1,5 @@
 import { ShapeGlyph } from '../canvas/NodeShapes';
+import { WorkspaceIcon } from './WorkspaceIcon';
 import type { EditorState } from '../state/useEditor';
 
 export type ShapeKind = 'entity' | 'attribute' | 'relationship' | 'isa';
@@ -10,8 +11,8 @@ const SHAPES = [
   { kind: 'isa', label: 'Specialization', key: 'S', hint: 'A superclass and its subtypes' },
 ] as const;
 
-export function ShapeRail({ state, onAdd, onExamples }: {
-  state: EditorState; onAdd: (kind: ShapeKind) => void; onExamples: () => void;
+export function ShapeRail({ state, onAdd, onExamples, onArrange }: {
+  state: EditorState; onAdd: (kind: ShapeKind) => void; onExamples: () => void; onArrange: () => void;
 }) {
   return (
     <aside className="rail" aria-label="Shapes" data-testid="rail">
@@ -31,6 +32,9 @@ export function ShapeRail({ state, onAdd, onExamples }: {
         <p className="rail__hint">Add a relationship and choose its participants in Properties.
           {state.view === 'chen' ? ' Connect two entities to create their diamond automatically, or connect to an existing diamond to add a participant.' : ' Or choose Connect (C) and join two attribute rows. Specialization opens in Chen.'}</p>
       </div>
+      <button type="button" className="btn rail-arrange" onClick={onArrange} disabled={!state.loaded}>
+        <WorkspaceIcon name="arrange" /> Auto-arrange
+      </button>
       <button type="button" className="btn" onClick={onExamples}>Open an example</button>
       <p className="rail__hint">Try one-to-many, many-to-many, or a weak entity.</p>
     </aside>

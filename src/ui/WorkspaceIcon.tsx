@@ -8,6 +8,7 @@ const paths = {
   properties: 'M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6',
   help: 'M9 8a3 3 0 0 1 6 0c0 3-3 2-3 5M12 17v.1',
   arrange: 'M3 4h6v6H3ZM15 4h6v6h-6ZM9 15h6v6H9ZM9 7h6M6 10v8h3M18 10v8h-3',
+  history: 'M12 4a8 8 0 1 1 0 16 8 8 0 0 1 0-16m0 3v5l3 2',
   export: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
   focus: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5',
 } as const;

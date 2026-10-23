@@ -23,7 +23,7 @@ import type { Point } from './geometry';
  * fraction of the traffic. Raising this is the first thing to try if a room of
  * many peers ever makes presence feel heavy.
  */
-const CURSOR_INTERVAL_MS = 50;
+const CURSOR_INTERVAL_MS = 20;
 
 /**
  * Publishes the local pointer into awareness so peers watch the cursor move.
@@ -93,6 +93,7 @@ export function usePeerCursor(
       sent = false;
       lastSent = 0;
       latest.current.awareness.setLocalStateField('cursor', null);
+  latest.current.awareness.setLocalStateField('pressing', false);
     };
 
     window.addEventListener('pointermove', move);
@@ -107,6 +108,23 @@ export function usePeerCursor(
       if (timer !== null) window.clearTimeout(timer);
     };
   }, [pointer]);
+
+  // Report press state so a peer's cursor can animate a click. Ephemeral —
+  // the same awareness channel as the cursor, no history.
+  useEffect(() => {
+    const down = () => awareness.setLocalStateField('pressing', true);
+    const up = () => awareness.setLocalStateField('pressing', false);
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    window.addEventListener('blur', up, true);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      window.removeEventListener('blur', up, true);
+    };
+  }, [awareness]);
 }
 
 export interface DragState {

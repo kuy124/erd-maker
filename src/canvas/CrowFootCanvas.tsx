@@ -103,6 +103,28 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   });
   const pressedTable = useRef<string | null>(null);
 
+  // Show a grabbing cursor on the canvas while we carry a table.
+  useEffect(() => {
+    containerRef.current?.classList.toggle('is-dragging', Boolean(drag.drag?.moved));
+  }, [drag.drag]);
+
+  // Tell peers while we carry a table, so its shape follows live before drop.
+  useEffect(() => {
+    const active = drag.drag;
+    if (!active?.moved) {
+      state.awareness.setLocalStateField('dragging', null);
+      return;
+    }
+    const start: Record<string, { x: number; y: number }> = {};
+    for (const [id, pos] of active.start) start[id] = pos;
+    state.awareness.setLocalStateField('dragging', {
+      ids: [...active.start.keys()],
+      start,
+      dx: active.dx,
+      dy: active.dy,
+    });
+  }, [drag.drag, state.awareness]);
+
   // The table view had no presence at all; moving the mouse is now enough to be seen.
   usePeerCursor(toWorld, state.awareness, state.pointer);
 
@@ -218,15 +240,30 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
 
   useCanvasZoom(containerRef, state, drag.cancel);
 
-  // Render every dragged table at its in-flight position.
+// Render every dragged table at its in-flight position. Peer drags (carried
+  // tables in the same notation) are folded in too, so a carried table follows
+  // the peer's cursor live before the drop.
   const positioned = useMemo(() => {
+    const entries: { start: Map<string, { x: number; y: number }>; dx: number; dy: number }[] = [];
     const active = drag.drag;
+    if (active?.moved) entries.push({ start: active.start, dx: active.dx, dy: active.dy });
+    for (const peer of peers) {
+      if (peer.view !== 'crowfoot') continue;
+      const d = peer.dragging;
+      if (!d) continue;
+      entries.push({ start: new Map(Object.entries(d.start)), dx: d.dx, dy: d.dy });
+    }
+    if (entries.length === 0) return tables;
     return tables.map((table) => {
-      if (!active?.moved) return table;
-      const start = active.start.get(table.entityId);
-      return start ? { ...table, x: start.x + active.dx, y: start.y + active.dy } : table;
+      let x = table.x; let y = table.y;
+      for (const entry of entries) {
+        const s = entry.start.get(table.entityId);
+        if (s) { x = s.x + entry.dx; y = s.y + entry.dy; }
+      }
+      if (x === table.x && y === table.y) return table;
+      return { ...table, x, y };
     });
-  }, [tables, drag.drag]);
+  }, [tables, drag.drag, peers]);
 
   const byId = useMemo(() => new Map(positioned.map((t) => [t.entityId, t])), [positioned]);
   // Where every table is drawn, so a connector can be kept off them.
@@ -678,7 +715,7 @@ function CrowConnector({
               <circle className="crow-link__handle-body" r={5 / zoom} />
             </g> : null}
             {/* Keep insert and drag hit targets separate even when zoomed out. */}
-            {length >= 64 && length * zoom >= 88 ? inserts.map((center, half) => controlClear(center) ?
+            {length >= 40 && length * zoom >= 48 ? inserts.map((center, half) => controlClear(center) ?
               <g key={half} className={`crow-link__split crow-link__hit--${horizontal ? 'horizontal' : 'vertical'}`} role="button" tabIndex={0}
             aria-label={`Split ${horizontal ? 'horizontal' : 'vertical'} segment ${index + 1}, ${half ? 'second' : 'first'} half`}
             data-route-half={half}

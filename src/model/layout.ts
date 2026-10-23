@@ -22,8 +22,8 @@ import { ATTRIBUTE_ROW_GAP, findAttributeSlot } from './placement';
 import { descendantAttributeIds } from './attributes';
 import { segmentBetween, segmentForLeg, type Point } from '../canvas/geometry';
 
-const V_GAP = 120;
-const LAYER_GAP = 120;
+const V_GAP = 105;
+const LAYER_GAP = 105;
 
 export interface LayoutResult {
   positions: Map<string, { x: number; y: number }>;
@@ -352,7 +352,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
       rowHeights[row] = Math.max(rowHeights[row]!, heights[i]!);
     }
     const width = widths.reduce((sum, w) => sum + w, 0) + (columns - 1) * LAYER_GAP;
-    const height = rowHeights.reduce((sum, h) => sum + h, 0) + (rowHeights.length - 1) * (LAYER_GAP + 120);
+    const height = rowHeights.reduce((sum, h) => sum + h, 0) + (rowHeights.length - 1) * (LAYER_GAP);
     return { columns, widths, rowHeights, height, score: Math.max(width / 1.6, height) ** 2 + width * height * 0.1 };
   };
   const bestGrid = Array.from({ length: layerCount }, (_, i) => grid(i + 1))
@@ -365,7 +365,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
     const row = folded ? Math.floor(layerIndex / columnsPerRow) : 0;
     const column = row % 2 === 0 ? layerIndex % columnsPerRow : columnsPerRow - 1 - layerIndex % columnsPerRow;
     const rowHeight = folded ? bestGrid.rowHeights[row]! : componentHeight;
-    const rowY = folded ? bestGrid.rowHeights.slice(0, row).reduce((sum, h) => sum + h + LAYER_GAP + 120, 0) : 0;
+    const rowY = folded ? bestGrid.rowHeights.slice(0, row).reduce((sum, h) => sum + h + LAYER_GAP, 0) : 0;
     let y = componentY + rowY + (rowHeight - heights[layerIndex]!) / 2;
     for (const id of bucket) {
       const size = renderedSize(id);
@@ -385,7 +385,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
       y += Math.max(size.h, attributeBlock(doc, id)) + V_GAP;
     }
   }
-  componentY += bestGrid.height + LAYER_GAP + 120;
+  componentY += bestGrid.height + LAYER_GAP;
   }
 
   return { positions };

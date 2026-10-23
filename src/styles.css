@@ -734,6 +734,8 @@ body {
 .crow-link__segment-handle:hover .crow-link__handle-body,
 .crow-link__segment-handle:focus-visible .crow-link__handle-body { stroke-width: 3; }
 .canvas-wrap[data-tool='pan'] .crow-link__hit { cursor: grab; }
+.canvas-wrap.is-dragging,
+  .canvas-wrap.is-dragging * { cursor: grabbing; }
 
 .crow-link__ratio {
   fill: var(--ink);
@@ -1112,6 +1114,46 @@ body {
  */
 .layer-peers {
   pointer-events: none;
+}
+.peer-cursor {
+  transition: transform 70ms cubic-bezier(.22, .72, .3, 1.12);
+  will-change: transform;
+}
+.peer-cursor__ring {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+}
+.peer-cursor--pressed path {
+  animation: peer-cursor-press 180ms cubic-bezier(.2, .7, .3, 1);
+}
+.peer-cursor--pressed .peer-cursor__ring {
+  animation: peer-cursor-press-ring 360ms cubic-bezier(.16, .8, .3, 1);
+}
+.peer-cursor--carrying path {
+  animation: peer-cursor-carry-hand 800ms ease-in-out infinite;
+}
+.peer-cursor--carrying .peer-cursor__ring {
+  animation: peer-cursor-carry-ring 1.2s ease-in-out infinite;
+}
+@keyframes peer-cursor-press {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(.84, .74); }
+  100% { transform: scale(1, 1); }
+}
+@keyframes peer-cursor-press-ring {
+  0% { opacity: .75; transform: scale(.7); stroke-width: 2px; }
+  100% { opacity: 0; transform: scale(3); stroke-width: .5px; }
+}
+@keyframes peer-cursor-carry-hand {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  30% { transform: rotate(-10deg) translateY(-1.5px); }
+  70% { transform: rotate(8deg) translateY(1px); }
+}
+@keyframes peer-cursor-carry-ring {
+  0%, 100% { opacity: .18; transform: scale(.9); }
+  50% { opacity: .45; transform: scale(1.25); }
 }
 
 .peer-cursor__name {
@@ -1616,6 +1658,8 @@ body {
   background: var(--signal-quiet); color: var(--signal-strong); border-color: var(--signal);
 }
 .arrange-btn { order: 2; }
+.rail-arrange { display: none; }
+.rail-arrange .workspace-icon { margin-right: 6px; }
 .canvas-stage { position: relative; height: 100%; min-width: 0; min-height: 0; overflow: clip; }
 .canvas-wrap { height: 100%; }
 .viewport-tools {
@@ -1844,6 +1888,12 @@ kbd { font: 13px var(--font-mono); }
   .panel-navigation__label { display: inline; font-size: 12px; }
   .panel-navigation .workspace-icon { width: 18px; height: 18px; }
   .editor-toolbar .arrange-btn { display: none; }
+  /* Keep the toolbar one row on a phone: the history label collapses, every
+     control is a 44px icon, and the row fits 320px with the panel open. */
+  .history-label { display: none; }
+  .history-btn { width: 44px; padding: 0; justify-content: center; }
+  /* The phone has no toolbar arrange button; the Build panel carries it. */
+  .rail-arrange { display: inline-flex; }
   .feedback { width: calc(100% - 16px); gap: 8px; padding: 8px; bottom: 136px; font-size: 13px; }
   .modal-backdrop { padding: 8px; }
   .modal { max-height: calc(var(--viewport-height, 100dvh) - 16px); }
@@ -1858,3 +1908,4 @@ kbd { font: 13px var(--font-mono); }
   .app[data-keyboard='true'] .editor-toolbar { display: none; }
   .app[data-keyboard='true'] .workspace-panel { bottom: 8px; max-height: 70%; }
 }
+

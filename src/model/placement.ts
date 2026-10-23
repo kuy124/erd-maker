@@ -15,6 +15,7 @@
 import { NODE_SIZE, type ErdDocument } from './types';
 import type { RoutePoint } from './connectorRouting';
 import { deriveTables, tableHeight } from './crowfoot';
+import { segmentForLeg } from '../canvas/geometry';
 
 export interface Box {
   x: number;
@@ -136,7 +137,7 @@ function ownerBox(doc: ErdDocument, ownerId: string): Box | null {
  * shapes: if the two drift apart, auto-arrange can put a shape on top of the
  * attributes belonging to the one above it.
  */
-export const ATTRIBUTE_ROW_GAP = 18;
+export const ATTRIBUTE_ROW_GAP = 28;
 const ROW_GAP = ATTRIBUTE_ROW_GAP;
 const COLUMN_GAP = 60;
 
@@ -185,10 +186,30 @@ export function findAttributeSlot(
   }
 
   const occupied = occupiedBoxes({ ...doc, view: 'chen' });
+  // A link's corridor is occupied too: an attribute drawn across a line hides
+  // the cardinality glyph that sits on that line, making both unreadable.
+  const pad = 12; // room for the glyph at each end of a segment
+  const legBoxes = doc.legs.flatMap((leg) => {
+    const seg = segmentForLeg(doc, leg);
+    if (!seg) return [];
+    const pts = seg.points ?? [seg.from, seg.to];
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    return [{
+      x: Math.min(...xs) - pad,
+      y: Math.min(...ys) - pad,
+      w: Math.max(...xs) - Math.min(...xs) + pad * 2,
+      h: Math.max(...ys) - Math.min(...ys) + pad * 2,
+    }];
+  });
   for (;;) {
-    const blockers = occupied.filter(b => overlaps({ x: columnX, y, ...size }, b, ROW_GAP));
-    if (blockers.length === 0) return { x: columnX, y };
-    y = Math.max(...blockers.map(b => b.y + b.h)) + ROW_GAP;
+    const candidate = { x: columnX, y, ...size };
+    const blockers = occupied.filter(box => overlaps(candidate, box, ROW_GAP));
+    const across = legBoxes.findIndex(box => overlaps(candidate, box, 0));
+    if (blockers.length === 0 && across === -1) return { x: columnX, y };
+    const bottoms = [...blockers.map(b => b.y + b.h)];
+    if (across !== -1) bottoms.push(legBoxes[across]!.y + legBoxes[across]!.h);
+    y = Math.max(...bottoms) + ROW_GAP;
   }
 }
 

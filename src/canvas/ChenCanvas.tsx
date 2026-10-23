@@ -89,6 +89,31 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
   });
   const pressedShape = useRef<string | null>(null);
 
+  // Show a grabbing cursor on the canvas while we carry a shape.
+  useEffect(() => {
+    containerRef.current?.classList.toggle('is-dragging', Boolean(drag.drag?.moved));
+  }, [drag.drag]);
+
+
+  // Tell peers while we carry (drag) a shape, so theirs follows live instead
+  // of waiting for the drop. Awareness is the right channel: ephemeral, no
+  // history, no merge into the document.
+  useEffect(() => {
+    const active = drag.drag;
+    if (!active?.moved) {
+      state.awareness.setLocalStateField('dragging', null);
+      return;
+    }
+    const start: Record<string, { x: number; y: number }> = {};
+    for (const [id, pos] of active.start) start[id] = pos;
+    state.awareness.setLocalStateField('dragging', {
+      ids: [...active.start.keys()],
+      start,
+      dx: active.dx,
+      dy: active.dy,
+    });
+  }, [drag.drag, state.awareness]);
+
   // Independent of dragging: moving the mouse is enough to be seen.
 usePeerCursor(toWorld, state.awareness, state.pointer);
 
@@ -401,16 +426,37 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
 
   useCanvasZoom(containerRef, state, drag.cancel);
 
-  // While a node is being dragged, render it at its in-flight position.
+  // While a node is being dragged, render it at its in-flight position. Peer
+  // drags (carried shapes) are folded in too, so a dragged entity follows the
+  // carrying peer's cursor live instead of waiting for the drop.
   const displayDoc = useMemo<ErdDocument>(() => {
+    const entries: { start: Map<string, { x: number; y: number }>; dx: number; dy: number }[] = [];
     const active = drag.drag;
-    if (!active?.moved) return doc;
-    // Every member of the drag moves by the same offset, so the selection keeps
-    // its shape while it is being carried.
+    if (active?.moved) {
+      entries.push({ start: active.start, dx: active.dx, dy: active.dy });
+    }
+    for (const peer of peers) {
+      if (peer.view !== 'chen') continue;
+      const d = peer.dragging;
+      if (!d) continue;
+      entries.push({
+        start: new Map(Object.entries(d.start)),
+        dx: d.dx,
+        dy: d.dy,
+      });
+    }
+    if (entries.length === 0) return doc;
     const move = <T extends Positioned>(list: T[]): T[] =>
       list.map((node) => {
-        const start = active.start.get(node.id);
-        return start ? { ...node, x: start.x + active.dx, y: start.y + active.dy } : node;
+        let x = node.x; let y = node.y;
+        for (const entry of entries) {
+          const s = entry.start.get(node.id);
+          if (s) { x = s.x + entry.dx; y = s.y + entry.dy; }
+        }
+        // Only rewrite when something actually moved; keeps reference stable
+        // enough for memo consumers.
+        if (x === node.x && y === node.y) return node;
+        return { ...node, x, y } as T;
       });
     return {
       ...doc,
@@ -419,7 +465,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
       relationships: move(doc.relationships),
       isas: move(doc.isas),
     };
-  }, [doc, drag.drag]);
+  }, [doc, drag.drag, peers]);
 
   const peerBySelection = useMemo(() => {
     const map = new Map<string, string>();
@@ -463,7 +509,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer);
           transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})`}
         >
           {/* Legs first, so shapes sit on top of their connectors. */}
-          <GroupFrames doc={doc} />
+          <GroupFrames doc={displayDoc} />
 
           <g className="layer-legs">
             {displayDoc.legs.map((leg) => {

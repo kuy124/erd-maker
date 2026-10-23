@@ -143,7 +143,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   // Row-level inline confirmations; replaces window.confirm, which has no
   // styling, steals focus from the dialog, and traps keyboard users.
   const [pendingVersion, setPendingVersion] = useState<{ id: string; action: 'restore' | 'delete' } | null>(null);
-  const [arrangeUndo, setArrangeUndo] = useState(false);
   const checkpoint = (label: string) => {
     try { setVersions(saveVersion(state.room, state.doc, label)); return true; }
     catch { setError('Could not save this version. Browser storage may be full or unavailable.'); return false; }
@@ -391,7 +390,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
 
   const tidy = useCallback(() => {
     checkpoint('Before Auto Arrange');
-    setArrangeUndo(false);
     const arranged = applyLayout(shown);
     if (isCrowFoot) {
       // Tables are arranged in the Crow's-foot positions, so Tidy writes those
@@ -403,7 +401,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           const old = before.get(id);
           return old && (old.crowX !== point.x || old.crowY !== point.y);
         }));
-      if (moved.size) { state.applyTablePositions(moved); setArrangeUndo(true); }
+      if (moved.size) state.applyTablePositions(moved);
       fitToDoc({ ...arranged, entities: arranged.entities.map(entity => ({ ...entity, crowX: entity.x, crowY: entity.y })) });
       return;
     }
@@ -413,7 +411,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       const old = before.get(node.id);
       if (old && (old.x !== node.x || old.y !== node.y)) positions.set(node.id, { x: node.x, y: node.y });
     }
-    if (positions.size) { state.applyPositions(positions); setArrangeUndo(true); }
+    if (positions.size) state.applyPositions(positions);
     fitToDoc(arranged);
   }, [state, fitToDoc, shown, isCrowFoot]);
 
@@ -808,7 +806,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="history-tools">
           <button type="button" className="btn btn--ghost icon-control" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={state.undo}>↶</button>
           <button type="button" className="btn btn--ghost icon-control" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={state.redo}>↷</button>
-          <button type="button" className="btn btn--ghost" onClick={() => { setVersions(readVersions(state.room)); setVersionFeedback(null); setPendingVersion(null); setVersionsOpen(!versionsOpen); }}>Versions</button>
+          <button type="button" className="btn btn--ghost history-btn" aria-label="Versions" title="Version history" onClick={() => { setVersions(readVersions(state.room)); setVersionFeedback(null); setPendingVersion(null); setVersionsOpen(!versionsOpen); }}><WorkspaceIcon name="history" /><span className="history-label">Versions</span></button>
         </div>
         <div className="drawing-tools">
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Select tool" title="Select (V)" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}><WorkspaceIcon name="select" /></button>
@@ -818,7 +816,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Pan tool" title="Pan (H)" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}><WorkspaceIcon name="pan" /></button>
         </div>
         <button type="button" className="btn btn--ghost arrange-btn icon-control" aria-label="Auto-arrange" onClick={tidy} title="Auto-arrange"><WorkspaceIcon name="arrange" /></button>
-        {arrangeUndo && <button type="button" className="btn btn--ghost" title="Undo the latest edit; immediately after arranging, restores the previous layout" disabled={!state.canUndo} onClick={() => { state.undo(); setArrangeUndo(false); }}>Undo</button>}
       </div>
       {versionsOpen && <Modal title="Version history" onClose={() => setVersionsOpen(false)} footer={
         <>
@@ -877,7 +874,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
                 catch { setVersionFeedback({ message: 'Could not save the current diagram. Restore cancelled.', error: true }); return; }
                 state.replaceDocument(version.doc);
                 fitToDoc(version.doc);
-                setArrangeUndo(false);
                 setVersionFeedback({ message: `Restored “${version.label}”. Your previous diagram was saved first.`, error: false });
               };
               return <li key={version.id} className={`version-row${auto ? ' version-row--auto' : ''}`}>
@@ -923,7 +919,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             </div>
             <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}><span className="panel-close--desktop">×</span><span className="panel-close--phone">Done</span></button>
           </div>
-          {leftTab === 'build' ? <ShapeRail state={editor} onAdd={addShape} onExamples={() => setDialog('examples')} /> :
+          {leftTab === 'build' ? <ShapeRail state={editor} onAdd={addShape} onArrange={tidy} onExamples={() => setDialog('examples')} /> :
             <DiagramOutline state={editor} onSelect={focusShape} />}
         </div>
 
