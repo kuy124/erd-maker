@@ -16,6 +16,11 @@ export function saveVersion(room: string, doc: ErdDocument, label: string): Save
   const version = { id: crypto.randomUUID(), label, date: new Date().toISOString(), doc };
   // ponytail: last 20 snapshots, local to this browser; shared history needs a storage service.
   const versions = [version, ...readVersions(room)].slice(0, 20);
+  return versions;
+}
+
+export function deleteVersion(room: string, id: string): SavedVersion[] {
+  const versions = readVersions(room).filter((version) => version.id !== id);
   window.localStorage.setItem('erd:versions:' + room, JSON.stringify(versions));
   return versions;
 }

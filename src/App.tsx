@@ -10,7 +10,7 @@ import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight, table
 import { placeRouteCaption } from './model/connectorRouting';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
-import { readVersions, saveVersion } from './model/versions';
+import { readVersions, saveVersion, deleteVersion } from './model/versions';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
 import { useEditor, type EditorState } from './state/useEditor';
 import { ExportDialog } from './ui/ExportDialog';
@@ -813,7 +813,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           <input id="version-name" value={versionName} maxLength={100}
             placeholder="Name this snapshot (e.g. Before regroup)" autoFocus
             onChange={event => setVersionName(event.target.value)} />
-          <button type="submit" className="btn">Save version</button>
+          <button type="submit" className="btn" disabled={!versionName.trim()}>Save version</button>
         </form>
         <button type="button" className="btn btn--ghost" onClick={() => setVersionsOpen(false)}>Close</button>
         <ul>{versions.map(version => <li key={version.id}>
@@ -826,6 +826,10 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             fitToDoc(version.doc);
             setArrangeUndo(false);
           }}>Restore</button>
+          <button type="button" className="btn btn--ghost" onClick={() => {
+            if (!window.confirm('Delete this version?')) return;
+            setVersions(deleteVersion(state.room, version.id));
+          }}>Delete</button>
         </li>)}</ul>
         {!versions.length && <p>No saved versions yet.</p>}
       </Modal>}
