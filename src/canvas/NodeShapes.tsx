@@ -300,7 +300,7 @@ export function PeerCursors({ peers, view }: { peers: PeerState[]; view: 'chen' 
       {names.map(({ peer, offset }) =>
         peer.cursor ? (
           <g key={peer.clientId}
-            className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}`}
+            className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}${peer.typing ? ' peer-cursor--typing' : ''}`}
             data-peer-id={peer.clientId}
             transform={`translate(${peer.cursor.x} ${peer.cursor.y})`}>
             <g transform={`translate(${offset} 0)`}>
@@ -310,6 +310,14 @@ export function PeerCursors({ peers, view }: { peers: PeerState[]; view: 'chen' 
               <text className="peer-cursor__name" x="19" y="24">
                 {peer.name}
               </text>
+              {peer.typing ? (
+                <g className="peer-cursor__typing" transform={`translate(${peer.name.length * 6.4 + 30} 20)`}>
+                  <circle r="2" cx="0" cy="0" className="dots d1" />
+                  <circle r="2" cx="5" cy="0" className="dots d2" />
+                  <circle r="2" cx="10" cy="0" className="dots d3" />
+                </g>
+              ) : null}
+
             </g>
           </g>
         ) : null,

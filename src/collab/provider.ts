@@ -43,6 +43,8 @@ export interface PeerState {
   view: 'chen' | 'crowfoot';
   /** True while this peer holds the pointer down: drives click animation. */
   pressing: boolean;
+  /** True while this peer is typing in a text field. */
+  typing: boolean;
   /** In-flight positions while the peer carries (drags) shapes. Ephemeral. */
   dragging: {
     ids: string[];
@@ -170,6 +172,8 @@ export interface LocalPresence {
   } | null;
   /** True while the pointer button is held: drives click/press animations. */
   pressing: boolean;
+  /** Ephemeral flag: true while typing in the properties form. */
+  typing: boolean;
 }
 
 export function createRoom(room: string, options: RoomOptions = {}): RoomHandle {
@@ -329,6 +333,7 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
       // then, so assuming Chen keeps them visible instead of silently gone.
       view: raw.view === 'crowfoot' ? 'crowfoot' : 'chen',
       pressing: raw.pressing === true,
+      typing: raw.typing === true,
       dragging,
     });
   });

@@ -1914,3 +1914,9 @@ kbd { font: 13px var(--font-mono); }
 .peer-cursor--carrying path { transform: scale(1.12); transform-origin: 3px 5px; opacity: .92; }
 .peer-cursor--carrying .peer-cursor__ring { transform: scale(.85); transition: all 120ms; }
 .peer-cursor--carrying .peer-cursor__chip { filter: saturate(1.25); }
+
+.peer-cursor--typing .peer-cursor__typing circle { fill: var(--paper); animation: typing 1s infinite; }
+.peer-cursor--typing .peer-cursor__typing .d1 { animation-delay: 0ms; }
+.peer-cursor--typing .peer-cursor__typing .d2 { animation-delay: 160ms; }
+.peer-cursor--typing .peer-cursor__typing .d3 { animation-delay: 320ms; }
+@keyframes typing { 0% { transform: translateY(0); } 50% { transform: translateY(-4px); } 100% { transform: translateY(0); } }

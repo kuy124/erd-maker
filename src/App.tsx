@@ -110,6 +110,30 @@ function EditorSession({ session }: { session: Session }) {
 }
 
 function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument | null; fromLink: boolean }) {
+  // Publish typing state to awareness whenever text inputs are used.
+  useEffect(() => {
+    const awareness = room.awareness;
+    let timer: number | null = null;
+    const onInput = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA')) return;
+      awareness.setLocalStateField('typing', true);
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => awareness.setLocalStateField('typing', false), 700);
+    };
+    const onBlur = () => {
+      if (timer !== null) { window.clearTimeout(timer); timer = null; }
+      awareness.setLocalStateField('typing', false);
+    };
+    document.addEventListener('input', onInput, true);
+    document.addEventListener('focusout', onBlur, true);
+    return () => {
+      document.removeEventListener('input', onInput, true);
+      document.removeEventListener('focusout', onBlur, true);
+      if (timer !== null) window.clearTimeout(timer);
+      awareness.setLocalStateField('typing', false);
+    };
+  }, [room]);
   const state = useEditor(room, seed);
   const isCrowFoot = state.view === 'crowfoot';
 
