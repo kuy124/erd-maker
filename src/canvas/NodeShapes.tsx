@@ -286,18 +286,31 @@ export function CardinalityMarker({ origin, toward, many, required, className = 
  * where somebody is pointing is worse than no arrow.
  */
 export function PeerCursors({ peers, view }: { peers: PeerState[]; view: 'chen' | 'crowfoot' }) {
+  const visible = peers.filter((peer) => peer.view === view && peer.cursor);
+  // Keep stacked peer names from covering each other by nudging chips.
+  const names = visible.map((peer) => {
+    const cluster = visible.filter((other) => other.clientId !== peer.clientId &&
+      !!other.cursor && Math.hypot(other.cursor!.x! - peer.cursor!.x!, other.cursor!.y! - peer.cursor!.y!) < 48).length;
+    const index = visible.indexOf(peer);
+    return { peer, offset: cluster ? index * 14 : 0 };
+  });
+
   return (
     <g className="layer-peers">
-      {peers.filter((peer) => peer.view === view).map((peer) =>
+      {names.map(({ peer, offset }) =>
         peer.cursor ? (
-          <g key={peer.clientId} className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}`} data-peer-id={peer.clientId}
+          <g key={peer.clientId}
+            className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}`}
+            data-peer-id={peer.clientId}
             transform={`translate(${peer.cursor.x} ${peer.cursor.y})`}>
-            <circle className="peer-cursor__ring" cx="0" cy="0" r="8" fill="none" stroke={peer.color} strokeWidth="1.5" />
-            <path d="M0 0 L0 15 L4 11 L7 17 L10 15.5 L7 10 L12 10 Z" fill={peer.color} stroke="var(--paper)" strokeWidth="1" />
-            <rect className="peer-cursor__chip" x="14" y="12" width={peer.name.length * 6.4 + 10} height="17" fill={peer.color} />
-            <text className="peer-cursor__name" x="19" y="24">
-              {peer.name}
-            </text>
+            <g transform={`translate(${offset} 0)`}>
+              <circle className="peer-cursor__ring" cx="0" cy="0" r="8" fill="none" stroke={peer.color} strokeWidth="1.5" />
+              <path d="M0 0 L0 15 L4 11 L7 17 L10 15.5 L7 10 L12 10 Z" fill={peer.color} stroke="var(--paper)" strokeWidth="1" />
+              <rect className="peer-cursor__chip" x="14" y="12" width={peer.name.length * 6.4 + 10} height="17" fill={peer.color} />
+              <text className="peer-cursor__name" x="19" y="24">
+                {peer.name}
+              </text>
+            </g>
           </g>
         ) : null,
       )}

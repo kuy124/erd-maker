@@ -1909,3 +1909,8 @@ kbd { font: 13px var(--font-mono); }
   .app[data-keyboard='true'] .workspace-panel { bottom: 8px; max-height: 70%; }
 }
 
+
+/* carry polish */
+.peer-cursor--carrying path { transform: scale(1.12); transform-origin: 3px 5px; opacity: .92; }
+.peer-cursor--carrying .peer-cursor__ring { transform: scale(.85); transition: all 120ms; }
+.peer-cursor--carrying .peer-cursor__chip { filter: saturate(1.25); }

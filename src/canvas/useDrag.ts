@@ -23,7 +23,7 @@ import type { Point } from './geometry';
  * fraction of the traffic. Raising this is the first thing to try if a room of
  * many peers ever makes presence feel heavy.
  */
-const CURSOR_INTERVAL_MS = 20;
+const CURSOR_INTERVAL_MS = 16;
 
 /**
  * Publishes the local pointer into awareness so peers watch the cursor move.
@@ -76,6 +76,10 @@ export function usePeerCursor(
      * final position correct.
      */
     const move = (event: PointerEvent) => {
+      // Don't blast awareness updates while typing in the properties fields.
+      const active = document.activeElement;
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+
       if (pointer) pointer.current = { x: event.clientX, y: event.clientY };
       pending = event;
       if (timer !== null) return; // A send is already queued; it will pick this up.
