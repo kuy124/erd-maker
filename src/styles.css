@@ -1915,7 +1915,7 @@ kbd { font: 13px var(--font-mono); }
 .peer-cursor--carrying .peer-cursor__ring { transform: scale(.85); transition: all 120ms; }
 .peer-cursor--carrying .peer-cursor__chip { filter: saturate(1.25); }
 
-.peer-cursor--typing .peer-cursor__typing circle { fill: var(--paper); animation: typing 1s infinite; }
+.peer-cursor--typing .peer-cursor__typing circle { fill: var(--ink); animation: typing 1s infinite; }
 .peer-cursor--typing .peer-cursor__typing .d1 { animation-delay: 0ms; }
 .peer-cursor--typing .peer-cursor__typing .d2 { animation-delay: 160ms; }
 .peer-cursor--typing .peer-cursor__typing .d3 { animation-delay: 320ms; }
