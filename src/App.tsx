@@ -784,8 +784,16 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           <span className="connection-pill__dot" aria-hidden="true" />
           {connection.label}
         </span>
-        {connection.fix ? <button type="button" className="btn btn--ghost connection-fix"
-          onClick={() => setDialog('share')}>Share a snapshot</button> : null}
+        {connection.fix ? (
+          <>
+            <button type="button" className="btn btn--ghost connection-fix" onClick={() => room.reconnect()}>
+              Reconnect
+            </button>
+            <button type="button" className="btn btn--ghost connection-fix" onClick={() => setDialog('share')}>
+              Share a snapshot
+            </button>
+          </>
+        ) : null}
         {state.peers.length > 0 ? <div className="presence" title={peerSummary} aria-label={peerSummary}>
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}

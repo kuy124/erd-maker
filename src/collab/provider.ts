@@ -62,6 +62,8 @@ export interface RoomHandle {
   /** Resolves once IndexedDB has loaded, so the first render is not empty. */
   whenLoaded: Promise<void>;
   destroy: () => void;
+  /** Force a fresh sign-in to the transports and signalling. */
+  reconnect: () => void;
 }
 
 export interface RoomOptions {
@@ -257,7 +259,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   // lib0 retries individual sockets; also refresh failed room introductions.
   const retry = window.setInterval(() => {
     if (document.visibilityState === 'visible' && needsReconnect(transportState(provider), navigator.onLine !== false)) reconnect();
-  }, 45000);
+  }, 15000);
 
   return {
     room,
@@ -266,6 +268,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     provider,
     persistence,
     whenLoaded: persistence.whenSynced.then(() => undefined),
+    reconnect,
     destroy: () => {
       window.removeEventListener('pagehide', announceLeave);
       window.removeEventListener('pagehide', rememberPresence, true);
