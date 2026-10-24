@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { EditorState } from '../state/useEditor';
+import { zoomViewport } from './geometry';
 
 export function useCanvasZoom(container: RefObject<HTMLDivElement>, state: EditorState, cancelDrag: () => void) {
   const latest = useRef({ state, cancelDrag });
@@ -11,11 +12,7 @@ export function useCanvasZoom(container: RefObject<HTMLDivElement>, state: Edito
     let previous: { x: number; y: number; distance: number } | null = null;
     let pinching = false;
     const zoom = (factor: number, from: { x: number; y: number }, to = from) => {
-      latest.current.state.setViewport((v) => {
-        const next = Math.max(0.25, Math.min(3, v.zoom * factor));
-        const ratio = next / v.zoom;
-        return { zoom: next, x: to.x - (from.x - v.x) * ratio, y: to.y - (from.y - v.y) * ratio };
-      });
+      latest.current.state.setViewport(v => zoomViewport(v, factor, from, to));
     };
     const wheel = (event: WheelEvent) => {
       if ((event.target as Element).closest('button, input, select, textarea')) return;

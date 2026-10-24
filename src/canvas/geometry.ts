@@ -11,13 +11,30 @@
  */
 
 import { sizeOf, allNodes, type ErdDocument, type Leg, type NodeId, type Positioned } from '../model/types';
-import { deriveLinks, deriveTables, routeColumns, tableObstacle } from '../model/crowfoot';
+import { deriveLinks, deriveTables, routeLinks } from '../model/crowfoot';
 import { placeEndpointLabels, placeRouteCaption } from '../model/connectorRouting';
 import { occupiedBoxes, unaryRolePoints } from '../model/placement';
 
 export interface Point {
   x: number;
   y: number;
+}
+
+export const MIN_ZOOM = 0.01;
+
+/** Fit is an overview, so it may go below the normal interactive zoom floor. */
+export function fitViewport(bounds: Bounds, area: Point & { width: number; height: number }) {
+  const width = Math.max(1, bounds.maxX - bounds.minX), height = Math.max(1, bounds.maxY - bounds.minY);
+  const zoom = Math.max(Number.EPSILON, Math.min(1.2, Math.max(1, area.width) / width, Math.max(1, area.height) / height));
+  return { zoom, x: area.x + area.width / 2 - (bounds.minX / 2 + bounds.maxX / 2) * zoom,
+    y: area.y + area.height / 2 - (bounds.minY / 2 + bounds.maxY / 2) * zoom };
+}
+
+/** Buttons, wheel and pinch share limits and preserve the point under the cursor. */
+export function zoomViewport(viewport: Point & { zoom: number }, factor: number, from: Point, to = from) {
+  const zoom = Math.max(Math.min(MIN_ZOOM, viewport.zoom), Math.min(3, viewport.zoom * factor));
+  const ratio = zoom / viewport.zoom;
+  return { zoom, x: to.x - (from.x - viewport.x) * ratio, y: to.y - (from.y - viewport.y) * ratio };
 }
 
 export interface Size {
@@ -333,17 +350,11 @@ export function documentBounds(doc: ErdDocument, padding = 80): Bounds {
   }
   if (doc.view === 'crowfoot') {
     const tables = deriveTables(doc);
-    // The obstacles the canvas routes against, and the two endpoints excluded,
-    // exactly as `CrowFootCanvas` builds them. Measuring the direct route while
-    // the drawing shows a detour framed a region the connector was not in, so
-    // Fit left it running off the edge of the screen.
-    const obstacles = tables.map(tableObstacle);
-    for (const link of deriveLinks(doc).filter((link, index, all) => all.findIndex((l) => l.id === link.id) === index)) {
-      const from = tables.find((t) => t.entityId === link.fromEntityId)!;
-      const to = tables.find((t) => t.entityId === link.toEntityId)!;
-      const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane,
-        obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
-          !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend, link.routePoints);
+    // Fit measures the same shared lanes the canvas draws.
+    const links = deriveLinks(doc), routes = routeLinks(tables, links);
+    for (const link of links) {
+      const route = routes.get(link.id);
+      if (!route) continue;
       const caption = placeRouteCaption(route, link.ratio);
       minX = Math.min(minX, route.bounds.minX, caption.bounds.minX);
       maxX = Math.max(maxX, route.bounds.maxX, caption.bounds.maxX);

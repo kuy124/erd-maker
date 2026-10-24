@@ -2,7 +2,7 @@ import { legsFor, type ErdDocument, type Entity, type Leg, type Relationship, ty
 import { foreignKeyColumnName, toSqlName, uniqueColumnName } from './columnNames';
 import { attributeType } from './dataTypes';
 import { leafAttributesOf } from './attributes';
-import { ENDPOINT_STUB, findSafeRoute, isRouteSafe, normalizeRoutePoints, simplifyRoute, type RoutePoint } from './connectorRouting';
+import { ENDPOINT_STUB, findSafeRoute, isRouteSafe, moveRouteSegment, normalizeRoutePoints, simplifyRoute, type RoutePoint } from './connectorRouting';
 
 export interface CrowTable {
   entityId: string;
@@ -531,9 +531,8 @@ export function routeColumns(
   routePoints?: RoutePoint[],
 ) {
   const ay = rowCenter(from, fromColumnId), by = rowCenter(to, toColumnId);
-  const span = Math.max(from.width, to.width);
-  const gapRight = to.x - from.x - span;
-  const gapLeft = from.x - to.x - span;
+  const gapRight = to.x - from.x - from.width;
+  const gapLeft = from.x - to.x - to.width;
   const facing = Math.max(gapRight, gapLeft) >= EXIT_STUB + 44;
   const saved = normalizeRoutePoints(routePoints);
   let fromRight = saved ? saved[0]!.x >= from.x + from.width / 2 : facing ? gapRight >= gapLeft : to.x >= from.x;
@@ -682,4 +681,75 @@ export function routeColumns(
     bounds: { minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)),
       minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)) },
   };
+}
+
+/** Shared strokes hide connections; a shared endpoint stub is intentional. */
+function routeCost(points: RoutePoint[], ports: Point[], previous: ReturnType<typeof routeColumns>[]): number {
+  let overlap = 0, crossings = 0, length = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!, b = points[i]!, horizontal = a.y === b.y;
+    length += Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    for (const route of previous) for (let j = 1; j < route.points.length; j++) {
+      const c = route.points[j - 1]!, d = route.points[j]!, otherHorizontal = c.y === d.y;
+      if (horizontal === otherHorizontal) {
+        const axis = horizontal ? 'x' : 'y', normal = horizontal ? 'y' : 'x';
+        if (a[normal] !== c[normal]) continue;
+        const start = Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis]));
+        const end = Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis]));
+        const sharedPort = horizontal && ports.some(port => port.y === a.y && port.x >= start && port.x <= end &&
+          [route.a, route.b].some(other => port.x === other.x && port.y === other.y));
+        overlap += Math.max(0, end - start - (sharedPort ? ENDPOINT_STUB : 0));
+      } else {
+        const h1 = horizontal ? a : c, h2 = horizontal ? b : d;
+        const v1 = horizontal ? c : a, v2 = horizontal ? d : b;
+        if (v1.x > Math.min(h1.x, h2.x) && v1.x < Math.max(h1.x, h2.x) &&
+          h1.y > Math.min(v1.y, v2.y) && h1.y < Math.max(v1.y, v2.y)) crossings++;
+      }
+    }
+  }
+  return overlap * 1000 + crossings * 100 + length / 1000;
+}
+
+/** Route the whole diagram, so unrelated connections do not claim one lane. */
+export function routeLinks(tables: CrowTable[], links: CrowLink[]) {
+  const byId = new Map(tables.map(table => [table.entityId, table]));
+  const obstacles = tables.map(tableObstacle);
+  const routes = new Map<string, ReturnType<typeof routeColumns>>();
+  const pending = links.flatMap(link => {
+    const from = byId.get(link.fromEntityId), to = byId.get(link.toEntityId);
+    if (!from || !to) return [];
+    const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane, obstacles,
+      link.route, link.bend, link.routePoints);
+    return [{ link, from, to, route, fixed: route.manualAccepted || link.route !== 'auto' }];
+  }).sort((a, b) => Number(b.fixed) - Number(a.fixed) ||
+    routeCost(a.route.points, [], []) - routeCost(b.route.points, [], []) || a.link.id.localeCompare(b.link.id));
+  const previous: ReturnType<typeof routeColumns>[] = [];
+  for (const { link, from, to, route: base, fixed } of pending) {
+    if (routes.has(link.id)) continue;
+    let points = base.points;
+    const ports = [base.a, base.b];
+    const stubs = { start: Math.abs(base.guard.aStub.x - base.a.x), end: Math.abs(base.guard.bStub.x - base.b.x) };
+    // ponytail: three local lane moves; use a global router if very dense,
+    // non-planar schemas require more than separated, table-safe channels.
+    if (!fixed) for (let pass = 0; pass < 3; pass++) {
+      let best = points, cost = routeCost(points, ports, previous);
+      for (let segment = 0; segment < points.length - 1; segment++) {
+        for (const offset of [-108, -90, -72, -54, -36, -18, 18, 36, 54, 72, 90, 108]) {
+          const candidate = moveRouteSegment(points, segment, offset, stubs);
+          if (!isRouteSafe(candidate, base.guard)) continue;
+          const nextCost = routeCost(candidate, ports, previous);
+          if (nextCost < cost) { cost = nextCost; best = candidate; }
+        }
+      }
+      if (best === points) break;
+      points = best;
+    }
+    const route = points === base.points ? base : {
+      ...routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane, obstacles, link.route, null, points),
+      manualAccepted: false,
+    };
+    routes.set(link.id, route);
+    previous.push(route);
+  }
+  return routes;
 }

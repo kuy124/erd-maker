@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
-import { cursorOrigin, documentBounds, isVisibleIn } from './canvas/geometry';
+import { cursorOrigin, documentBounds, fitViewport, isVisibleIn, MIN_ZOOM, zoomViewport } from './canvas/geometry';
 import { createRoom, type RoomHandle } from './collab/provider';
 import { PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
 import { findFreeSlot, occupiedBoxes } from './model/placement';
-import { deriveTables, deriveLinks, routeColumns, CROW_WIDTH, tableHeight, tableObstacle } from './model/crowfoot';
+import { deriveTables, deriveLinks, routeLinks, CROW_WIDTH, tableHeight } from './model/crowfoot';
 import { placeRouteCaption } from './model/connectorRouting';
 import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
@@ -279,13 +279,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     const area = canvasArea();
     if (!area) return;
     const bounds = documentBounds(doc, 40);
-    const width = bounds.maxX - bounds.minX;
-    const height = bounds.maxY - bounds.minY;
-    const zoom = Math.max(0.25, Math.min(1.2, area.width / width, area.height / height));
-    state.setViewport(() => ({
-      zoom, x: area.x - bounds.minX * zoom + (area.width - width * zoom) / 2,
-      y: area.y - bounds.minY * zoom + (area.height - height * zoom) / 2,
-    }));
+    state.setViewport(() => fitViewport(bounds, area));
   }, [state.setViewport, canvasArea]);
   const fitToView = useCallback(() => fitToDoc(shown), [fitToDoc, shown]);
 
@@ -394,12 +388,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     framed.current = true;
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return;
-    state.setViewport((current) => {
-      const zoom = Math.max(0.25, Math.min(3, current.zoom * factor));
-      const ratio = zoom / current.zoom;
-      return { zoom, x: rect.width / 2 - (rect.width / 2 - current.x) * ratio,
-        y: rect.height / 2 - (rect.height / 2 - current.y) * ratio };
-    });
+    state.setViewport(current => zoomViewport(current, factor, { x: rect.width / 2, y: rect.height / 2 }));
   };
 
   const addShape = useCallback((kind: ShapeKind, at?: { x: number; y: number }) => {
@@ -483,10 +472,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       point = { x: table.x + table.width / 2, y: table.y + (row < 0 ? tableHeight(table) / 2 : 44 + (row + 0.5) * 44) };
     }
     if (view === 'crowfoot' && link) {
-      const a = tables.find((item) => item.entityId === link.fromEntityId)!;
-      const b = tables.find((item) => item.entityId === link.toEntityId)!;
-      point = placeRouteCaption(routeColumns(a, link.fromColumnId, b, link.toColumnId, link.lane, tables.map(tableObstacle),
-        link.route, link.bend, link.routePoints), link.ratio);
+      const route = routeLinks(tables, deriveLinks(shown)).get(link.id);
+      if (route) point = placeRouteCaption(route, link.ratio);
     }
     if (point) requestAnimationFrame(() => {
       const area = canvasArea();
@@ -995,7 +982,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} onFollowPeer={setFollowPeer} followActive={followPeer !== null} /> :
             <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} onFollowPeer={setFollowPeer} followActive={followPeer !== null} />}
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
-            <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= 0.25} onClick={() => zoomBy(1 / 1.2)}>−</button>
+            <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= MIN_ZOOM} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>
             <button type="button" className="btn btn--ghost" aria-label="Zoom in" disabled={state.viewport.zoom >= 3} onClick={() => zoomBy(1.2)}>+</button>
             <button type="button" className="btn btn--ghost" onClick={fitToView} title="Fit the diagram to the window">Fit</button>

@@ -17,6 +17,7 @@ import {
   deriveLinks,
   deriveTables,
   routeColumns,
+  routeLinks,
   rowCenter,
   tableHeight,
   tableObstacle,
@@ -289,6 +290,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   const byId = useMemo(() => new Map(positioned.map((t) => [t.entityId, t])), [positioned]);
   // Where every table is drawn, so a connector can be kept off them.
   const obstacles = useMemo(() => positioned.map(tableObstacle), [positioned]);
+  const routes = useMemo(() => routeLinks(positioned, links), [positioned, links]);
 
   const isEmpty = positioned.length === 0;
 
@@ -329,7 +331,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   link={link}
                   from={from}
                   to={to}
-                  lane={link.lane}
+                  automaticRoute={routes.get(link.id)!}
                   selected={selection.includes(link.relId)}
                   hovered={hoveredLine === link.relId}
                   obstacles={obstacles}
@@ -531,7 +533,7 @@ function CrowConnector({
   link,
   from,
   to,
-  lane,
+  automaticRoute,
   selected,
   hovered,
   onSelect,
@@ -547,7 +549,7 @@ function CrowConnector({
   link: CrowLink;
   from: CrowTable;
   to: CrowTable;
-  lane: number;
+  automaticRoute: ReturnType<typeof routeColumns>;
   selected: boolean;
   hovered: boolean;
   onSelect: (event: React.PointerEvent) => void;
@@ -570,10 +572,10 @@ function CrowConnector({
   // The two tables this connector starts and ends at are not obstacles: leaving
   // a row means crossing the table it belongs to, which is how a connector is
   // drawn rather than a flaw.
-  const route = routeColumns(from, link.fromColumnId, to, link.toColumnId, lane,
+  const route = previewPoints ? routeColumns(from, link.fromColumnId, to, link.toColumnId, link.lane,
     obstacles.filter((rect) => !(rect.minX === from.x && rect.minY === from.y) &&
       !(rect.minX === to.x && rect.minY === to.y)), link.route, link.bend ?? null,
-    previewPoints ?? link.routePoints);
+    previewPoints) : automaticRoute;
   const caption = placeRouteCaption(route, link.ratio);
   const endpointLabels = placeEndpointLabels(route.guard, link.ratio);
   const stubs = { start: Math.abs(route.guard.aStub.x - route.a.x), end: Math.abs(route.guard.bStub.x - route.b.x) };
