@@ -70,6 +70,13 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+// What a snapshot holds, so people can pick one without restoring it first.
+const shapeCounts = (doc: ErdDocument) => {
+  const plural = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : '');
+  return [plural(doc.entities.length, 'entity', 'entities'), plural(doc.relationships.length, 'relationship', 'relationships'), plural(doc.attributes.length, 'attribute', 'attributes')]
+    .filter(Boolean).join(' · ') || 'empty diagram';
+};
+
 export function App() {
   const [session, setSession] = useState(readSession);
   useEffect(() => {
@@ -859,7 +866,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="history-tools">
           <button type="button" className="btn btn--ghost icon-control" aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={state.undo}>↶</button>
           <button type="button" className="btn btn--ghost icon-control" aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={state.redo}>↷</button>
-          <button type="button" className="btn btn--ghost history-btn" aria-label="Versions" title="Version history" onClick={() => { setVersions(readVersions(state.room)); setVersionFeedback(null); setPendingVersion(null); setVersionsOpen(!versionsOpen); }}><WorkspaceIcon name="history" /><span className="history-label">Versions</span></button>
+          <button type="button" className="btn btn--ghost history-btn" aria-label="Versions" title="Version history" onClick={() => { setVersions(readVersions(state.room)); setVersionFeedback(null); setPendingVersion(null); setVersionsOpen(!versionsOpen); }}><WorkspaceIcon name="history" /><span className="history-label">Versions</span>{versions.length > 0 && <span className="history-count" title={`${versions.length} saved versions`}>{versions.length}</span>}</button>
         </div>
         <div className="drawing-tools">
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Select tool" title="Select (V)" aria-pressed={state.tool === 'select'} onClick={() => state.setTool('select')}><WorkspaceIcon name="select" /></button>
@@ -932,9 +939,12 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
               return <li key={version.id} className={`version-row${auto ? ' version-row--auto' : ''}`}>
                 <div className="version-row__details">
                   <strong className="version-row__name">{version.label}</strong>
-                  <time className="version-row__date" dateTime={version.date} title={new Date(version.date).toLocaleString()}>
-                    {timeAgo(version.date)}{auto ? ' · saved automatically' : ''}
-                  </time>
+                  <div className="version-row__meta">
+                    <time className="version-row__date" dateTime={version.date} title={new Date(version.date).toLocaleString()}>
+                      {timeAgo(version.date)}{auto ? ' · saved automatically' : ''}
+                    </time>
+                    <span className="version-row__counts">{shapeCounts(version.doc)}</span>
+                  </div>
                   {confirming && <p className="version-row__prompt">{
                     confirming === 'restore'
                       ? 'Restoring saves your current diagram as a version first, and changes the shared diagram.'

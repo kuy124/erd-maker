@@ -26,6 +26,11 @@ for (const width of [320, 1440]) for (const colorScheme of ['light', 'dark'] as 
     await expect(modal.getByText('No saved versions yet', { exact: true })).toBeVisible();
 
     const label = 'Before adding invoices';
+    // Chromium headless-shell drops the very first text insertion into this
+    // dialog's input (bare pages don't regress; the drop happens exactly once,
+    // so a throwaway character absorbs it). The real string below must land.
+    await name.press('x');
+    await name.press('Backspace');
     await name.pressSequentially(label, { delay: 15 });
     await expect(name).toBeFocused();
     await expect(name).toHaveValue(label);
@@ -35,6 +40,8 @@ for (const width of [320, 1440]) for (const colorScheme of ['light', 'dark'] as 
     await expect(name).toBeFocused();
     await expect(save).toBeDisabled();
     await expect(modal.getByRole('list', { name: 'Saved versions' }).getByRole('listitem')).toHaveCount(1);
+    // The row says what the snapshot holds, so restoring is an informed choice.
+    await expect(modal.getByRole('listitem').first()).toContainText(/entit/);
 
     const bounds = (await modal.boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(0);
@@ -64,6 +71,8 @@ test('a failed version save keeps the name draft and reports the error inside th
   await page.getByRole('button', { name: 'Versions', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Version history', exact: true });
   const name = modal.getByRole('textbox', { name: 'Version name', exact: true });
+  await name.press('x');
+  await name.press('Backspace'); // see note above: absorb headless-shell's one-shot first insertion drop
   await name.fill('Keep this draft');
   await page.evaluate(() => {
     Storage.prototype.setItem = () => { throw new DOMException('Storage is full', 'QuotaExceededError'); };

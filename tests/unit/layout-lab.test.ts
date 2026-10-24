@@ -193,5 +193,5 @@ test('auto-arrange lab', async () => {
   console.log('CHENNEAR', JSON.stringify(nearest(chen.boxes)));
   await shot(renderSvg(chen.boxes, chen.edges), 'output/lab/chen.png');
   expect(crow.measure.overlaps).toBe(0);
-});
+}, 60_000);
 

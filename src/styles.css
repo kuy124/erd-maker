@@ -1558,16 +1558,20 @@ body {
 .version-history__heading { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s2); }
 .version-history__heading h3 { margin: 0; font-size: var(--text-sm); }
 .version-history__heading > span { font: var(--text-xs) var(--font-mono); color: var(--ink-secondary); }
-.version-list { list-style: none; padding: 0; margin: 0; }
-.version-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) 0; border-top: var(--hairline) solid var(--rule); }
+.version-list { list-style: none; padding: 0; margin: 0 calc(-1 * var(--s4)); }
+.version-row { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4); border-top: var(--hairline) solid var(--rule); }
+.version-row:hover { background: var(--paper); }
 .version-row__details { flex: 1; min-width: 0; }
 .version-row__name { display: block; font-size: var(--text-md); overflow-wrap: anywhere; }
-.version-row__date { display: block; margin-top: var(--s1); font-size: var(--text-xs); color: var(--ink-secondary); }
+.version-row__meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2); margin-top: var(--s1); font-size: var(--text-xs); color: var(--ink-secondary); }
+.version-row__date { display: inline; }
+.version-row__counts { font-family: var(--font-mono); color: var(--ink-tertiary); }
 .version-row__actions { display: flex; flex-shrink: 0; gap: var(--s1); }
 .version-row--auto .version-row__name { font-weight: 400; color: var(--ink-secondary); }
 .version-row__prompt { margin: var(--s1) 0 0; font-size: var(--text-xs); color: var(--ink-secondary); overflow-wrap: anywhere; }
 .version-empty { text-align: center; padding: var(--s5) var(--s3); border-block: var(--hairline) solid var(--rule); }
 .version-feedback.note { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.history-count { font: var(--text-xs) var(--font-mono); color: var(--ink-secondary); border: var(--hairline) solid var(--rule-strong); border-radius: 999px; padding: 0 6px; }
 
 @media (max-width: 480px) {
   .version-save__controls { grid-template-columns: minmax(0, 1fr); }
@@ -1891,6 +1895,7 @@ kbd { font: 13px var(--font-mono); }
   /* Keep the toolbar one row on a phone: the history label collapses, every
      control is a 44px icon, and the row fits 320px with the panel open. */
   .history-label { display: none; }
+  .history-count { display: none; }
   .history-btn { width: 44px; padding: 0; justify-content: center; }
   /* The phone has no toolbar arrange button; the Build panel carries it. */
   .rail-arrange { display: inline-flex; }
