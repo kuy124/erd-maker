@@ -122,7 +122,14 @@ function chenDoc(): ErdDocument {
 }
 
 async function shot(svg: string, file: string, scale = 2) {
-  const browser = await chromium.launch();
+  // PNGs are tuning artifacts, not assertions: skip when no browser is available (e.g. CI).
+  let browser;
+  try {
+    browser = await chromium.launch();
+  } catch {
+    console.log('skip png (no playwright browser):', file);
+    return;
+  }
   const page = await browser.newPage({ viewport: { width: 1600, height: 1200 }, deviceScaleFactor: scale });
   await page.setContent(`<body style="margin:0">${svg}</body>`);
   await page.screenshot({ path: file, fullPage: true });
