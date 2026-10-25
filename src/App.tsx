@@ -132,10 +132,11 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       if (timer !== null) { window.clearTimeout(timer); timer = null; }
       awareness.setLocalStateField('typing', false);
     };
-    document.addEventListener('input', onInput, true);
+    // Let React's onChange save the value before presence updates rerender it.
+    document.addEventListener('input', onInput);
     document.addEventListener('focusout', onBlur, true);
     return () => {
-      document.removeEventListener('input', onInput, true);
+      document.removeEventListener('input', onInput);
       document.removeEventListener('focusout', onBlur, true);
       if (timer !== null) window.clearTimeout(timer);
       awareness.setLocalStateField('typing', false);
