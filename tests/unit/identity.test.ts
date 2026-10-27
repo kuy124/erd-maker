@@ -45,6 +45,16 @@ describe('a remembered name', () => {
     expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));
   });
 
+  it('keeps the same author identity across renames, diagrams, and new Yjs clients', () => {
+    const first = createLocalIdentity(7);
+    expect(createLocalIdentity(99).name).toBe(first.name);
+    rememberIdentity({ name: 'Renamed elsewhere', color: first.color });
+    const next = createLocalIdentity(12345);
+    expect(next.name).toBe('Renamed elsewhere');
+    expect(next.userId).toBe(first.userId);
+    expect(next.clientId).not.toBe(first.clientId);
+  });
+
   it('ignores a stored name that is blank or the wrong shape', () => {
     store.set('erd:identity', JSON.stringify({ name: '   ' }));
     expect(createLocalIdentity(7).name).toBe(nameFromSeed(7));

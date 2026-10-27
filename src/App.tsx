@@ -3,12 +3,12 @@ import { ChenCanvas } from './canvas/ChenCanvas';
 import { CrowFootCanvas } from './canvas/CrowFootCanvas';
 import { cursorOrigin, documentBounds, fitViewport, isVisibleIn, MIN_ZOOM, zoomViewport } from './canvas/geometry';
 import { createRoom, type RoomHandle } from './collab/provider';
-import { PRESENCE_COLORS, presenceInk } from './collab/identity';
+import { initials, PRESENCE_COLORS, presenceInk } from './collab/identity';
 import { applyLayout } from './model/layout';
 import { findFreeSlot, occupiedBoxes } from './model/placement';
 import { deriveTables, deriveLinks, routeLinks, CROW_WIDTH, tableHeight } from './model/crowfoot';
 import { placeRouteCaption } from './model/connectorRouting';
-import { emptyDocument, allNodes, sizeOf, type ErdDocument } from './model/types';
+import { emptyDocument, allNodes, sizeOf, type DiagramComment, type ErdDocument } from './model/types';
 import { encodeSnapshot, normalizeDocument, newRoomId, parseShareHash } from './model/snapshot';
 import { readVersions, saveVersion, deleteVersion } from './model/versions';
 import { parseJsonImport, downloadText, serializeJson, fileStem } from './export';
@@ -21,9 +21,11 @@ import { ShapeRail, type ShapeKind } from './ui/ShapeRail';
 import { DiagramOutline, ExamplesDialog, HelpPanel, ThemePicker } from './ui/WorkspacePanels';
 import { savedTheme, THEMES } from './ui/theme';
 import { WorkspaceIcon } from './ui/WorkspaceIcon';
+import { CommentsPanel } from './ui/CommentsPanel';
+import { CommentPopover } from './ui/CommentPopover';
 
 type Dialog = 'share' | 'export' | 'examples' | 'theme' | 'name' | null;
-type Panel = 'build' | 'diagram' | 'properties' | 'help';
+type Panel = 'build' | 'diagram' | 'properties' | 'comments' | 'help';
 interface Session { room: string; seed: ErdDocument | null; fromLink: boolean }
 
 /**
@@ -163,6 +165,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   // The name field is a draft so it can be emptied to be retyped; the identity
   // only ever holds a name that was actually committed.
   const [nameDraft, setNameDraft] = useState(state.identity.name);
+  useEffect(() => setNameDraft(state.identity.name), [state.identity.name]);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileMenuTrigger = useRef<HTMLButtonElement>(null);
@@ -209,7 +212,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     return () => cancelAnimationFrame(frame);
   }, [followPeer]);
   const [leftTab, setLeftTab] = useState<'build' | 'diagram'>('build');
-  const [rightTab, setRightTab] = useState<'properties' | 'help'>('properties');
+  const [rightTab, setRightTab] = useState<'properties' | 'comments' | 'help'>('properties');
+  const [commentDraft, setCommentDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const panelTrigger = useRef<HTMLElement | null>(null);
   const focusPanel = useRef(false);
@@ -230,7 +234,6 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   }, []);
   const closePanel = useCallback(() => {
     setOpenPanel(null);
-    setRightTab('properties');
     if (panelTrigger.current?.getClientRects().length) panelTrigger.current.focus();
     else svgRef.current?.focus();
   }, []);
@@ -254,6 +257,36 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     framed.current = true;
     state.setViewport(update);
   } };
+  const beginComment = useCallback(() => {
+    if (!state.loaded) return;
+    framed.current = true;
+    setFollowPeer(null);
+    state.setSelection([]);
+    state.setSelectedCommentId(null);
+    state.setCommentLocation(null);
+    state.setTool('comment');
+    setConnectFrom(null);
+    setOpenPanel(null);
+    svgRef.current?.focus();
+  }, [state.loaded, state.setSelection, state.setSelectedCommentId, state.setCommentLocation, state.setTool]);
+  const cancelCommentPlacement = useCallback(() => {
+    state.setTool('select');
+    showPanel('comments', undefined, true);
+  }, [state.setTool, showPanel]);
+  const selectComment = useCallback((id: string) => {
+    setFollowPeer(null);
+    state.setSelection([]);
+    state.setCommentLocation(null);
+    state.setSelectedCommentId(id);
+    state.setTool('select');
+    setConnectFrom(null);
+    if (window.matchMedia('(max-width: 767px)').matches) setOpenPanel(null);
+  }, [state.setSelection, state.setSelectedCommentId, state.setCommentLocation, state.setTool]);
+  const closeComment = useCallback(() => {
+    state.setCommentLocation(null);
+    state.setSelectedCommentId(null);
+    svgRef.current?.focus();
+  }, [state.setCommentLocation, state.setSelectedCommentId]);
   const toggleFocus = useCallback(() => {
     setFocusMode((current) => !current);
     setOpenPanel(null);
@@ -493,6 +526,22 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     if (attribute && view === 'chen') setConnectFrom(null);
   };
 
+  const focusComment = (comment: DiagramComment) => {
+    selectComment(comment.id);
+    const point = comment.location;
+    if (!point) return;
+    framed.current = true;
+    if (point.view !== state.view) state.setView(point.view);
+    requestAnimationFrame(() => {
+      const area = canvasArea();
+      if (!area) return;
+      state.setViewport(current => ({ ...current,
+        x: area.x + area.width / 2 - point.x * current.zoom,
+        y: area.y + area.height / 2 - point.y * current.zoom,
+      }));
+    });
+  };
+
   const openDocument = (doc: ErdDocument) => {
     const url = new URL(window.location.href);
     url.hash = 'room=' + newRoomId() + '&d=' + encodeSnapshot(normalizeDocument(doc)).replace(/\+/g, '%2B');
@@ -563,12 +612,14 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           state.setTool('connect'); closePanel();
           break;
         case 'h': state.setTool('pan'); break;
+        case 'm': event.preventDefault(); beginComment(); break;
         case 'f': event.preventDefault(); fitToView(); break;
         case 'delete': case 'backspace':
           if (state.selection.length > 0) { event.preventDefault(); state.remove(state.selection); }
           break;
         case 'i': event.preventDefault(); toggleFocus(); break;
         case 'escape':
+          if (state.tool === 'comment') { event.preventDefault(); cancelCommentPlacement(); break; }
           setFollowPeer(null);
           if (focusMode) { event.preventDefault(); toggleFocus(); }
           else { setConnectFrom(null); state.setSelection([]); closePanel(); }
@@ -578,7 +629,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [state, isCrowFoot, addShape, fitToView, closePanel, showPanel, dialog, focusMode, toggleFocus]);
+  }, [state, isCrowFoot, addShape, fitToView, closePanel, showPanel, dialog, focusMode, toggleFocus, beginComment, cancelCommentPlacement]);
 
   // VisualViewport shrinks when a phone keyboard opens; sheets stay above it.
   useEffect(() => {
@@ -627,6 +678,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || !state.loaded) return;
     const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.comment-pin')) return;
     const pointer = 'clientX' in event ? { x: event.clientX, y: event.clientY } : null;
     const keyboard = !pointer || (pointer.x === 0 && pointer.y === 0);
     let hit = target?.closest<HTMLElement | SVGElement>('[data-attribute-id], [data-node-id], [data-selection-id]');
@@ -764,7 +816,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
    * them to reopen it" is only actionable if they can identify which room.
    */
   const waitingForPeer = fromLink && !seed && isEmpty && state.loaded && state.peers.length === 0;
-  const emptyState = waitingForPeer ? (
+  const emptyState = state.tool === 'comment' || state.commentLocation?.view === state.view ||
+    state.threads.some(({ comment }) => comment.location?.view === state.view) ? false : waitingForPeer ? (
     <div className="canvas-empty">
       <div className="canvas-empty__card">
         <h2 className="canvas-empty__title">Waiting for the diagram</h2>
@@ -875,6 +928,8 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             title={isCrowFoot ? 'Connect two attribute rows (C)' : 'Connect two entities to create a relationship (C)'}
             aria-pressed={state.tool === 'connect'} onClick={() => { state.setTool('connect'); closePanel(); }}><WorkspaceIcon name="connect" /></button>
           <button type="button" className="btn btn--ghost tool-btn icon-control" aria-label="Pan tool" title="Pan (H)" aria-pressed={state.tool === 'pan'} onClick={() => { state.setTool('pan'); closePanel(); }}><WorkspaceIcon name="pan" /></button>
+          <button type="button" className="btn btn--ghost tool-btn icon-control comment-tool" aria-label="Comment tool" title="Comment (M)"
+            aria-keyshortcuts="M" disabled={!state.loaded} aria-pressed={state.tool === 'comment'} onClick={beginComment}><WorkspaceIcon name="comments" /></button>
         </div>
         <button type="button" className="btn btn--ghost arrange-btn icon-control" aria-label="Auto-arrange" onClick={tidy} title="Auto-arrange"><WorkspaceIcon name="arrange" /></button>
       </div>
@@ -990,8 +1045,15 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         <div className="canvas-stage" onContextMenu={openMenu} onDoubleClick={revealProperties} onKeyDown={(event) => {
           if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(event);
         }}>
-          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} onFollowPeer={setFollowPeer} followActive={followPeer !== null} /> :
-            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} onFollowPeer={setFollowPeer} followActive={followPeer !== null} />}
+          {isCrowFoot ? <CrowFootCanvas state={editor} svgRef={svgRef} emptyActions={emptyActions} emptyState={emptyState} onTablePositions={state.applyTablePositions} onFollowPeer={setFollowPeer} followActive={followPeer !== null} onCommentSelect={selectComment} /> :
+            <ChenCanvas state={editor} svgRef={svgRef} connectFrom={connectFrom} setConnectFrom={setConnectFrom} emptyActions={emptyActions} emptyState={emptyState} onFollowPeer={setFollowPeer} followActive={followPeer !== null} onCommentSelect={selectComment} />}
+          {state.tool === 'comment' ? <div className="comment-guidance" role="status">
+            <WorkspaceIcon name="comments" /><span>Pick a spot to leave feedback<small>Click or tap the diagram · Enter to place at center</small></span>
+            {openPanel !== 'comments' ? <button type="button" className="btn btn--ghost" onClick={cancelCommentPlacement}>View comments{state.threads.length ? ` (${state.threads.length})` : ''}</button> : null}
+            <button type="button" className="btn btn--ghost btn--icon" aria-label="Cancel comment placement" title="Cancel (Esc)" onClick={cancelCommentPlacement}><WorkspaceIcon name="close" /></button>
+          </div> : null}
+          <CommentPopover state={editor} svgRef={svgRef} draft={commentDraft} setDraft={setCommentDraft}
+            panel={openPanel} canvasArea={canvasArea} onPlace={beginComment} onClose={closeComment} />
           <div className="viewport-tools" role="group" aria-label="Canvas navigation">
             <button type="button" className="btn btn--ghost" aria-label="Zoom out" disabled={state.viewport.zoom <= MIN_ZOOM} onClick={() => zoomBy(1 / 1.2)}>−</button>
             <button type="button" className="btn btn--ghost zoom-value" aria-label="Reset zoom to 100%" onClick={() => zoomBy(1 / state.viewport.zoom)}>{Math.round(state.viewport.zoom * 100)}%</button>
@@ -1000,12 +1062,13 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
           </div>
         </div>
 
-        <div className="workspace-panel workspace-panel--right" data-open={openPanel === 'properties' || openPanel === 'help'}>
+        <div className={`workspace-panel workspace-panel--right${rightTab === 'comments' ? ' workspace-panel--comments' : ''}`} data-open={openPanel === 'properties' || openPanel === 'comments' || openPanel === 'help'}>
           <div className="panel-header panel-header--right">
-            <span>{rightTab === 'help' ? 'Help' : 'Properties'}</span>
+            <span>{rightTab === 'help' ? 'Help' : rightTab === 'comments' ? <>Comments <span className="comment-count">{state.threads.length}</span></> : 'Properties'}</span>
             <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}><span className="panel-close--desktop">×</span><span className="panel-close--phone">Done</span></button>
           </div>
-          {rightTab === 'help' ? <HelpPanel /> : <Inspector state={editor} nameFocusReady={openPanel === 'properties'} />}
+          {rightTab === 'help' ? <HelpPanel /> : rightTab === 'comments' ? <CommentsPanel state={editor} open={openPanel === 'comments'} hasDraft={!!commentDraft.trim()} onPlace={beginComment} onLocate={focusComment} /> :
+            <Inspector state={editor} nameFocusReady={openPanel === 'properties'} />}
         </div>
       </div>
 
@@ -1016,10 +1079,18 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       </footer>
       {connectFrom ? <div className="connection-guidance" role="status">Pick a shape to connect <button type="button" className="btn btn--ghost" onClick={() => setConnectFrom(null)}>Cancel</button></div> : null}
       <nav className="panel-navigation" aria-label="Workspace panels">
-        {(['build', 'diagram', 'properties', 'help'] as const).map((panel) => <button key={panel} type="button" className="btn btn--ghost"
+        {(['build', 'diagram', 'properties', 'comments', 'help'] as const).map((panel) => <button key={panel} type="button" className="btn btn--ghost"
           aria-label={panel.charAt(0).toUpperCase() + panel.slice(1)} title={panel.charAt(0).toUpperCase() + panel.slice(1)}
-          aria-expanded={openPanel === panel} onClick={(event) => openPanel === panel ? closePanel() : showPanel(panel, event.currentTarget, event.detail === 0)}>
+          aria-expanded={openPanel === panel} data-active={panel === 'comments' && (state.tool === 'comment' || !!state.commentLocation || !!state.selectedCommentId)} onClick={(event) => {
+            if (openPanel === panel) { if (panel === 'comments') state.setTool('select'); closePanel(); return; }
+            if (panel === 'comments') {
+              beginComment();
+              if (window.matchMedia('(max-width: 767px)').matches) return;
+            }
+            showPanel(panel, event.currentTarget, event.detail === 0);
+          }}>
           <WorkspaceIcon name={panel} />
+          {panel === 'comments' && state.threads.length > 0 ? <span className="panel-comment-count" aria-hidden="true">{state.threads.length}</span> : null}
           <span className="panel-navigation__label">{panel === 'build' ? 'Add' : panel === 'properties' ? 'Edit' : panel.charAt(0).toUpperCase() + panel.slice(1)}</span>
         </button>)}
       </nav>
@@ -1063,6 +1134,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
  */
 function NameField({ state }: { state: EditorState }) {
   const [draft, setDraft] = useState(state.identity.name);
+  useEffect(() => setDraft(state.identity.name), [state.identity.name]);
   return (
     <div className="field">
       <label className="field__label" htmlFor="dialog-name">Your name</label>
@@ -1078,14 +1150,11 @@ function NameField({ state }: { state: EditorState }) {
         }}
         onBlur={() => setDraft(state.identity.name)}
       />
-      <p className="field__help">Collaborators see this beside your cursor. It stays in this browser.</p>
+      <p className="field__help">Collaborators see this beside your cursor. Comments keep your author ID and original name, even when you rename in another diagram.</p>
     </div>
   );
 }
 
-function initials(name: string): string {
-  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
-}
 
 /**
  * What to say about the room connection.

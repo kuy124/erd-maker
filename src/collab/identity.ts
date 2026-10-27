@@ -10,10 +10,16 @@
 
 export interface Identity {
   clientId: number;
+  /** Browser identity; unlike a display name or Yjs client id, survives rooms and reloads. */
+  userId: string;
   name: string;
   color: string;
   /** Index into PRESENCE_COLORS, so avatars can be ordered stably. */
   colorIndex: number;
+}
+
+export function initials(name: string): string {
+  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
 }
 
 /**
@@ -54,7 +60,7 @@ export function colorFromSeed(seed: number): { color: string; colorIndex: number
   return { color: PRESENCE_COLORS[colorIndex]!, colorIndex };
 }
 
-export function identityFor(clientId: number): Identity {
+export function identityFor(clientId: number): Omit<Identity, 'userId'> {
   const { color, colorIndex } = colorFromSeed(clientId);
   return { clientId, name: nameFromSeed(clientId), color, colorIndex };
 }
@@ -89,9 +95,24 @@ export function presenceInk(fill: string): string {
   return contrastRatio(LIGHT_INK, fill) >= contrastRatio(DARK_INK, fill) ? LIGHT_INK : DARK_INK;
 }
 
-/** A per-tab identity, overridable by the user and stored locally. */
+let fallbackUserId: string | undefined;
+
+function browserUserId(): string {
+  // ponytail: browser-local identity; authenticated accounts are needed to survive cleared storage or another browser.
+  try {
+    const stored = localStorage.getItem('erd:user-id');
+    if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stored)) return stored;
+    const id = crypto.randomUUID();
+    localStorage.setItem('erd:user-id', id);
+    return id;
+  } catch {
+    return fallbackUserId ??= crypto.randomUUID();
+  }
+}
+
+/** A browser identity, overridable by the user and shared across diagrams. */
 export function createLocalIdentity(clientId: number): Identity {
-  const base = identityFor(clientId);
+  const base: Identity = { ...identityFor(clientId), userId: browserUserId() };
   try {
     const stored = localStorage.getItem('erd:identity');
     if (stored) {
@@ -106,6 +127,7 @@ export function createLocalIdentity(clientId: number): Identity {
   } catch {
     // localStorage can throw in private mode; a generated name is fine.
   }
+  rememberIdentity(base);
   return base;
 }
 

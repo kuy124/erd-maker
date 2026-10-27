@@ -17,6 +17,7 @@ import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offset
 import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
 import { useDrag, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
+import { CommentPins, useCommentPlacement } from './CommentPins';
 import { findNode, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
 
@@ -32,9 +33,10 @@ interface Props {
   /** Optional follow peer callback. */
   onFollowPeer?: (id: number) => void;
   followActive?: boolean;
+  onCommentSelect: (id: string) => void;
 }
 
-export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState, onFollowPeer, followActive }: Props) {
+export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyActions, emptyState, onFollowPeer, followActive, onCommentSelect }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -503,6 +505,8 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
     displayDoc.relationships.length === 0 &&
     displayDoc.isas.length === 0;
 
+  const commentPlacement = useCommentPlacement(state, toWorld);
+
   return (
     <div
       className="canvas-wrap"
@@ -511,6 +515,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
       onPointerMove={handlePointerMove}
     >
       <svg
+        {...commentPlacement}
         ref={svgRef}
         className="canvas"
         width={size.width}
@@ -781,6 +786,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
           ) : null}
 
           {/* Peer cursors. The name always travels with the colour. */}
+          <CommentPins state={state} onSelect={onCommentSelect} />
           <PeerCursors peers={peers} view="chen" onFollow={(id) => onFollowPeer?.(id)} />
         </g>
       </svg>

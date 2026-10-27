@@ -145,6 +145,7 @@ export function serializeSvg(
   for (const selector of [
     '.selection-ring',
     '.peer-cursor',
+    '.comment-pins',
     '.peer-ring',
     '.hit-target',
     '.leg-hit',

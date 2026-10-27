@@ -39,6 +39,8 @@ import { descendantAttributeIds, normalizeAttributeOwners } from '../model/attri
 import { normalizeRoutePoints, type RoutePoint } from '../model/connectorRouting';
 import { canConnect, findRelationshipSlot } from '../model/placement';
 import { deriveTables, type ColumnEndpoint } from '../model/crowfoot';
+import { normalizeComments } from '../model/comments';
+import { COMMENTS, readComments } from './comments';
 
 export const META = 'meta';
 export const ENTITIES = 'entities';
@@ -104,6 +106,10 @@ export function seedDocument(ydoc: Y.Doc, source: ErdDocument): void {
     for (const isa of source.isas) upsertIsa(ydoc, isa);
     for (const leg of source.legs) upsertLeg(ydoc, leg);
     for (const group of source.groups) upsertGroup(ydoc, group);
+    const comments = ydoc.getMap(COMMENTS);
+    for (const comment of normalizeComments(source.comments)) {
+      if (!comments.has(comment.id)) comments.set(comment.id, comment);
+    }
   });
 }
 
@@ -403,6 +409,7 @@ export function snapshotFromYdoc(ydoc: Y.Doc): ErdDocument {
   const meta = ydoc.getMap(META);
   doc.name = readString(meta, 'name', doc.name);
   doc.view = readString(meta, 'view', 'chen') === 'crowfoot' ? 'crowfoot' : 'chen';
+  doc.comments = readComments(ydoc);
 
   ydoc.getMap(ENTITIES).forEach((value, key) => {
     const m = value as Y.Map<unknown>;

@@ -16,6 +16,7 @@ import { emptyDocument, ENTITY_KINDS, ROUTE_SIDES, type ErdDocument, type RouteS
 import { normalizeDataType } from './dataTypes';
 import { normalizeAttributeOwners } from './attributes';
 import { normalizeRoutePoints } from './connectorRouting';
+import { normalizeComments } from './comments';
 
 export interface ShareLink {
   room: string;
@@ -72,6 +73,8 @@ function toRows(doc: ErdDocument): unknown[] {
       l.columnNames && Object.keys(l.columnNames).length ? l.columnNames : '',
     ]),
     list(doc.groups).map((g) => [g.id, g.name, g.memberIds]),
+    list(doc.comments).map((c) => [c.id, c.authorId, c.authorName, c.text, c.createdAt,
+      c.location?.view ?? '', c.location?.x ?? '', c.location?.y ?? '', c.parentId ?? '', c.deleted ?? false]),
   ];
 }
 
@@ -82,7 +85,7 @@ function toRows(doc: ErdDocument): unknown[] {
  * to get the columns in the right order.
  */
 function fromRows(rows: unknown[]): unknown {
-  const [name, view, entities, attributes, relationships, isas, legs, groups] = rows;
+  const [name, view, entities, attributes, relationships, isas, legs, groups, comments] = rows;
   const rowsOf = (list: unknown) => (Array.isArray(list) ? (list as unknown[][]) : []);
   return {
     name,
@@ -107,6 +110,11 @@ function fromRows(rows: unknown[]): unknown {
       ...(r[7] && typeof r[7] === 'object' ? { columnNames: r[7] as Record<string, string> } : {}),
     })),
     groups: rowsOf(groups).map((r) => ({ id: r[0], name: r[1], memberIds: r[2] })),
+    comments: rowsOf(comments).map((r) => ({ id: r[0], authorId: r[1], authorName: r[2], text: r[3], createdAt: r[4],
+      ...(r[5] === undefined || r[5] === '' ? {} : { location: { view: r[5], x: r[6], y: r[7] } }),
+      ...(r[8] === undefined || r[8] === '' ? {} : { parentId: r[8] }),
+      ...(r[9] === undefined ? {} : { deleted: r[9] }),
+    })),
   };
 }
 
@@ -313,6 +321,7 @@ export function normalizeDocument(input: unknown): ErdDocument {
         },
       ];
     }),
+    comments: normalizeComments(raw.comments),
     // Absent from older links, which is why the schema version did not move:
     // `asArray` turns a missing field into an empty list, so old links load
     // with no groups rather than failing.

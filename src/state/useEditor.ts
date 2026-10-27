@@ -12,6 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Y from 'yjs';
 import { connectedPeerCount, onTransport, readPeers, transportState, type PeerState, type RoomHandle, type TransportState } from '../collab/provider';
 import { createLocalIdentity, rememberIdentity, type Identity } from '../collab/identity';
+import { addComment as postComment, readComments, removeComment as deleteComment } from '../collab/comments';
+import { commentThreads } from '../model/comments';
 import {
   connectColumns,
   connectNodes,
@@ -32,13 +34,13 @@ import { validParticipation } from '../model/issues';
 import { segmentForLeg } from '../canvas/geometry';
 import { NODE_SIZE } from '../model/types';
 import { findAttributeSlot, overlaps } from '../model/placement';
-import { emptyDocument, ROUTE_SIDES, type EntityKind, type ErdDocument, type RouteSide } from '../model/types';
+import { emptyDocument, ROUTE_SIDES, type CommentLocation, type EntityKind, type ErdDocument, type RouteSide } from '../model/types';
 import type { ColumnEndpoint } from '../model/crowfoot';
 import { normalizeDataType, type DataType } from '../model/dataTypes';
 import { canOwnAttribute } from '../model/attributes';
 import { normalizeRoutePoints, type RoutePoint } from '../model/connectorRouting';
 
-export type Tool = 'select' | 'pan' | 'connect';
+export type Tool = 'select' | 'pan' | 'connect' | 'comment';
 
 export interface Viewport {
   /** Pan offset in screen pixels. */
@@ -53,6 +55,14 @@ export interface EditorState {
   identity: Identity;
   /** Renames you for other collaborators, and remembers it in this browser. */
   setIdentityName: (name: string) => void;
+  addComment: (text: string) => boolean;
+  addReply: (commentId: string, text: string) => boolean;
+  removeComment: (id: string) => boolean;
+  threads: ReturnType<typeof commentThreads>;
+  commentLocation: CommentLocation | null;
+  setCommentLocation: (location: CommentLocation | null) => void;
+  selectedCommentId: string | null;
+  setSelectedCommentId: (id: string | null) => void;
   doc: ErdDocument;
   view: ErdDocument['view'];
   canUndo: boolean;
@@ -175,10 +185,13 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
    */
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>('select');
+  const [commentLocation, setCommentLocation] = useState<CommentLocation | null>(null);
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [identity, setIdentity] = useState<Identity>(() => createLocalIdentity(room.ydoc.clientID));
   const visibleDoc = useMemo(() => ({ ...doc, view }), [doc, view]);
+  const threads = useMemo(() => commentThreads(doc.comments), [doc.comments]);
 
   // Seed the shared document from the share link, but only if it is empty —
   // otherwise a late joiner would overwrite a room that already has work in it.
@@ -243,9 +256,19 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
 
   // Publish our own identity and selection into awareness.
   useEffect(() => {
+    room.awareness.setLocalStateField('userId', identity.userId);
     room.awareness.setLocalStateField('name', identity.name);
     room.awareness.setLocalStateField('color', identity.color);
   }, [room, identity]);
+
+  // A rename in another diagram must also reach already-open rooms.
+  useEffect(() => {
+    const sync = (event: StorageEvent) => {
+      if (event.key === 'erd:identity') setIdentity(createLocalIdentity(room.ydoc.clientID));
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, [room]);
 
   // Publish our own selection into awareness. Joining on a key rather than
   // replacing the value means an unrelated awareness change (a peer moving)
@@ -310,12 +333,30 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     [room],
   );
 
-  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'transport' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness'>>(() => ({
+  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'transport' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness' | 'commentLocation' | 'selectedCommentId' | 'threads'>>(() => ({
     setTool,    setSelection: (ids) => { setSelection(ids); setJustCreated(null); },
     toggleSelection: (id) => setSelection((current) =>
       current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
     setViewport,
     setDocName: (name: string) => setMeta(room.ydoc, { name }),
+    setCommentLocation,
+    setSelectedCommentId,
+    addComment: (text: string) => {
+      if (!loaded || !commentLocation) return false;
+      const id = postComment(room.ydoc, createLocalIdentity(room.ydoc.clientID), text, commentLocation ?? undefined);
+      if (!id) return false;
+      setCommentLocation(null);
+      setSelectedCommentId(id);
+      return true;
+    },
+    addReply: (commentId: string, text: string) => loaded &&
+      postComment(room.ydoc, createLocalIdentity(room.ydoc.clientID), text, undefined, commentId) !== null,
+    removeComment: (id: string) => {
+      if (!loaded || !deleteComment(room.ydoc, id, identity.userId)) return false;
+      const remaining = commentThreads(readComments(room.ydoc));
+      setSelectedCommentId(current => remaining.some(thread => thread.comment.id === current) ? current : null);
+      return true;
+    },
     setView: (next) => {
       setLocalView(next);
       setTool('select');
@@ -701,12 +742,13 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
       setIdentity((current) => ({ ...current, name: trimmed }));
       rememberIdentity({ name: trimmed, color: identity.color });
     },
-  }), [room, mutate, identity.color]);
+  }), [room, mutate, identity.color, identity.userId, loaded, commentLocation]);
 
   return {
     room: room.room,
     identity,
     doc: visibleDoc,
+    threads,
     view,
     notice,
     ...history,
@@ -719,6 +761,8 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     pointer,
     viewport,
     tool,
+    commentLocation,
+    selectedCommentId,
     ydoc: room.ydoc,
     awareness: room.awareness,
     ...api,

@@ -167,6 +167,29 @@ export interface Group {
 
 export type NodeId = string;
 
+/** ponytail: fixed positions per notation; node-relative anchors if pins must follow moved shapes. */
+export interface CommentLocation {
+  x: number;
+  y: number;
+  view: 'chen' | 'crowfoot';
+}
+
+export interface DiagramComment {
+  id: string;
+  /** Stable browser identity, never a display name or a room's Yjs client id. */
+  authorId: string;
+  /** Name at posting time; renaming cannot rewrite this attribution. */
+  authorName: string;
+  text: string;
+  createdAt: number;
+  /** Absent on older, diagram-wide comments. */
+  location?: CommentLocation;
+  /** Replies point to the original comment, never to another reply. */
+  parentId?: string;
+  /** Keeps the thread anchor when another peer replies during a deletion. */
+  deleted?: true;
+}
+
 export interface ErdDocument {
   name: string;
   view: 'chen' | 'crowfoot';
@@ -176,6 +199,7 @@ export interface ErdDocument {
   isas: Isa[];
   legs: Leg[];
   groups: Group[];
+  comments: DiagramComment[];
 }
 
 export function emptyDocument(name = 'Untitled diagram'): ErdDocument {
@@ -188,6 +212,7 @@ export function emptyDocument(name = 'Untitled diagram'): ErdDocument {
     isas: [],
     legs: [],
     groups: [],
+    comments: [],
   };
 }
 

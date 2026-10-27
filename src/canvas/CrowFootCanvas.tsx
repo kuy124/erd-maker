@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ENDPOINT_STUB, isRouteSafe, moveRouteSegment, placeEndpointLabels, placeRouteCaption, roundedRoutePath, splitRouteSegment, symbolBoxes, type RoutePoint } from '../model/connectorRouting';
 import { useCanvasZoom } from './useCanvasZoom';
+import { CommentPins, useCommentPlacement } from './CommentPins';
 import {
   CROW_HEADER_HEIGHT,
   CROW_ROW_HEIGHT,
@@ -41,9 +42,10 @@ interface Props {
   onTablePositions?: (positions: Map<string, { x: number; y: number }>) => void;
   onFollowPeer?: (id: number) => void;
   followActive?: boolean;
+  onCommentSelect: (id: string) => void;
 }
 
-export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions, onFollowPeer, followActive }: Props) {
+export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTablePositions, onFollowPeer, followActive, onCommentSelect }: Props) {
   const { doc, viewport, selection, tool, peers } = state;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 1200, height: 800 });
@@ -188,6 +190,8 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
     };
   }, [connectFrom, tool, state.connectColumns, toWorld]);
 
+  const commentPlacement = useCommentPlacement(state, toWorld);
+
   const handleTablePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
       if (event.button !== 0) return;
@@ -303,6 +307,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
       onPointerLeave={() => setHoveredLine(null)}
     >
       <svg
+        {...commentPlacement}
         ref={svgRef}
         className="canvas"
         width={size.width}
@@ -489,6 +494,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
             />
           ) : null}
 
+          <CommentPins state={state} onSelect={onCommentSelect} />
           <PeerCursors peers={peers} view="crowfoot" onFollow={(id) => onFollowPeer?.(id)} />
         </g>
       </svg>

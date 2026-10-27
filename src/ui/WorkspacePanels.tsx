@@ -222,6 +222,7 @@ export function HelpPanel() {
         <dl className="shortcut-list">
           {[['E / A / R / S', 'Add entity, attribute, relationship, specialization'],
             ['V / C / H', 'Select, connect, pan'], ['F', 'Fit diagram'],
+            ['M', 'Pin a comment on the diagram'], ['Ctrl / ⌘ + Enter', 'Post your comment'],
             ['I', 'Enter or exit Focus view'],
             ['Shift + click', 'Add to or remove from the selection'],
             ['Shift + drag', 'Draw a box around several shapes'],

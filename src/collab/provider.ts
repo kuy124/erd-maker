@@ -28,6 +28,8 @@ const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
 
 export interface PeerState {
   clientId: number;
+  /** Absent for peers running an older version. */
+  userId?: string;
   name: string;
   color: string;
   cursor: { x: number; y: number } | null;
@@ -159,6 +161,7 @@ export function resolveIceServers(raw = import.meta.env?.VITE_ICE_SERVERS as str
  * pointer move, and every byte here is paid for on every peer's connection.
  */
 export interface LocalPresence {
+  userId?: string;
   name: string;
   color: string;
   cursor: { x: number; y: number } | null;
@@ -324,6 +327,7 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
     const dragging = readDragging(raw);
     peers.push({
       clientId,
+      ...(typeof raw.userId === 'string' && raw.userId.length <= 128 ? { userId: raw.userId } : {}),
       name: typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : `Peer ${clientId}`,
       color: typeof raw.color === 'string' ? raw.color : '#5B6167',
       cursor:
