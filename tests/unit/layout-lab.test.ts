@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { chromium } from '@playwright/test';
 import { test, expect } from 'vitest';
 import { applyLayout, sizeFor } from '../../src/model/layout';
-import { deriveTables, deriveLinks, routeColumns, tableHeight } from '../../src/model/crowfoot';
+import { deriveTables, deriveLinks, routeLinks, tableHeight } from '../../src/model/crowfoot';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 import { measure, renderSvg, type Box, type Edge } from './layout-lab';
 
@@ -141,10 +141,9 @@ function crowLab(doc: ErdDocument) {
   const tables = deriveTables(placed);
   const boxes: Box[] = tables.map(t => ({ id: t.entityId, label: t.name, x: t.x, y: t.y, w: t.width,
     h: tableHeight(t), dashed: t.weak, lines: t.rows.map(r => r.name) }));
-  const byId = new Map(tables.map(t => [t.entityId, t]));
-  const edges: Edge[] = deriveLinks(placed).map(l => {
-    const from = byId.get(l.fromEntityId)!, to = byId.get(l.toEntityId)!;
-    const route = routeColumns(from, l.fromColumnId, to, l.toColumnId, l.lane, [], l.route, l.bend, l.routePoints);
+  const links = deriveLinks(placed), routes = routeLinks(tables, links);
+  const edges: Edge[] = links.map(l => {
+    const route = routes.get(l.id)!;
     return { fromId: l.fromEntityId, toId: l.toEntityId, label: l.label, pts: route.points };
   });
   return { boxes, edges, measure: measure(boxes, edges) };
@@ -194,4 +193,3 @@ test('auto-arrange lab', async () => {
   await shot(renderSvg(chen.boxes, chen.edges), 'output/lab/chen.png');
   expect(crow.measure.overlaps).toBe(0);
 }, 60_000);
-

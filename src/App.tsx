@@ -342,7 +342,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       if (crowPlaced.has(entity.id)) continue;
       const table = tables.find(table => table.entityId === entity.id)!;
       const size = { w: table.width, h: tableHeight(table) };
-      const point = findFreeSlot(occupied, { x: entity.x, y: entity.y }, size);
+      const point = findFreeSlot(occupied, { x: entity.crowX!, y: entity.crowY! }, size);
       fresh.set(entity.id, point);
       occupied.push({ ...point, ...size });
     }
@@ -360,7 +360,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
      */
     requestAnimationFrame(() => {
       framed.current = false;
-      const placed = new Map(arranged.entities.map((entity) =>
+      const placed = new Map(state.doc.entities.map((entity) =>
         [entity.id, { x: fresh.get(entity.id)?.x ?? entity.crowX ?? entity.x,
           y: fresh.get(entity.id)?.y ?? entity.crowY ?? entity.y }] as const));
       fitToDoc({ ...state.doc, entities: state.doc.entities.map((entity) => {
@@ -473,13 +473,13 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       // and leaves Chen's alone. Shared, so everybody sees the result.
       const before = new Map(shown.entities.map((entity) => [entity.id, entity]));
       const moved = new Map(arranged.entities
-        .map((entity) => [entity.id, { x: entity.x, y: entity.y }] as const)
+        .map((entity) => [entity.id, { x: entity.crowX!, y: entity.crowY! }] as const)
         .filter(([id, point]) => {
           const old = before.get(id);
           return old && (old.crowX !== point.x || old.crowY !== point.y);
         }));
-      if (moved.size) state.applyTablePositions(moved);
-      fitToDoc({ ...arranged, entities: arranged.entities.map(entity => ({ ...entity, crowX: entity.x, crowY: entity.y })) });
+      state.applyTablePositions(moved, true);
+      fitToDoc(arranged);
       return;
     }
     const positions = new Map<string, { x: number; y: number }>();

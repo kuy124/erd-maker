@@ -3,6 +3,8 @@ import { applyLayout, autoArrange, sizeFor } from '../../src/model/layout';
 import { segmentBetween, segmentForLeg } from '../../src/canvas/geometry';
 import { emptyDocument, type ErdDocument } from '../../src/model/types';
 import { boundsOf } from '../../src/canvas/geometry';
+import { overlaps } from '../../src/model/placement';
+import { deriveTables } from '../../src/model/crowfoot';
 
 /** Two entities joined through one relationship. */
 function chain(): ErdDocument {
@@ -18,6 +20,46 @@ function chain(): ErdDocument {
   );
   return doc;
 }
+
+it('arranges Chen attribute trees consistently, including unattached attributes', () => {
+  const doc = chain();
+  doc.attributes = [
+    { id: 'name', name: 'name', kind: 'composite', ownerId: 'e1', x: 50000, y: -50000 },
+    { id: 'last', name: 'last', kind: 'simple', ownerId: 'name', x: 50000, y: -50000 },
+    { id: 'first', name: 'first', kind: 'simple', ownerId: 'name', x: 50000, y: -50000 },
+    { id: 'key', name: 'id', kind: 'key', ownerId: 'e1', x: 50000, y: -50000 },
+    { id: 'loose', name: 'notes', kind: 'simple', ownerId: null, x: 50000, y: -50000 },
+  ];
+  const arranged = applyLayout(doc);
+  const reversed = applyLayout({ ...doc, entities: [...doc.entities].reverse(), legs: [...doc.legs].reverse(), attributes: [...doc.attributes].reverse() });
+  const positions = (next: ErdDocument) => Object.fromEntries(next.attributes.map(({ id, x, y }) => [id, { x, y }]));
+  expect(positions(arranged)).toEqual(positions(reversed));
+  const boxes = [...arranged.entities, ...arranged.relationships, ...arranged.attributes].map(node => ({ ...node, ...sizeFor(arranged, node.id) }));
+  for (let i = 0; i < boxes.length; i++) {
+    expect(Math.max(Math.abs(boxes[i]!.x), Math.abs(boxes[i]!.y))).toBeLessThan(5000);
+    for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i]!, boxes[j]!, 0)).toBe(false);
+  }
+  expect(applyLayout(arranged)).toEqual(arranged);
+  expect(doc.attributes[0]!.x).toBe(50000);
+});
+
+it('arranges saved Crow positions without moving Chen and resets obsolete manual routes', () => {
+  const doc = chain();
+  doc.view = 'crowfoot';
+  doc.entities = doc.entities.map((entity, index) => ({ ...entity, x: index * 300 + 73, y: 47, crowX: 9000, crowY: 9000 }));
+  for (let i = 0; i < 20; i++) doc.attributes.push({ id: `a${i}`, name: `field_${i}`, kind: i === 0 ? 'key' : 'simple', ownerId: 'e2', x: 13, y: 17 });
+  Object.assign(doc.relationships[0]!, { route: 'left', bendX: -8000, bendY: -4000, routePoints: [{ x: -8000, y: -4000 }, { x: -8000, y: 8000 }] });
+  const arranged = applyLayout(doc);
+  expect(arranged.entities.map(({ x, y }) => ({ x, y }))).toEqual(doc.entities.map(({ x, y }) => ({ x, y })));
+  expect(arranged.attributes).toEqual(doc.attributes);
+  const tables = deriveTables(arranged);
+  expect(tables[0]!.y).toBe(tables[1]!.y);
+  expect(tables.every(table => table.x < 9000 && table.y < 9000)).toBe(true);
+  expect(arranged.relationships[0]!).toMatchObject({ x: 0, y: 0 });
+  for (const key of ['route', 'bendX', 'bendY', 'routePoints']) expect(arranged.relationships[0]).not.toHaveProperty(key);
+  expect(applyLayout(arranged)).toEqual(arranged);
+  expect(doc.relationships[0]!.bendX).toBe(-8000);
+});
 
 describe('autoArrange', () => {
   it('returns nothing for an empty document', () => {
@@ -201,11 +243,14 @@ describe('applyLayout', () => {
     expect(applyLayout(both)).toEqual(both);
   });
 
-  it('leaves a floating attribute untouched', () => {
+  it('brings a floating attribute into the layout even without entities', () => {
     const doc = chain();
     doc.attributes.push({ id: 'a1', name: 'free', x: 999, y: 888, kind: 'simple', ownerId: null });
     const next = applyLayout(doc);
-    expect(next.attributes[0]).toMatchObject({ x: 999, y: 888 });
+    expect(next.attributes[0]).toMatchObject({ id: 'a1', name: 'free', ownerId: null });
+    expect(Math.abs(next.attributes[0]!.x)).toBeLessThan(500);
+    expect(Math.abs(next.attributes[0]!.y)).toBeLessThan(500);
+    expect(doc.attributes[0]).toMatchObject({ x: 999, y: 888 });
   });
 
   it('returns the same document when there is nothing to arrange', () => {

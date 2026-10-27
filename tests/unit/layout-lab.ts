@@ -28,7 +28,7 @@ export function measure(boxes: Box[], edges: Edge[]): Measure {
   for (const e of edges) {
     const own = new Set([e.fromId, e.toId]);
     let hit = false;
-    for (let k = 1; k < e.pts.length - 1; k++)
+    for (let k = 1; k < e.pts.length; k++)
       for (const b of boxes) {
         if (own.has(b.id)) continue;
         const p0 = e.pts[k - 1], p1 = e.pts[k];
@@ -126,4 +126,3 @@ export function renderSvg(boxes: Box[], edges: Edge[]) {
   }
   return head + body.join('') + '</svg>';
 }
-

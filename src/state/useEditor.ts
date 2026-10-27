@@ -141,7 +141,7 @@ export interface EditorState {
   replaceDocument: (doc: ErdDocument) => void;
   applyPositions: (positions: Map<string, { x: number; y: number }>) => void;
   /** Moves Crow's-foot tables, writing the shared position that Chen does not use. */
-  applyTablePositions: (positions: Map<string, { x: number; y: number }>) => void;
+  applyTablePositions: (positions: Map<string, { x: number; y: number }>, resetRoutes?: boolean) => void;
   /** Places tables the person did not move. Not undoable; see the implementation. */
   placeTables: (positions: Map<string, { x: number; y: number }>) => void;
   ydoc: Y.Doc;
@@ -702,8 +702,12 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
      * never moves its entity in Chen, and a collaborator sees the move — the
      * two notations are arranged separately, not separately *privately*.
      */
-    applyTablePositions: (positions: Map<string, { x: number; y: number }>) => {
+    applyTablePositions: (positions: Map<string, { x: number; y: number }>, resetRoutes = false) => {
       mutate(() => {
+        if (resetRoutes) for (const relationship of room.ydoc.getMap('relationships').values()) {
+          if (!(relationship instanceof Y.Map)) continue;
+          for (const key of ['route', 'bendX', 'bendY', 'routePoints']) relationship.delete(key);
+        }
         for (const [id, pos] of positions) {
           setCrowPlacement(room.ydoc, id, pos.x, pos.y, true);
         }

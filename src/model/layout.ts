@@ -50,6 +50,8 @@ function buildGraph(doc: ErdDocument): Map<string, GraphNode> {
   if (doc.view !== 'crowfoot') {
     for (const r of doc.relationships) add(r.id);
     for (const i of doc.isas) add(i.id);
+    const owners = new Set([...doc.entities, ...doc.relationships, ...doc.attributes].map(node => node.id));
+    for (const attribute of doc.attributes) if (!attribute.ownerId || !owners.has(attribute.ownerId)) add(attribute.id);
   }
 
   const link = (a: string, b: string) => {
@@ -283,8 +285,9 @@ function clearAttributeSlot(doc: ErdDocument, owner: Positioned, count: number, 
  * Arranges every visible graph node. Returns absolute top-left positions.
  */
 /** Pack related nodes into a balanced grid, then bring neighbours closer. */
-function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, { w: number; h: number }>, horizontalGap?: number) {
+function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, { w: number; h: number }>, horizontalGap?: number, alignTop = false) {
   const ids = [...graph.keys()].sort();
+  const edges = ids.flatMap(id => graph.get(id)!.neighbors.filter(next => id < next).map(next => [id, next] as const));
   const average = { w: ids.reduce((sum, id) => sum + sizes.get(id)!.w, 0) / ids.length,
     h: ids.reduce((sum, id) => sum + sizes.get(id)!.h, 0) / ids.length };
   const gap = horizontalGap ?? Math.max(144, 72 + Math.ceil(Math.max(...[...graph.values()].map(node => node.neighbors.length)) / 2) * 18);
@@ -322,12 +325,24 @@ function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, 
     const boxes = order.map((id, index) => {
       const size = sizes.get(id)!, column = index % columns, row = Math.floor(index / columns);
       return { id, ...size, x: widths.slice(0, column).reduce((sum, w) => sum + w + gap, 0) + (widths[column]! - size.w) / 2,
-        y: heights.slice(0, row).reduce((sum, h) => sum + h + V_GAP, 0) + (heights[row]! - size.h) / 2 };
+        y: heights.slice(0, row).reduce((sum, h) => sum + h + V_GAP, 0) + (alignTop ? 0 : (heights[row]! - size.h) / 2) };
     });
     const width = widths.reduce((sum, w) => sum + w, 0) + (columns - 1) * gap;
     const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * V_GAP;
     const length = order.reduce((sum, id) => sum + cost(id), 0) / Math.max(1, order.length);
-    candidates.push({ boxes, width, height, score: Math.max(width / 1.6, height) ** 2 + width * height * 0.1 + length * Math.max(width, height) * 0.2 });
+    const byId = new Map(boxes.map(box => [box.id, box]));
+    const segments = edges.map(([from, to]) => {
+      const a = byId.get(from)!, b = byId.get(to)!;
+      return { from, to, a: { x: a.x + a.w / 2, y: a.y + a.h / 2 }, b: { x: b.x + b.w / 2, y: b.y + b.h / 2 } };
+    });
+    let conflicts = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const edge = segments[i]!;
+      for (const box of boxes) if (box.id !== edge.from && box.id !== edge.to && lineHitsBox(edge.a, edge.b, box)) conflicts += 4;
+      for (let j = i + 1; j < segments.length; j++) if (linesCross(edge.a, edge.b, segments[j]!.a, segments[j]!.b)) conflicts++;
+    }
+    candidates.push({ boxes, width, height, score: Math.max(width / 1.6, height) ** 2 + width * height * 0.1 +
+      (length + conflicts * gap / Math.max(1, ids.length) * 4) * Math.max(width, height) * 0.2 });
   }
   return candidates.sort((a, b) => a.score - b.score)[0]!;
 }
@@ -435,7 +450,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
       queue.push(...node.neighbors);
     }
     if (doc.view === 'crowfoot') {
-      components.push(arrangeGridComponent(graph, layoutSizes));
+      components.push(arrangeGridComponent(graph, layoutSizes, undefined, true));
       continue;
     }
     if (doc.entities.length >= DENSE_ENTITY_COUNT && doc.entities.some(entity => graph.has(entity.id))) {
@@ -599,13 +614,24 @@ export function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } 
 }
 
 /**
- * Applies a layout to a document, returning a new document with every node
- * moved. Chen attributes fan around their owners; hidden
- * shapes in Crow's-foot are left alone.
+ * Chen moves shapes and their attribute fans. Crow's-foot changes only its
+ * table positions and drops manual routes tied to the previous arrangement.
  */
 export function applyLayout(doc: ErdDocument): ErdDocument {
   const { positions, attributeBounds } = autoArrange(doc);
   if (positions.size === 0) return doc;
+  if (doc.view === 'crowfoot') return {
+    ...doc,
+    entities: doc.entities.map(entity => {
+      const point = positions.get(entity.id);
+      return point ? { ...entity, crowX: point.x, crowY: point.y } : entity;
+    }),
+    relationships: doc.relationships.map(relationship => {
+      const next = { ...relationship };
+      delete next.route; delete next.bendX; delete next.bendY; delete next.routePoints;
+      return next;
+    }),
+  };
 
   const move = <T extends Positioned>(node: T): T => {
     const next = positions.get(node.id);
@@ -615,7 +641,6 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
   const movedEntities = doc.entities.map(move);
   const movedRelationships = doc.relationships.map(move);
   const movedIsas = doc.isas.map(move);
-  if (doc.view === 'crowfoot') return { ...doc, entities: movedEntities };
 
   // Rebuild attribute fans rather than preserving offsets from the old layout.
   const movedEntitiesById = new Map(movedEntities.map((e) => [e.id, e]));
@@ -626,6 +651,8 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     movedEntitiesById.get(ownerId) ?? movedRelationshipsById.get(ownerId) ?? movedIsasById.get(ownerId) ?? placedAttributes.get(ownerId);
 
   const movedAttributes: ErdDocument['attributes'] = [];
+  const attributeOrder = [...doc.attributes].sort((a, b) => Number(b.kind === 'key') - Number(a.kind === 'key') ||
+    (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const limits = new Map<string, Box>();
   for (const [ownerId, bounds] of attributeBounds ?? []) {
     for (const id of descendantAttributeIds(doc, ownerId)) limits.set(id, bounds);
@@ -639,12 +666,13 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     if (parent) {
       placeAttribute(parent);
       // Fill the owner's fan before a composite's children consume its slots.
-      for (const sibling of doc.attributes.filter(a => a.ownerId === parent.ownerId)) placeAttribute(sibling);
+      for (const sibling of attributeOrder.filter(a => a.ownerId === parent.ownerId)) placeAttribute(sibling);
     }
     const owner = attr.ownerId ? ownerAt(attr.ownerId) : undefined;
     if (!owner) {
-      movedAttributes.push(attr);
-      placedAttributes.set(attr.id, attr);
+      const next = move(attr);
+      movedAttributes.push(next);
+      placedAttributes.set(attr.id, next);
       return;
     }
     // Place against what has been arranged so far, so siblings spread rather
@@ -655,7 +683,7 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     placedAttributes.set(attr.id, next);
     placed = { ...placed, attributes: movedAttributes };
   };
-  for (const attr of doc.attributes) placeAttribute(attr);
+  for (const attr of attributeOrder) placeAttribute(attr);
 
   return {
     ...doc,
