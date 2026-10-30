@@ -657,6 +657,46 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
   const peerSummary = state.peers.length === 0 ? 'Editing alone' :
     'Editing with ' + state.peers.map((peer) =>
       peer.name + ' (' + (peer.view === 'crowfoot' ? 'crow’s-foot' : 'Chen') + ')').join(', ');
+  const firstPeer = state.peers[0];
+  const presenceLabel = firstPeer
+    ? state.peers.length === 1 ? firstPeer.name : `${firstPeer.name} +${state.peers.length - 1}`
+    : null;
+
+  /*
+   * Say hello and goodbye in words.
+   *
+   * An avatar appearing in the header is easy to miss, and a collaborator who
+   * joins, works, and disconnects in quick succession reads as a flicker. The
+   * notice names who arrived, in their colour, then gets out of the way.
+   */
+  const knownPeers = useRef<Map<number, { name: string; color: string }> | null>(null);
+  const presenceTimer = useRef<number | null>(null);
+  const [presenceNotice, setPresenceNotice] = useState<{ text: string; color: string } | null>(null);
+  useEffect(() => {
+    const current = new Map(state.peers.map((peer) =>
+      [peer.clientId, { name: peer.name, color: peer.color }] as const));
+    const previous = knownPeers.current;
+    knownPeers.current = current;
+    if (!previous) return;
+    const joined = [...current].filter(([clientId]) => !previous.has(clientId)).map(([, peer]) => peer);
+    const left = [...previous].filter(([clientId]) => !current.has(clientId)).map(([, peer]) => peer);
+    const lead = joined[0] ?? left[0];
+    if (!lead) return;
+    const text = joined.length === 1 ? `${lead.name} joined`
+      : joined.length > 1 ? `${joined.length} people joined`
+      : left.length === 1 ? `${lead.name} left`
+      : `${left.length} people left`;
+    setPresenceNotice({ text, color: lead.color });
+    if (presenceTimer.current !== null) window.clearTimeout(presenceTimer.current);
+    presenceTimer.current = window.setTimeout(() => {
+      presenceTimer.current = null;
+      setPresenceNotice(null);
+    }, joined.length > 0 ? 4200 : 3200);
+  }, [state.peers]);
+  useEffect(() => () => {
+    if (presenceTimer.current !== null) window.clearTimeout(presenceTimer.current);
+  }, []);
+
   const connection = connectionState(state);
   const closeDialog = useCallback(() => setDialog(null), []);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -893,6 +933,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         {state.peers.length > 0 ? <div className="presence" title={peerSummary} aria-label={peerSummary}>
           {state.peers.slice(0, 3).map((peer) => <span key={peer.clientId} className="presence__avatar" title={peer.name}
             style={{ background: peer.color, color: presenceInk(peer.color) }}>{initials(peer.name)}</span>)}
+          {presenceLabel ? <span className="presence__label">{presenceLabel}</span> : null}
         </div> : null}
         {state.peers.some((peer) => peer.following === room.ydoc.clientID) ? (
           <span className="follow-badge">Someone is following you live</span>
@@ -1097,6 +1138,10 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
       {focusMode ? <button type="button" className="btn btn--ghost focus-exit" aria-label="Exit Focus view"
         title="Exit Focus view (Esc or I)" onClick={toggleFocus}><WorkspaceIcon name="focus" /><span>Exit Focus view</span></button> : null}
 
+      {presenceNotice ? <div className="join-notice" role="status">
+        <span className="join-notice__dot" style={{ background: presenceNotice.color }} aria-hidden="true" />
+        {presenceNotice.text}
+      </div> : null}
       {error ? <div className="feedback feedback--error" role="alert"><span>{error}</span><button type="button" className="btn btn--ghost" onClick={() => setError(null)}>Dismiss</button></div> : null}
       {state.notice ? <div className="feedback" role="status"><span>{state.notice}</span>
         {state.notice.endsWith(' deleted.') ? <button type="button" className="btn" disabled={!state.canUndo} onClick={state.undo}>Undo</button> : null}

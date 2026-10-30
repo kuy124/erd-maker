@@ -1616,6 +1616,28 @@ test.describe('live presence', () => {
     await expect.poll(async () => alice.locator('.peer-cursor').first().getAttribute('transform')).not.toBe(before);
   });
 
+  test('a collaborator’s arrival is announced by name', async ({ context }) => {
+    const alice = await context.newPage();
+    await openApp(alice);
+    await addShape(alice, 'entity');
+    await documentAction(alice, 'Share');
+    const link = await snapshotShareLink(alice);
+    await alice.getByRole('button', { name: 'Done', exact: true }).click();
+    await expect(alice.locator('.join-notice')).toHaveCount(0);
+
+    const bob = await context.newPage();
+    await openApp(bob);
+    await bob.goto(link);
+    await waitForLink([alice, bob]);
+
+    // A collaborator appearing only as an avatar is easy to miss; the notice
+    // says who arrived, and the header keeps their name beside the avatar.
+    const name = (await alice.locator('.presence__label').textContent())?.trim();
+    expect(name).toBeTruthy();
+    await expect(alice.locator('.join-notice')).toHaveText(`${name} joined`);
+    await expect(alice.locator('.presence__avatar').first()).toHaveAttribute('title', name!);
+  });
+
   test('crow’s-foot view shows cursors too', async ({ context }) => {
     const [alice, bob] = await pair(context);
     for (const page of [alice, bob]) {

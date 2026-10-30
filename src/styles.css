@@ -1440,6 +1440,7 @@ body {
 .presence {
   display: flex;
   align-items: center;
+  flex: none;
 }
 
 /*
@@ -1502,6 +1503,43 @@ body {
   font-size: var(--text-xs);
   color: var(--ink-secondary);
   margin-left: var(--s2);
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * A join or leave notice.
+ *
+ * The header avatars are easy to miss, and a collaborator who appears for a few
+ * seconds reads as a flicker unless something says who it was. It sits above
+ * the edit feedback, out of the way of the canvas and the toolbars.
+ */
+.join-notice {
+  position: fixed;
+  bottom: 132px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  max-width: calc(100% - 24px);
+  padding: var(--s1) var(--s3);
+  border: var(--hairline) solid var(--rule-strong);
+  border-radius: var(--r-panel);
+  background: var(--paper-raised);
+  color: var(--ink-secondary);
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
+
+.join-notice__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: var(--r-pill);
 }
 
 /* --------------------------------------------------------------- modal */
@@ -1941,7 +1979,9 @@ kbd { font: 13px var(--font-mono); }
 /* Panels open over the canvas at every size; closing them never shifts it. */
 @media (max-width: 1099px) {
   .document-title .docname { width: 19ch; }
-  .presence { display: none; }
+  /* The avatars stay: a collaborator you cannot see is a collaborator who is
+     not there. Only the name label, which needs the room, steps aside. */
+  .presence__label { display: none; }
 }
 
 /* Phones use scrollable sheets. Their height follows the visible viewport. */
@@ -1960,6 +2000,10 @@ kbd { font: 13px var(--font-mono); }
   .connection-pill { padding: 2px var(--s1); }
   /* Sharing is in the menu on a phone, so the shortcut would only crowd it. */
   .connection-fix { display: none; }
+  /* Presence keeps a place in the phone header, two identities wide. */
+  .presence__avatar { width: 20px; height: 20px; font-size: 9px; margin-left: -8px; }
+  .presence__avatar:nth-child(n+3) { display: none; }
+  .join-notice { bottom: 196px; }
   .document-title { flex: 1; }
   .document-title .docname { width: 100%; min-width: 0; padding: 6px; font-size: 16px; }
   .topbar__spacer, .header-export, .header-share { display: none; }
