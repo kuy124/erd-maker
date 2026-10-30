@@ -173,16 +173,16 @@ export function findAttributeSlot(
   const columnX = Number.isFinite(x) ? x : box.x + box.w + COLUMN_GAP;
 
   // Stack below the lowest thing already in the column.
-  let y = box.y;
+  let startY = box.y;
   for (const sibling of siblings) {
-    y = Math.max(y, sibling.y + size.h + ROW_GAP);
+    startY = Math.max(startY, sibling.y + size.h + ROW_GAP);
   }
 
   // Never land on top of the owner. A column the user dragged to the left of
   // the owner can overlap it vertically, so this has to be checked rather than
   // assumed.
-  if (overlaps({ x: columnX, y, ...size }, box, 0)) {
-    y = box.y + box.h + ROW_GAP;
+  if (overlaps({ x: columnX, y: startY, ...size }, box, 0)) {
+    startY = box.y + box.h + ROW_GAP;
   }
 
   const occupied = occupiedBoxes({ ...doc, view: 'chen' });
@@ -202,18 +202,42 @@ export function findAttributeSlot(
       h: Math.max(...ys) - Math.min(...ys) + pad * 2,
     }];
   });
-  for (;;) {
-    const candidate = { x: columnX, y, ...size };
-    const blockers = occupied.filter(box => overlaps(candidate, box, ROW_GAP));
-    const across = legBoxes.findIndex(box => overlaps(candidate, box, 0));
-    if (blockers.length === 0 && across === -1) return { x: columnX, y };
-    const bottoms = [...blockers.map(b => b.y + b.h)];
-    if (across !== -1) bottoms.push(legBoxes[across]!.y + legBoxes[across]!.h);
-    y = Math.max(...bottoms) + ROW_GAP;
+
+  // Walk down the column, stepping past clusters of blockers, and report the
+  // first clear row. `limit` is how far the walk may drift before the column
+  // counts as full: a new attribute belongs near its owner, so a column that
+  // is crowded at the owner's end is abandoned for one beside it instead of
+  // running down to the bottom of the band.
+  const scan = (x: number, from: number, limit: number): number | null => {
+    let y = from;
+    for (let step = 0; step <= occupied.length + legBoxes.length; step += 1) {
+      const candidate = { x, y, ...size };
+      const blockers = occupied.filter((box) => overlaps(candidate, box, ROW_GAP));
+      const across = legBoxes.findIndex((box) => overlaps(candidate, box, 0));
+      if (blockers.length === 0 && across === -1) return y;
+      const bottoms = blockers.map((box) => box.y + box.h);
+      if (across !== -1) bottoms.push(legBoxes[across]!.y + legBoxes[across]!.h);
+      y = Math.max(...bottoms) + ROW_GAP;
+      if (y - from > limit) return null;
+    }
+    return null;
+  };
+
+  // The column starts beside the owner and shifts right only as far as it takes.
+  const columnPitch = size.w + COLUMN_GAP;
+  const drift = (size.h + ROW_GAP) * 4;
+  for (let column = 0; column < 6; column += 1) {
+    const x = columnX + column * columnPitch;
+    const y = scan(x, startY, drift);
+    if (y !== null) return { x, y };
   }
+  // Every nearby column is full; the next clear row of the first one is the
+  // honest answer, however far down it is.
+  const fallback = scan(columnX, startY, Number.POSITIVE_INFINITY);
+  return { x: columnX, y: fallback ?? Math.max(startY, ...occupied.map((box) => box.y + box.h)) + ROW_GAP };
 }
 
-/** Keep an automatic diamond between its entities, stepping sideways if space is tight. */
+/** Keep an automatic diamond between its entities, at the nearest free point to their midpoint. */
 export function findRelationshipSlot(doc: ErdDocument, fromId: string, toId: string): { x: number; y: number } {
   const from = doc.entities.find((entity) => entity.id === fromId)!;
   const to = doc.entities.find((entity) => entity.id === toId)!;
@@ -242,15 +266,19 @@ export function findRelationshipSlot(doc: ErdDocument, fromId: string, toId: str
     x: (from.x + to.x + NODE_SIZE.entity.w - size.w) / 2,
     y: (from.y + to.y + NODE_SIZE.entity.h - size.h) / 2,
   };
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const length = Math.hypot(dx, dy);
-  const normal = length ? { x: -dy / length, y: dx / length } : { x: 0, y: 1 };
   const occupied = occupiedBoxes({ ...doc, view: 'chen' });
-  for (let index = 0; index < 48; index += 1) {
-    const distance = Math.ceil(index / 2) * SLOT_GAP * (index % 2 ? 1 : -1);
-    const point = { x: origin.x + normal.x * distance, y: origin.y + normal.y * distance };
-    if (!occupied.some((box) => overlaps({ ...point, ...size }, box, SLOT_GAP))) return point;
+  // Nearest free point around the midpoint, searched in two dimensions: a
+  // column of attributes beside the line is stepped around, not climbed over.
+  const reach = 16;
+  const candidates: { x: number; y: number; distance: number }[] = [];
+  for (let dx = -reach; dx <= reach; dx += 1) {
+    for (let dy = -reach; dy <= reach; dy += 1) {
+      candidates.push({ x: origin.x + dx * SLOT_GAP, y: origin.y + dy * SLOT_GAP, distance: dx * dx + dy * dy });
+    }
+  }
+  candidates.sort((a, b) => a.distance - b.distance);
+  for (const point of candidates) {
+    if (!occupied.some((box) => overlaps({ ...point, ...size }, box, SLOT_GAP))) return { x: point.x, y: point.y };
   }
   return findFreeSlot(occupied, origin, size);
 }

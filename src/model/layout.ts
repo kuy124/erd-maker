@@ -438,6 +438,16 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
   const positions = new Map<string, { x: number; y: number }>();
   const components: ReturnType<typeof arrangeGridComponent>[] = [];
   const compactOwners = new Set<string>();
+  // The compact engine packs owners and threads relationships between them.
+  // It wins whenever the attribute fans fit its budget: the layered engine
+  // reserves a wide ring around every owner, which pays off only for fans
+  // that actually fill the ring.
+  const fans = new Map<string, number>();
+  for (const attribute of doc.attributes) {
+    if (attribute.ownerId) fans.set(attribute.ownerId, (fans.get(attribute.ownerId) ?? 0) + 1);
+  }
+  const compactGraph = doc.view !== 'crowfoot' && (doc.entities.length >= DENSE_ENTITY_COUNT ||
+    (fans.size > 0 && Math.max(...fans.values()) <= COMPACT_FAN_CAPACITY));
   while (remaining.size) {
     const graph = new Map<string, GraphNode>();
     const queue = [[...remaining.keys()].sort()[0]!];
@@ -453,7 +463,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
       components.push(arrangeGridComponent(graph, layoutSizes, undefined, true));
       continue;
     }
-    if (doc.entities.length >= DENSE_ENTITY_COUNT && doc.entities.some(entity => graph.has(entity.id))) {
+    if (compactGraph && doc.entities.some(entity => graph.has(entity.id))) {
       for (const id of graph.keys()) layoutSizes.set(id, attributeSpace(doc, id, new Set(), COMPACT_FAN_CAPACITY));
       components.push(arrangeChenComponent(doc, graph, layoutSizes));
       for (const id of graph.keys()) compactOwners.add(id);

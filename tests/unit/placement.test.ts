@@ -47,6 +47,22 @@ describe('automatic relationship placement', () => {
     expect(findRelationshipSlot(doc, 'e0', 'e1')).toEqual({ x: 300, y: 94 });
   });
 
+  it('steps around an attribute column near the midpoint rather than leaping over it', () => {
+    // A long pair with an attribute column just right of the midpoint. The
+    // nearest free spot is a short step sideways along the connection, not a
+    // climb over the whole column.
+    const doc = docWith([{ x: 60, y: 400 }, { x: 1660, y: 400 }]);
+    for (let a = 0; a < 9; a++) {
+      doc.attributes.push({ id: `x${a}`, name: `X${a}`, x: 900, y: 300 + a * 80, kind: 'simple', ownerId: null });
+    }
+    const slot = findRelationshipSlot(doc, 'e0', 'e1');
+    const centre = { x: slot.x + NODE_SIZE.relationship.w / 2, y: slot.y + NODE_SIZE.relationship.h / 2 };
+    expect(Math.hypot(centre.x - 935, centre.y - 430)).toBeLessThan(200);
+    for (const box of occupiedBoxes(doc)) {
+      expect(overlaps({ ...slot, ...NODE_SIZE.relationship }, box, 40)).toBe(false);
+    }
+  });
+
   it.each([
     [{ x: 0, y: 0 }, { x: 190, y: 0 }],
     [{ x: 0, y: 0 }, { x: 0, y: 90 }],
@@ -186,6 +202,25 @@ describe('findAttributeSlot', () => {
     const slot = findAttributeSlot(doc, 'e0')!;
     expect(slot.x).toBe(900);
     expect(slot.y).toBeGreaterThan(900 + NODE_SIZE.attribute.h);
+  });
+
+  it('opens a second column instead of running to the bottom of a crowded band', () => {
+    // Six owners share one column, each with two attributes already stacked in
+    // the shared column. The next attribute of the topmost owner belongs near
+    // that owner, not 1,000px below it at the end of everyone else's column.
+    const doc = docWith(Array.from({ length: 6 }, (_, i) => ({ x: 200, y: 200 + i * 200 })));
+    for (let i = 0; i < 6; i++) {
+      for (let a = 0; a < 2; a++) {
+        const slot = findAttributeSlot(doc, `e${i}`)!;
+        doc.attributes.push({ id: `a${i}_${a}`, name: `A${a}`, ...slot, kind: 'simple', ownerId: `e${i}` });
+      }
+    }
+    const slot = findAttributeSlot(doc, 'e0')!;
+    expect(slot.y).toBeLessThanOrEqual(200 + 5 * (NODE_SIZE.attribute.h + 28));
+    expect(slot.x).toBeGreaterThan(200 + NODE_SIZE.entity.w + 60 + NODE_SIZE.attribute.w);
+    for (const box of occupiedBoxes(doc)) {
+      expect(overlaps({ ...slot, ...NODE_SIZE.attribute }, box, 0)).toBe(false);
+    }
   });
 
   it('works for a relationship and for a specialization as owner', () => {

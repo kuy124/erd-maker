@@ -202,6 +202,40 @@ describe('applyLayout', () => {
     expect(width).toBeLessThan(1600);
     expect(applyLayout(next)).toEqual(next);
   });
+  it('packs an attribute-heavy diagram instead of stretching it across a banner', () => {
+    const doc = emptyDocument();
+    const names = ['Customer', 'Order', 'Item', 'Product', 'Payment', 'Rider',
+      'Zone', 'Promo', 'Review', 'Vendor', 'Address'];
+    names.forEach((name, index) => {
+      doc.entities.push({ id: `e${index}`, name, kind: 'strong', x: 0, y: 0 });
+      for (let a = 0; a < 4; a++) {
+        doc.attributes.push({ id: `e${index}a${a}`, name: `field ${a}`, ownerId: `e${index}`,
+          kind: a ? 'simple' : 'key', x: 0, y: 0 });
+      }
+    });
+    [[0, 1], [1, 2], [2, 3], [1, 4], [4, 5], [5, 6], [1, 7], [1, 8], [8, 9], [9, 10]]
+      .forEach(([from, to], index) => {
+        doc.relationships.push({ id: `r${index}`, name: 'relates', kind: 'strong', x: 0, y: 0 });
+        for (const [leg, entity] of [`e${from}`, `e${to}`].entries()) {
+          doc.legs.push({ id: `l${index}-${leg}`, fromId: entity, toId: `r${index}`,
+            cardinality: '1', participation: { min: 0, max: 1 } });
+        }
+      });
+    const next = applyLayout(doc);
+    const boxes = [...next.entities, ...next.relationships, ...next.attributes]
+      .map(node => ({ ...node, ...sizeFor(next, node.id) }));
+    const width = Math.max(...boxes.map(box => box.x + box.w)) - Math.min(...boxes.map(box => box.x));
+    const height = Math.max(...boxes.map(box => box.y + box.h)) - Math.min(...boxes.map(box => box.y));
+    const area = boxes.reduce((sum, box) => sum + box.w * box.h, 0);
+    expect(width * height).toBeLessThan(area * 8);
+    expect(Math.max(width / height, height / width)).toBeLessThan(2.6);
+    for (let i = 0; i < boxes.length; i++) {
+      for (const other of boxes.slice(i + 1)) {
+        expect(overlaps(boxes[i]!, other, 0), `${boxes[i]!.id} overlaps ${other.id}`).toBe(false);
+      }
+    }
+    expect(applyLayout(next)).toEqual(next);
+  });
   it('moves graph nodes to their computed positions', () => {
     const doc = chain();
     const next = applyLayout(doc);
