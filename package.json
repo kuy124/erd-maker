@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p mcp/tsconfig.json",
+    "mcp": "node mcp/start.mjs",
+    "mcp:typecheck": "tsc -p mcp/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
@@ -25,15 +27,18 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "^1.49.1",
     "@types/node": "^22.20.5",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^25.0.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^2.1.8",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   }
 }

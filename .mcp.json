@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "erd-maker": {
+      "command": "node",
+      "args": ["mcp/start.mjs"]
+    }
+  }
+}

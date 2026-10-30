@@ -1,0 +1,1015 @@
+/**
+ * The ERD Maker MCP's diagram service.
+ *
+ * Everything here is built on `src/model`, the same pure model the app renders
+ * and exports. Nothing re-implements the schema: a diagram written by the MCP is
+ * the JSON the app imports, validation is the app's own check, and SQL is the
+ * app's exporter. That is what keeps an AI-authored diagram from being a
+ * plausible lookalike that the app cannot open.
+ *
+ * The service is stateful because an MCP session is: one working diagram is
+ * opened or created, then edited by successive tool calls. Files stay inside the
+ * workspace root so a model-generated path cannot write anywhere on the machine.
+ */
+
+import { constants, type Dirent } from 'node:fs';
+import { access, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { attributeType, normalizeDataType } from '../src/model/dataTypes';
+import { leafAttributesOf } from '../src/model/attributes';
+import { toSqlName } from '../src/model/columnNames';
+import { CROW_HEADER_HEIGHT, CROW_ROW_HEIGHT, CROW_WIDTH, deriveTables } from '../src/model/crowfoot';
+import { getDiagramIssues, validParticipation, type DiagramIssue } from '../src/model/issues';
+import { applyLayout } from '../src/model/layout';
+import { findAttributeSlot, findFreeSlot, findRelationshipSlot, occupiedBoxes } from '../src/model/placement';
+import { buildShareUrl, newRoomId, normalizeDocument } from '../src/model/snapshot';
+import { describeSqlReadiness, generateSql } from '../src/model/sql';
+import {
+  ENTITY_KINDS,
+  emptyDocument,
+  removeNode,
+  type Attribute,
+  type AttributeKind,
+  type Cardinality,
+  type Entity,
+  type EntityKind,
+  type ErdDocument,
+  type Leg,
+  type Participation,
+  type Relationship,
+  type RelationshipKind,
+} from '../src/model/types';
+
+function repositoryRoot(): string {
+  // A test runner serves this module from a virtual http URL, which cannot be
+  // turned into a path; the process working directory is the checkout there.
+  try {
+    return resolve(fileURLToPath(new URL('..', import.meta.url)));
+  } catch {
+    return process.cwd();
+  }
+}
+
+const REPO_ROOT = repositoryRoot();
+
+/** Files the MCP reads and writes must stay under this directory. */
+export const WORKSPACE_ROOT = resolve(process.env.ERD_MCP_ROOT ?? REPO_ROOT);
+
+/** Where diagrams are created when a tool call does not name a path. */
+export const DIAGRAMS_ROOT = resolve(WORKSPACE_ROOT, process.env.ERD_MCP_DIR ?? 'diagrams');
+
+export type DiagramView = ErdDocument['view'];
+
+export interface AttributeSpec {
+  name: string;
+  kind?: AttributeKind;
+  dataType?: string;
+  attributes?: AttributeSpec[];
+}
+
+export interface EntitySpec {
+  name: string;
+  kind?: EntityKind;
+  attributes?: AttributeSpec[];
+}
+
+export interface ParticipationSpec {
+  min: number;
+  max: number | 'N';
+}
+
+export interface RelationshipSpec {
+  name: string;
+  kind?: RelationshipKind;
+  /** Entity name or id at this end. */
+  from: string;
+  /** Entity name or id at the far end. */
+  to: string;
+  /**
+   * `from:to`, one of 1:1, 1:N, N:1, N:M, M:N. Each side describes the entity
+   * at that end, so `Customer -> Order` with `1:N` means one customer places
+   * many orders.
+   */
+  cardinality?: string;
+  fromParticipation?: ParticipationSpec;
+  toParticipation?: ParticipationSpec;
+  /** Attributes hanging off the relationship itself, e.g. `enrolled_at`. */
+  attributes?: AttributeSpec[];
+}
+
+export interface IsaSpec {
+  parent: string;
+  children: string[];
+}
+
+export interface CreateSpec {
+  name: string;
+  view?: DiagramView;
+  entities: EntitySpec[];
+  relationships?: RelationshipSpec[];
+  isas?: IsaSpec[];
+  /** Workspace-relative JSON path. Omit to get `diagrams/<slug>.json`. */
+  path?: string;
+  /** Replace an explicitly named file that already exists. */
+  overwrite?: boolean;
+  /** Auto-arrange after building. Defaults to true. */
+  layout?: boolean;
+  /** Set false to keep the diagram in this session without writing a file. */
+  save?: boolean;
+}
+
+export interface SummaryAttribute {
+  id: string;
+  name: string;
+  kind: AttributeKind;
+  type: string;
+}
+
+export interface SummaryColumn {
+  name: string;
+  type: string;
+  pk: boolean;
+  fk: boolean;
+  unique?: boolean;
+  references?: string;
+}
+
+export interface SummaryRelationshipEnd {
+  entityId: string;
+  entityName: string;
+  cardinality: Cardinality;
+  participation: Participation;
+  columnId?: string;
+}
+
+export interface DiagramSummary {
+  name: string;
+  view: DiagramView;
+  filePath: string | null;
+  counts: {
+    entities: number;
+    attributes: number;
+    relationships: number;
+    specializations: number;
+  };
+  entities: Array<{
+    id: string;
+    name: string;
+    kind: EntityKind;
+    attributes: SummaryAttribute[];
+    columns: SummaryColumn[];
+  }>;
+  relationships: Array<{
+    id: string;
+    name: string;
+    kind: RelationshipKind;
+    ends: SummaryRelationshipEnd[];
+    attributes: SummaryAttribute[];
+  }>;
+  specializations: Array<{ id: string; parent: string | null; children: string[] }>;
+  issues: Array<DiagramIssue & { nodeName: string | null }>;
+  sqlReadiness: string;
+}
+
+export interface ShareInfo {
+  room: string;
+  url: string;
+  hash: string;
+}
+
+export interface MutationResult {
+  message: string;
+  nodeId?: string;
+  filePath: string | null;
+  savedTo?: string;
+  saveError?: string;
+  issues: Array<DiagramIssue & { nodeName: string | null }>;
+}
+
+interface Session {
+  doc: ErdDocument;
+  filePath: string | null;
+  dirty: boolean;
+}
+
+let session: Session | null = null;
+
+/** The open diagram, or null when the session has not opened one yet. */
+export function peekSession(): { doc: ErdDocument; filePath: string | null; dirty: boolean } | null {
+  return session ? { doc: session.doc, filePath: session.filePath, dirty: session.dirty } : null;
+}
+
+function requireSession(): Session {
+  if (!session) {
+    throw new Error('No diagram is open. Call create_diagram or open_diagram first.');
+  }
+  return session;
+}
+
+/** Keeps a model-supplied path inside the workspace. */
+export function resolveDiagramPath(input: string): string {
+  if (!input.trim()) throw new Error('Pass a diagram path.');
+  const candidate = isAbsolute(input) ? resolve(input) : resolve(WORKSPACE_ROOT, input);
+  const rel = relative(WORKSPACE_ROOT, candidate);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`Diagram paths must stay inside ${WORKSPACE_ROOT}.`);
+  }
+  if (!candidate.toLowerCase().endsWith('.json')) {
+    throw new Error('Diagram files must use a .json extension.');
+  }
+  return candidate;
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function serialize(doc: ErdDocument): string {
+  return JSON.stringify(doc, null, 2) + '\n';
+}
+
+async function readDocument(path: string): Promise<ErdDocument> {
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch {
+    throw new Error(`Could not read ${path}.`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${path} is not valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+    !Array.isArray((parsed as Record<string, unknown>).entities)) {
+    throw new Error(`${path} does not contain a diagram. Export a JSON file from ERD Maker.`);
+  }
+  return normalizeDocument(parsed);
+}
+
+async function writeDocument(doc: ErdDocument, path: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, serialize(doc), 'utf8');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function uniqueDefaultPath(name: string): Promise<string> {
+  await mkdir(DIAGRAMS_ROOT, { recursive: true });
+  const stem = toSqlName(name);
+  for (let index = 1; index < 10_000; index += 1) {
+    const candidate = resolve(DIAGRAMS_ROOT, `${stem}${index === 1 ? '' : `-${index}`}.json`);
+    if (!(await fileExists(candidate))) return candidate;
+  }
+  return resolve(DIAGRAMS_ROOT, `${stem}-${Date.now().toString(36)}.json`);
+}
+
+function requireName(value: string, label: string): string {
+  const name = value.trim();
+  if (!name) throw new Error(`A ${label.toLowerCase()} needs a name.`);
+  return name;
+}
+
+function entityKind(value: EntityKind | undefined): EntityKind {
+  if (value === undefined) return 'strong';
+  if (!ENTITY_KINDS.includes(value)) throw new Error(`Entity kind must be one of ${ENTITY_KINDS.join(', ')}.`);
+  return value;
+}
+
+const ATTRIBUTE_KINDS: AttributeKind[] = ['simple', 'key', 'unique', 'multivalued', 'derived', 'composite'];
+
+function attributeKind(value: string | undefined, hasParts: boolean): AttributeKind {
+  if (value === undefined) return hasParts ? 'composite' : 'simple';
+  const kind = ATTRIBUTE_KINDS.find((candidate) => candidate === value);
+  if (!kind) throw new Error(`Attribute kind must be one of ${ATTRIBUTE_KINDS.join(', ')}.`);
+  if (hasParts && kind !== 'composite') {
+    throw new Error('An attribute with parts must have kind "composite".');
+  }
+  return kind;
+}
+
+function relationshipKind(value: RelationshipKind | undefined, from: Entity, to: Entity): RelationshipKind {
+  if (value !== undefined) {
+    if (value !== 'strong' && value !== 'weak') throw new Error('Relationship kind must be "strong" or "weak".');
+    return value;
+  }
+  return from.kind === 'weak' || to.kind === 'weak' ? 'weak' : 'strong';
+}
+
+const CARDINALITIES: Record<string, [Cardinality, Cardinality]> = {
+  '1:1': ['1', '1'],
+  '1:N': ['1', 'N'],
+  'N:1': ['N', '1'],
+  'N:M': ['N', 'M'],
+  'M:N': ['M', 'N'],
+};
+
+function parseCardinality(value: string | undefined): [Cardinality, Cardinality] {
+  const key = (value ?? '1:N').trim().toUpperCase();
+  const cards = CARDINALITIES[key];
+  if (!cards) throw new Error(`Cardinality "${value}" must be one of 1:1, 1:N, N:1, N:M, M:N.`);
+  return cards;
+}
+
+/** Optional at both ends unless the caller says otherwise. */
+function participationOf(spec: ParticipationSpec | undefined, card: Cardinality): Participation {
+  const participation = spec ?? { min: 0, max: card === '1' ? 1 : 'N' };
+  if (!validParticipation(participation.min, participation.max)) {
+    throw new Error('Participation needs a whole-number minimum of 0 or more, and a maximum at least as large (or N).');
+  }
+  return { min: participation.min, max: participation.max };
+}
+
+function newId(prefix: string, base: string, used: Set<string>): string {
+  const root = `${prefix}_${toSqlName(base)}`;
+  let id = root;
+  for (let suffix = 2; used.has(id); suffix += 1) id = `${root}_${suffix}`;
+  used.add(id);
+  return id;
+}
+
+function collectIds(doc: ErdDocument): Set<string> {
+  return new Set(
+    [...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas, ...doc.legs].map((node) => node.id),
+  );
+}
+
+function dataTypeOf(value: string | undefined, name: string): string | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  const type = normalizeDataType(value);
+  if (!type) {
+    throw new Error(`Unknown data type "${value}" for ${name}. Use a type such as INT, VARCHAR(120), NUMERIC(10,2), DATE, TIMESTAMP, UUID, BOOLEAN, JSONB, or ENUM('a','b').`);
+  }
+  return type;
+}
+
+function addAttributeSpecs(
+  doc: ErdDocument,
+  ownerId: string,
+  ownerSlug: string,
+  specs: AttributeSpec[],
+  used: Set<string>,
+  onCreated?: (attribute: Attribute) => void,
+): void {
+  for (const spec of specs) {
+    const name = requireName(spec.name, 'Attribute');
+    const parts = spec.attributes ?? [];
+    const attribute: Attribute = {
+      id: newId('attr', `${ownerSlug}_${name}`, used),
+      name,
+      x: 0,
+      y: 0,
+      kind: attributeKind(spec.kind, parts.length > 0),
+      ownerId,
+    };
+    const dataType = dataTypeOf(spec.dataType, name);
+    if (dataType) attribute.dataType = dataType;
+    doc.attributes.push(attribute);
+    onCreated?.(attribute);
+    if (parts.length) addAttributeSpecs(doc, attribute.id, `${ownerSlug}_${name}`, parts, used, onCreated);
+  }
+}
+
+function entityFromMap(byName: Map<string, Entity>, ref: string): Entity {
+  const entity = byName.get(ref.trim().toLowerCase());
+  if (!entity) {
+    const names = [...byName.values()].map((candidate) => candidate.name).join(', ');
+    throw new Error(`No entity named "${ref}" in this diagram. Available entities: ${names}.`);
+  }
+  return entity;
+}
+
+function addRelationshipSpec(
+  doc: ErdDocument,
+  spec: RelationshipSpec,
+  byName: Map<string, Entity>,
+  used: Set<string>,
+): Relationship {
+  const name = requireName(spec.name, 'Relationship');
+  const from = entityFromMap(byName, spec.from);
+  const to = entityFromMap(byName, spec.to);
+  const [fromCard, toCard] = parseCardinality(spec.cardinality);
+  const relationship: Relationship = {
+    id: newId('rel', name, used),
+    name,
+    x: 0,
+    y: 0,
+    kind: relationshipKind(spec.kind, from, to),
+  };
+  doc.relationships.push(relationship);
+  addAttributeSpecs(doc, relationship.id, name, spec.attributes ?? [], used);
+
+  const leg = (entity: Entity, card: Cardinality, part: ParticipationSpec | undefined, suffix: string): Leg => ({
+    id: newId('leg', `${name}_${suffix}`, used),
+    fromId: relationship.id,
+    toId: entity.id,
+    cardinality: card,
+    participation: participationOf(part, card),
+  });
+  doc.legs.push(leg(from, fromCard, spec.fromParticipation, from.name));
+  doc.legs.push(leg(to, toCard, spec.toParticipation, to.name));
+  return relationship;
+}
+
+function buildDocument(spec: CreateSpec): ErdDocument {
+  if (!Array.isArray(spec.entities) || spec.entities.length === 0) {
+    throw new Error('A diagram needs at least one entity.');
+  }
+  const name = requireName(spec.name, 'Diagram');
+  const doc = emptyDocument(name);
+  doc.view = spec.view === 'crowfoot' ? 'crowfoot' : 'chen';
+  const used = new Set<string>();
+  const byName = new Map<string, Entity>();
+
+  for (const entitySpec of spec.entities) {
+    const entityName = requireName(entitySpec.name, 'Entity');
+    const key = entityName.toLowerCase();
+    if (byName.has(key)) throw new Error(`Duplicate entity name "${entityName}". Use one entity per table.`);
+    const entity: Entity = {
+      id: newId('ent', entityName, used),
+      name: entityName,
+      x: 0,
+      y: 0,
+      kind: entityKind(entitySpec.kind),
+    };
+    doc.entities.push(entity);
+    byName.set(key, entity);
+  }
+
+  for (const entitySpec of spec.entities) {
+    const entity = entityFromMap(byName, entitySpec.name);
+    addAttributeSpecs(doc, entity.id, entity.name, entitySpec.attributes ?? [], used);
+  }
+
+  for (const relationship of spec.relationships ?? []) {
+    addRelationshipSpec(doc, relationship, byName, used);
+  }
+
+  for (const isaSpec of spec.isas ?? []) {
+    const parent = entityFromMap(byName, isaSpec.parent);
+    if (!Array.isArray(isaSpec.children) || isaSpec.children.length === 0) {
+      throw new Error(`Specialization on ${parent.name} needs at least one child.`);
+    }
+    const children = isaSpec.children.map((child) => entityFromMap(byName, child));
+    doc.isas.push({
+      id: newId('isa', parent.name, used),
+      x: 0,
+      y: 0,
+      parentId: parent.id,
+      childIds: children.map((child) => child.id),
+    });
+  }
+
+  return normalizeDocument(doc);
+}
+
+/** Arranges one notation, leaving the other one's coordinates alone. */
+function arrangeView(doc: ErdDocument, view: DiagramView): ErdDocument {
+  return view === 'crowfoot'
+    ? { ...applyLayout({ ...doc, view: 'crowfoot' }), view: 'crowfoot' }
+    : { ...applyLayout({ ...doc, view: 'chen' }), view: 'chen' };
+}
+
+/** A new crow's-foot diagram also gets Chen coordinates, so switching views is not a pile-up. */
+function arrangeNewDocument(doc: ErdDocument, view: DiagramView): ErdDocument {
+  const chen = arrangeView(doc, 'chen');
+  return view === 'crowfoot' ? arrangeView(chen, 'crowfoot') : chen;
+}
+
+function nodeName(doc: ErdDocument, id: string): string | null {
+  return doc.entities.find((node) => node.id === id)?.name ??
+    doc.attributes.find((node) => node.id === id)?.name ??
+    doc.relationships.find((node) => node.id === id)?.name ??
+    (doc.isas.some((node) => node.id === id) ? 'specialization' : null) ??
+    (doc.legs.some((node) => node.id === id) ? 'line' : null);
+}
+
+function issuesOf(doc: ErdDocument): Array<DiagramIssue & { nodeName: string | null }> {
+  return getDiagramIssues(doc).map((issue) => ({ ...issue, nodeName: nodeName(doc, issue.nodeId) }));
+}
+
+export function summarizeDocument(doc: ErdDocument, filePath: string | null = null): DiagramSummary {
+  const tables = deriveTables(doc);
+  return {
+    name: doc.name,
+    view: doc.view,
+    filePath,
+    counts: {
+      entities: doc.entities.length,
+      attributes: doc.attributes.length,
+      relationships: doc.relationships.length,
+      specializations: doc.isas.length,
+    },
+    entities: doc.entities.map((entity) => {
+      const table = tables.find((candidate) => candidate.entityId === entity.id);
+      return {
+        id: entity.id,
+        name: entity.name,
+        kind: entity.kind,
+        attributes: leafAttributesOf(doc, entity.id).map((attribute) => ({
+          id: attribute.id,
+          name: attribute.name,
+          kind: attribute.kind,
+          type: attributeType(attribute),
+        })),
+        columns: (table?.rows ?? []).map((row) => ({
+          name: row.name,
+          type: row.type,
+          pk: row.pk,
+          fk: row.fk,
+          ...(row.unique ? { unique: true } : {}),
+          ...(row.references ? { references: row.references.label } : {}),
+        })),
+      };
+    }),
+    relationships: doc.relationships.map((relationship) => ({
+      id: relationship.id,
+      name: relationship.name,
+      kind: relationship.kind,
+      ends: doc.legs
+        .filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id)
+        .flatMap((leg) => {
+          const entityId = leg.fromId === relationship.id ? leg.toId : leg.fromId;
+          const entity = doc.entities.find((candidate) => candidate.id === entityId);
+          if (!entity) return [];
+          return [{
+            entityId: entity.id,
+            entityName: entity.name,
+            cardinality: leg.cardinality,
+            participation: leg.participation,
+            ...(leg.columnId ? { columnId: leg.columnId } : {}),
+          }];
+        }),
+      attributes: leafAttributesOf(doc, relationship.id).map((attribute) => ({
+        id: attribute.id,
+        name: attribute.name,
+        kind: attribute.kind,
+        type: attributeType(attribute),
+      })),
+    })),
+    specializations: doc.isas.map((isa) => ({
+      id: isa.id,
+      parent: doc.entities.find((entity) => entity.id === isa.parentId)?.name ?? null,
+      children: isa.childIds.map((id) => doc.entities.find((entity) => entity.id === id)?.name ?? id),
+    })),
+    issues: issuesOf(doc),
+    sqlReadiness: describeSqlReadiness(doc),
+  };
+}
+
+/** A readable outline for a model that would rather not parse the JSON summary. */
+export function summaryOutline(summary: DiagramSummary): string {
+  const lines: string[] = [`${summary.name} (${summary.view})`];
+  lines.push(`Entities (${summary.counts.entities}):`);
+  for (const entity of summary.entities) {
+    const attributes = entity.attributes.map((attribute) =>
+      `${attribute.name} ${attribute.kind}${attribute.type ? `:${attribute.type}` : ''}`).join(', ');
+    lines.push(`- ${entity.name} [${entity.kind}] ${entity.id}${attributes ? `: ${attributes}` : ''}`);
+  }
+  if (summary.relationships.length) {
+    lines.push(`Relationships (${summary.counts.relationships}):`);
+    for (const relationship of summary.relationships) {
+      const ends = relationship.ends.map((end) =>
+        `${end.entityName} ${end.cardinality} (${end.participation.min}..${end.participation.max})`).join(' - ');
+      lines.push(`- ${relationship.name} [${relationship.kind}] ${relationship.id}: ${ends}`);
+    }
+  }
+  if (summary.specializations.length) {
+    lines.push(`Specializations (${summary.counts.specializations}):`);
+    for (const isa of summary.specializations) {
+      lines.push(`- ${isa.parent ?? '(no parent)'} -> ${isa.children.join(', ')}`);
+    }
+  }
+  if (summary.issues.length) {
+    lines.push(`Warnings (${summary.issues.length}):`);
+    for (const issue of summary.issues) lines.push(`- ${issue.code}: ${issue.message}`);
+  } else {
+    lines.push('Warnings: none.');
+  }
+  return lines.join('\n');
+}
+
+function shareInfo(doc: ErdDocument, options: { baseUrl?: string; room?: string; includeSnapshot?: boolean } = {}): ShareInfo {
+  const baseUrl = options.baseUrl ?? process.env.ERD_MCP_APP_URL ?? 'http://localhost:5173/';
+  const room = options.room?.trim() || newRoomId();
+  const includeSnapshot = options.includeSnapshot ?? true;
+  const url = buildShareUrl(baseUrl, doc, room, includeSnapshot);
+  const hashIndex = url.indexOf('#');
+  return { room, url, hash: hashIndex === -1 ? '' : url.slice(hashIndex) };
+}
+
+async function saveNew(doc: ErdDocument, requested: string | undefined, overwrite: boolean): Promise<string> {
+  const path = requested ? resolveDiagramPath(requested) : await uniqueDefaultPath(doc.name);
+  if (requested && (await fileExists(path)) && !overwrite) {
+    throw new Error(`${path} already exists. Pass overwrite: true or choose another path.`);
+  }
+  await writeDocument(doc, path);
+  return path;
+}
+
+async function persistAfterMutation(): Promise<{ savedTo?: string; saveError?: string }> {
+  const current = requireSession();
+  if (!current.filePath) return {};
+  try {
+    await writeDocument(current.doc, current.filePath);
+    current.dirty = false;
+    return { savedTo: current.filePath };
+  } catch (error) {
+    return { saveError: errorMessage(error) };
+  }
+}
+
+/**
+ * Publishes a finished edit.
+ *
+ * Edits are built on a clone, because a tool call that throws halfway through
+ * (a bad data type on the third attribute, a duplicate name) must leave the open
+ * diagram exactly as it was. A half-applied diagram is worse than a failed call:
+ * the model is told nothing changed, and the file on disk disagrees.
+ */
+function commit(current: Session, doc: ErdDocument): void {
+  current.doc = normalizeDocument(doc);
+  current.dirty = true;
+}
+
+function mutation(doc: ErdDocument, message: string, nodeId?: string): MutationResult {
+  return {
+    message,
+    ...(nodeId ? { nodeId } : {}),
+    filePath: requireSession().filePath,
+    issues: issuesOf(doc),
+  };
+}
+
+export async function createDiagram(spec: CreateSpec): Promise<{
+  filePath: string | null;
+  summary: DiagramSummary;
+  outline: string;
+  share: ShareInfo;
+}> {
+  let doc = buildDocument(spec);
+  if (spec.layout !== false) doc = arrangeNewDocument(doc, doc.view);
+  const filePath = spec.save === false ? null : await saveNew(doc, spec.path, spec.overwrite ?? false);
+  session = { doc, filePath, dirty: false };
+  const summary = summarizeDocument(doc, filePath);
+  return { filePath, summary, outline: summaryOutline(summary), share: shareInfo(doc) };
+}
+
+export async function openDiagram(path: string, view?: DiagramView): Promise<{
+  filePath: string;
+  summary: DiagramSummary;
+  outline: string;
+}> {
+  const filePath = resolveDiagramPath(path);
+  const doc = await readDocument(filePath);
+  if (view) doc.view = view;
+  session = { doc, filePath, dirty: false };
+  const summary = summarizeDocument(doc, filePath);
+  return { filePath, summary, outline: summaryOutline(summary) };
+}
+
+export async function saveDiagram(path?: string, overwrite = false): Promise<string> {
+  const current = requireSession();
+  const target = path ? resolveDiagramPath(path) : current.filePath;
+  if (!target) throw new Error('This diagram has no file yet. Pass a path to save it.');
+  // Saving back to the open file is the whole point of this call; replacing some
+  // other diagram with it is a mistake unless the caller says so.
+  if (path && target !== current.filePath && !overwrite && (await fileExists(target))) {
+    throw new Error(`${target} already exists. Pass overwrite: true to replace it.`);
+  }
+  await writeDocument(current.doc, target);
+  current.filePath = target;
+  current.dirty = false;
+  return target;
+}
+
+export function getDiagram(): { filePath: string | null; dirty: boolean; document: ErdDocument } {
+  const current = requireSession();
+  return { filePath: current.filePath, dirty: current.dirty, document: current.doc };
+}
+
+export function summarizeSession(): { filePath: string | null; summary: DiagramSummary; outline: string } {
+  const current = requireSession();
+  const summary = summarizeDocument(current.doc, current.filePath);
+  return { filePath: current.filePath, summary, outline: summaryOutline(summary) };
+}
+
+export function validateSession(): {
+  valid: boolean;
+  issues: Array<DiagramIssue & { nodeName: string | null }>;
+  sqlReadiness: string;
+} {
+  const current = requireSession();
+  const issues = issuesOf(current.doc);
+  return { valid: issues.length === 0, issues, sqlReadiness: describeSqlReadiness(current.doc) };
+}
+
+export function sqlForSession(
+  dialect: 'standard' | 'postgres' | 'mysql' | 'sqlite' = 'standard',
+  dropFirst = false,
+): { dialect: string; sql: string } {
+  const current = requireSession();
+  try {
+    return { dialect, sql: generateSql(current.doc, { dialect, dropFirst }) };
+  } catch (error) {
+    throw new Error(`${errorMessage(error)} ${describeSqlReadiness(current.doc)}`.trim());
+  }
+}
+
+export async function arrangeSession(view?: DiagramView): Promise<MutationResult & { summary: DiagramSummary }> {
+  const current = requireSession();
+  if (view) current.doc = { ...current.doc, view };
+  current.doc = arrangeView(current.doc, current.doc.view);
+  current.dirty = true;
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Arranged ${current.doc.view} view.`), ...outcome,
+    summary: summarizeDocument(current.doc, current.filePath) };
+}
+
+interface NodeRef {
+  id: string;
+  name: string;
+  kind: 'entity' | 'attribute' | 'relationship' | 'specialization';
+}
+
+function candidates(doc: ErdDocument): NodeRef[] {
+  return [
+    ...doc.entities.map((entity) => ({ id: entity.id, name: entity.name, kind: 'entity' as const })),
+    ...doc.attributes.map((attribute) => ({ id: attribute.id, name: attribute.name, kind: 'attribute' as const })),
+    ...doc.relationships.map((relationship) => ({ id: relationship.id, name: relationship.name, kind: 'relationship' as const })),
+    ...doc.isas.map((isa) => ({ id: isa.id, name: 'specialization', kind: 'specialization' as const })),
+  ];
+}
+
+function resolveNode(doc: ErdDocument, ref: string): NodeRef {
+  const all = candidates(doc);
+  const byId = all.find((node) => node.id === ref);
+  if (byId) return byId;
+  const lower = ref.trim().toLowerCase();
+  const byName = all.filter((node) => node.name.toLowerCase() === lower);
+  if (byName.length === 1) return byName[0]!;
+  if (byName.length > 1) {
+    throw new Error(`"${ref}" matches more than one shape (${byName.map((node) => node.id).join(', ')}). Use the id.`);
+  }
+  throw new Error(`No entity, attribute, or relationship named "${ref}". Call summarize_diagram for ids and names.`);
+}
+
+function resolveEntity(doc: ErdDocument, ref: string): Entity {
+  const byId = doc.entities.find((entity) => entity.id === ref);
+  if (byId) return byId;
+  const lower = ref.trim().toLowerCase();
+  const byName = doc.entities.filter((entity) => entity.name.toLowerCase() === lower);
+  if (byName.length === 1) return byName[0]!;
+  if (byName.length > 1) {
+    throw new Error(`"${ref}" matches more than one entity (${byName.map((entity) => entity.id).join(', ')}). Use the id.`);
+  }
+  throw new Error(`No entity named "${ref}". Call summarize_diagram for entity names and ids.`);
+}
+
+function placeAttribute(doc: ErdDocument, id: string): void {
+  const attribute = doc.attributes.find((candidate) => candidate.id === id);
+  if (!attribute) return;
+  // Ignore the shape being placed, so its unplaced origin does not count as a neighbour.
+  const without = { ...doc, attributes: doc.attributes.filter((candidate) => candidate.id !== id), view: 'chen' as const };
+  const slot = findAttributeSlot(without, attribute.ownerId);
+  if (slot) {
+    attribute.x = slot.x;
+    attribute.y = slot.y;
+  }
+}
+
+export async function addEntity(input: {
+  name: string;
+  kind?: EntityKind;
+  attributes?: AttributeSpec[];
+  x?: number;
+  y?: number;
+}): Promise<MutationResult> {
+  const current = requireSession();
+  const name = requireName(input.name, 'Entity');
+  if (current.doc.entities.some((entity) => entity.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(`An entity named "${name}" already exists.`);
+  }
+  const doc = structuredClone(current.doc);
+  const attributeCount = input.attributes?.length ?? 0;
+  const size = doc.view === 'crowfoot'
+    ? { w: CROW_WIDTH, h: CROW_HEADER_HEIGHT + Math.max(1, attributeCount) * CROW_ROW_HEIGHT }
+    : { w: 150, h: 60 };
+  const spot = input.x !== undefined && input.y !== undefined
+    ? { x: input.x, y: input.y }
+    : findFreeSlot(occupiedBoxes(doc), undefined, size);
+  const used = collectIds(doc);
+  const entity: Entity = {
+    id: newId('ent', name, used),
+    name,
+    x: spot.x,
+    y: spot.y,
+    kind: entityKind(input.kind),
+    ...(doc.view === 'crowfoot' ? { crowX: spot.x, crowY: spot.y } : {}),
+  };
+  doc.entities.push(entity);
+  addAttributeSpecs(doc, entity.id, entity.name, input.attributes ?? [], used,
+    (attribute) => placeAttribute(doc, attribute.id));
+  commit(current, doc);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added entity ${name}.`, entity.id), ...outcome };
+}
+
+export async function addAttribute(input: {
+  owner: string;
+  name: string;
+  kind?: AttributeKind;
+  dataType?: string;
+  attributes?: AttributeSpec[];
+}): Promise<MutationResult> {
+  const current = requireSession();
+  const owner = resolveNode(current.doc, input.owner);
+  if (owner.kind === 'attribute') {
+    const attribute = current.doc.attributes.find((candidate) => candidate.id === owner.id);
+    if (attribute?.kind !== 'composite') {
+      throw new Error(`"${owner.name}" is not a composite attribute, so it cannot own parts.`);
+    }
+  }
+  const name = requireName(input.name, 'Attribute');
+  const parts = input.attributes ?? [];
+  const doc = structuredClone(current.doc);
+  const used = collectIds(doc);
+  const ownerSlug = owner.kind === 'specialization' ? 'specialization' : owner.name;
+  let added: string | undefined;
+  addAttributeSpecs(doc, owner.id, ownerSlug, [{
+    name,
+    ...(input.kind ? { kind: input.kind } : {}),
+    ...(input.dataType ? { dataType: input.dataType } : {}),
+    ...(parts.length ? { attributes: parts } : {}),
+  }], used, (attribute) => {
+    added ??= attribute.id;
+    placeAttribute(doc, attribute.id);
+  });
+  commit(current, doc);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added attribute ${name} to ${owner.name}.`, added), ...outcome };
+}
+
+export async function addRelationship(input: RelationshipSpec): Promise<MutationResult> {
+  const current = requireSession();
+  const name = requireName(input.name, 'Relationship');
+  const doc = structuredClone(current.doc);
+  const from = resolveEntity(doc, input.from);
+  const to = resolveEntity(doc, input.to);
+  const [fromCard, toCard] = parseCardinality(input.cardinality);
+  const relationship: Relationship = {
+    id: newId('rel', name, collectIds(doc)),
+    name,
+    ...findRelationshipSlot(doc, from.id, to.id),
+    kind: relationshipKind(input.kind, from, to),
+  };
+  const used = collectIds({ ...doc, relationships: [...doc.relationships, relationship] });
+  doc.relationships.push(relationship);
+  addAttributeSpecs(doc, relationship.id, name, input.attributes ?? [], used,
+    (attribute) => placeAttribute(doc, attribute.id));
+  const leg = (entity: Entity, card: Cardinality, part: ParticipationSpec | undefined, suffix: string): Leg => ({
+    id: newId('leg', `${name}_${suffix}`, used),
+    fromId: relationship.id,
+    toId: entity.id,
+    cardinality: card,
+    participation: participationOf(part, card),
+  });
+  doc.legs.push(leg(from, fromCard, input.fromParticipation, from.name));
+  doc.legs.push(leg(to, toCard, input.toParticipation, to.name));
+  commit(current, doc);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added relationship ${name} between ${from.name} and ${to.name}.`, relationship.id), ...outcome };
+}
+
+export async function updateNode(ref: string, patch: {
+  name?: string;
+  kind?: string;
+  dataType?: string;
+}): Promise<MutationResult> {
+  const current = requireSession();
+  const node = resolveNode(current.doc, ref);
+  const name = patch.name === undefined ? undefined : requireName(patch.name, 'Shape');
+  const doc = structuredClone(current.doc);
+  if (node.kind === 'entity') {
+    const entity = doc.entities.find((candidate) => candidate.id === node.id)!;
+    if (name !== undefined) entity.name = name;
+    if (patch.kind !== undefined) entity.kind = entityKind(patch.kind as EntityKind);
+    if (patch.dataType !== undefined) throw new Error('Only attributes have a data type.');
+  } else if (node.kind === 'relationship') {
+    const relationship = doc.relationships.find((candidate) => candidate.id === node.id)!;
+    if (name !== undefined) relationship.name = name;
+    if (patch.kind !== undefined) {
+      if (patch.kind !== 'strong' && patch.kind !== 'weak') throw new Error('Relationship kind must be "strong" or "weak".');
+      relationship.kind = patch.kind;
+    }
+    if (patch.dataType !== undefined) throw new Error('Only attributes have a data type.');
+  } else if (node.kind === 'attribute') {
+    const attribute = doc.attributes.find((candidate) => candidate.id === node.id)!;
+    if (name !== undefined) attribute.name = name;
+    if (patch.kind !== undefined) {
+      const kind = attributeKind(patch.kind, false);
+      const hasChildren = doc.attributes.some((candidate) => candidate.ownerId === attribute.id);
+      if (hasChildren && kind !== 'composite') {
+        throw new Error(`"${attribute.name}" has parts, so its kind must stay composite.`);
+      }
+      attribute.kind = kind;
+    }
+    if (patch.dataType !== undefined) {
+      const type = dataTypeOf(patch.dataType, attribute.name);
+      if (type) attribute.dataType = type;
+    }
+  } else {
+    if (name !== undefined || patch.kind !== undefined || patch.dataType !== undefined) {
+      throw new Error('Specializations have no editable name or type; change their parent or children instead.');
+    }
+  }
+  commit(current, doc);
+  const outcome = await persistAfterMutation();
+  const displayName = name ?? node.name;
+  return { ...mutation(current.doc, `Updated ${node.kind} ${displayName}.`, node.id), ...outcome };
+}
+
+export async function removeDiagramNode(ref: string): Promise<MutationResult> {
+  const current = requireSession();
+  const node = resolveNode(current.doc, ref);
+  const beforeAttributes = current.doc.attributes.length;
+  current.doc = removeNode(current.doc, node.id);
+  current.dirty = true;
+  const removedAttributes = beforeAttributes - current.doc.attributes.length;
+  const outcome = await persistAfterMutation();
+  return {
+    ...mutation(current.doc,
+      `Removed ${node.kind} ${node.name}${removedAttributes ? ` and ${removedAttributes} attribute${removedAttributes === 1 ? '' : 's'}` : ''}.`),
+    ...outcome,
+  };
+}
+
+export async function updateDiagram(patch: { name?: string; view?: DiagramView }): Promise<MutationResult & { summary: DiagramSummary }> {
+  const current = requireSession();
+  const doc = structuredClone(current.doc);
+  if (patch.name !== undefined) doc.name = requireName(patch.name, 'Diagram');
+  if (patch.view !== undefined) {
+    if (patch.view !== 'chen' && patch.view !== 'crowfoot') throw new Error('View must be "chen" or "crowfoot".');
+    doc.view = patch.view;
+  }
+  commit(current, doc);
+  const outcome = await persistAfterMutation();
+  return {
+    ...mutation(current.doc, 'Updated the diagram.'),
+    ...outcome,
+    summary: summarizeDocument(current.doc, current.filePath),
+  };
+}
+
+export function shareSession(options: { baseUrl?: string; room?: string; includeSnapshot?: boolean } = {}): ShareInfo {
+  return shareInfo(requireSession().doc, options);
+}
+
+export async function listDiagramFiles(): Promise<Array<{
+  path: string;
+  name: string | null;
+  modified: string;
+  size: number;
+}>> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(DIAGRAMS_ROOT, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const files: Array<{ path: string; name: string | null; modified: string; size: number }> = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.json')) continue;
+    const fullPath = resolve(DIAGRAMS_ROOT, entry.name);
+    try {
+      const info = await stat(fullPath);
+      let name: string | null = null;
+      try {
+        const parsed = JSON.parse(await readFile(fullPath, 'utf8')) as Record<string, unknown>;
+        name = typeof parsed.name === 'string' ? parsed.name : null;
+      } catch {
+        // A file that is not a diagram is still worth listing; opening it will explain why.
+      }
+      files.push({
+        path: relative(WORKSPACE_ROOT, fullPath).split('\\').join('/'),
+        name,
+        modified: info.mtime.toISOString(),
+        size: info.size,
+      });
+    } catch {
+      // A file that vanished between listing and stat is not an error worth failing the call.
+    }
+  }
+  return files.sort((a, b) => b.modified.localeCompare(a.modified));
+}
+
+export { errorMessage };

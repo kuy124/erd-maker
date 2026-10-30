@@ -129,6 +129,48 @@ Types are a base plus numbers: length for `VARCHAR`, precision and scale for `DE
 
 </details>
 
+## AI authoring (MCP)
+
+An AI assistant can open, build, and edit diagrams through the MCP server in `mcp/`. It works on the same JSON the app imports, so its output opens here, and its validation, SQL, and share links come from the app's own code.
+
+<details>
+<summary><strong>⚙️ For developers: MCP setup</strong></summary>
+
+Install once with `npm install`, then run `npm run mcp` to check that the server starts. It speaks MCP over stdio, so the client launches it; there is no build step.
+
+To connect a client:
+
+- **Project MCP file.** `.mcp.json` in this folder already points at `mcp/start.mjs`. Clients that read a project MCP file, Claude Code among them, connect when the folder is open.
+- **Custom server entry.** In a client with its own server list, add a stdio server named `erd-maker` with command `node` and one argument, the absolute path to `mcp/start.mjs`. In Qoder Desktop, open Settings > Extensions > Connectors, choose Add Connector, then Add custom MCP.
+- **Manual config.** Any client that edits MCP JSON takes this entry:
+
+```json
+{
+  "mcpServers": {
+    "erd-maker": {
+      "command": "node",
+      "args": ["C:/path/to/erd-maker/mcp/start.mjs"]
+    }
+  }
+}
+```
+
+Restart the client or reconnect the server after adding the entry. To confirm the connection, ask the assistant to create a diagram for customers and orders and return the share link, or check that the tool list contains `create_diagram`.
+
+Files stay under the repository root:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ERD_MCP_ROOT` | repository root | Paths outside this directory are refused. |
+| `ERD_MCP_DIR` | `diagrams` | Where a new diagram goes when the call omits a path. |
+| `ERD_MCP_APP_URL` | `http://localhost:5173/` | Base URL for share links. |
+
+Sixteen tools cover the diagram: `create_diagram`, `open_diagram`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
+
+Paths must end in `.json` and stay inside the workspace. A call that fails leaves the open diagram unchanged, and saving over an existing file needs `overwrite: true`.
+
+</details>
+
 ## Keyboard
 
 | Key | Action |
