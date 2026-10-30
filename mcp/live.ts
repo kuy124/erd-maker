@@ -13,9 +13,10 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider } from 'y-websocket';
 import NodeWebSocket from 'ws';
-import { CROW_HEADER_HEIGHT, CROW_WIDTH } from '../src/model/crowfoot';
+import { CROW_HEADER_HEIGHT, CROW_WIDTH, deriveTables, tableHeight } from '../src/model/crowfoot';
 import { normalizeDocument, parseShareHash } from '../src/model/snapshot';
 import { COMMENTS } from '../src/collab/comments';
+import type { PeerIntent } from '../src/collab/presence';
 import {
   ATTRIBUTES,
   ENTITIES,
@@ -33,7 +34,7 @@ import {
   upsertLeg,
   upsertRelationship,
 } from '../src/collab/ydoc';
-import { NODE_SIZE, type DiagramComment, type Entity, type ErdDocument } from '../src/model/types';
+import { NODE_SIZE, nodeKind, type DiagramComment, type Entity, type ErdDocument } from '../src/model/types';
 
 const FALLBACK_RELAY = 'wss://erd-sync.cerberus-tusk-proxy.workers.dev';
 const FALLBACK_ORIGIN = 'https://kuy124.github.io';
@@ -90,8 +91,22 @@ const CARRY_RATIO = 0.18;
 const ROUTE_EASE_BLEND = 0.65;
 /** How long the typing indicator is held before the AI leaves a room. */
 const FAREWELL_MS = 700;
+/**
+ * How long a shape waits under the pointer before the click lands.
+ *
+ * A hand that appears on a shape and clicks in the same frame reads as a
+ * scripted event. The pause is the moment of aim, and the app draws its hover
+ * halo for exactly this long.
+ */
+export const HOVER_MS = 90;
 /** How long a click stays published when the pointer is not moving on. */
-const PRESS_MS = 380;
+export const PRESS_MS = 380;
+/** How long a text edit keeps the typing indicator up. */
+export const TYPING_MS = 900;
+/** How long a read-only call leaves the thinking ring up. */
+export const THINK_MS = 900;
+/** How far outside the first shape the pointer enters a room from. */
+const ENTRANCE_OFFSET = 320;
 
 export interface RoomLink {
   room?: string;
@@ -343,6 +358,58 @@ interface StreamRoute {
   resolve: () => void;
 }
 
+/** How a hop behaves when it lands: a click, a plain hover, or a held shape. */
+type TravelMode = 'click' | 'hover' | 'drag';
+
+interface Travel {
+  from: CursorPoint;
+  to: CursorPoint;
+  started: number;
+  duration: number;
+  velocity: CursorPoint | null;
+  mode: TravelMode;
+}
+
+/** Shapes carried under the pointer, at the positions they were grabbed from. */
+interface DragState {
+  ids: string[];
+  start: Record<string, CursorPoint>;
+  /** Where the pointer took hold, so dx and dy are measured from it. */
+  grab: CursorPoint;
+}
+
+/** A drag waiting for its click: the press turns into a carry. */
+interface PendingDrag {
+  ids: string[];
+  start: Record<string, CursorPoint>;
+  grab: CursorPoint;
+  drop: CursorPoint;
+  resolve: () => void;
+}
+
+/** The padded rectangle a lasso walks around, as a closed run of corners. */
+interface LassoLoop {
+  corners: CursorPoint[];
+  lengths: number[];
+  total: number;
+}
+
+interface LassoState extends LassoLoop {
+  ids: string[];
+  started: number;
+  duration: number;
+  timer: ReturnType<typeof setInterval> | undefined;
+  resolve: () => void;
+}
+
+/** The slice of the websocket provider the room drives, so a test can supply its own. */
+export interface LiveTransport {
+  on(event: 'sync', handler: (synced: boolean) => void): void;
+  off(event: 'sync', handler: (synced: boolean) => void): void;
+  connect(): void;
+  destroy(): void;
+}
+
 /** A ws socket that claims the origin the relay allowlists. */
 function socketWithOrigin(origin: string): typeof WebSocket {
   class OriginSocket extends NodeWebSocket {
@@ -358,9 +425,16 @@ export class LiveRoom {
   readonly ydoc: Y.Doc;
   readonly relayUrl: string;
   readonly relayOrigin: string;
-  private readonly provider: WebsocketProvider;
+  private readonly provider: LiveTransport;
   private readonly awareness: Awareness;
   private typingTimer: ReturnType<typeof setTimeout> | undefined;
+  private hoverTimer: ReturnType<typeof setTimeout> | undefined;
+  private pressTimer: ReturnType<typeof setTimeout> | undefined;
+  private thinkTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The gesture published right now; every awareness frame carries it. */
+  private intent: PeerIntent | null = null;
+  /** The shape the pointer is hovering or pressing, if any. */
+  private hoverTarget: string | null = null;
   private focusId: string | null = null;
   private closed = false;
   private seededRoom = false;
@@ -368,26 +442,23 @@ export class LiveRoom {
   private cursorView: ErdDocument['view'] = 'chen';
   private cursorSelection: string[] = [];
   private moveTimer: ReturnType<typeof setInterval> | undefined;
-  private travel: {
-    from: CursorPoint;
-    to: CursorPoint;
-    started: number;
-    duration: number;
-    velocity: CursorPoint | null;
-  } | null = null;
+  private travel: Travel | null = null;
   private typingOnArrival = false;
-  /** Resolves the glide whose landing the caller is awaiting. */
+  /** Resolves whoever awaits the landing click: a glide, a drop, a lasso. */
   private arrival: (() => void) | null = null;
-  private pressTimer: ReturnType<typeof setTimeout> | undefined;
-  /** Selection takes effect on arrival, the way a click does. */
+  /** Selection takes effect on the press, the way a click does. */
   private pendingSelection: string[] | null = null;
+  /** Shapes in the air while a drag is being performed. */
+  private drag: DragState | null = null;
+  private pendingDrag: PendingDrag | null = null;
+  private lassoState: LassoState | null = null;
   private route: StreamRoute | null = null;
   private routeTimer: ReturnType<typeof setInterval> | undefined;
 
-  private constructor(
+  constructor(
     room: string,
     ydoc: Y.Doc,
-    provider: WebsocketProvider,
+    provider: LiveTransport,
     awareness: Awareness,
     relayUrl: string,
     relayOrigin: string,
@@ -525,49 +596,244 @@ export class LiveRoom {
   }
 
   /**
-   * Starts, retargets, or finishes a pointer hop.
+   * Glides into the room from outside the diagram, then rests on a shape.
    *
-   * Retargeting mid-hop keeps the in-flight position, so a burst of edits — a
-   * rename and a move in one call — reads as one continuous pointer rather than
-   * a series of separate animations.
+   * A pointer that is already sitting on its first shape when the room loads
+   * reads as part of the page, not as somebody arriving. The entrance is an
+   * ordinary hop, so a watcher sees the AI come in and stop.
    */
-  private moveTo(target: CursorPoint | null, typing: boolean): void {
+  enter(doc: ErdDocument, focusId: string | null): void {
     if (this.route) return;
-    if (!target) {
-      this.stopMotion();
-      this.cursor = null;
-      this.publishArrival(false);
+    this.aimAt(doc, focusId);
+    const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
+    if (!target) return;
+    const from = this.cursor ?? { x: target.x - ENTRANCE_OFFSET, y: target.y };
+    this.cursor = { x: from.x, y: from.y };
+    if (Math.hypot(target.x - from.x, target.y - from.y) < 0.75) {
+      this.publishHover();
       return;
     }
-    if (!this.cursor) {
-      this.cursor = { x: target.x, y: target.y };
-      this.publishArrival(typing);
-      return;
-    }
-    const distance = Math.hypot(target.x - this.cursor.x, target.y - this.cursor.y);
-    if (distance < 0.75) {
-      this.cursor = { x: target.x, y: target.y };
-      this.publishArrival(typing);
-      return;
-    }
+    this.startTravel(from, target, 'hover');
+  }
 
-    this.clearTyping();
+  /**
+   * Leaves the thinking ring over the last shape for a beat.
+   *
+   * Reading a diagram — validating it, generating SQL — is work with no visible
+   * edit, and an AI that sits perfectly still reads as disconnected. The ring
+   * says the answer is being worked out where the pointer already is.
+   */
+  think(): void {
+    if (this.route) return;
+    this.clearHover();
     this.clearPress();
-    this.typingOnArrival = typing;
-    const incoming = this.hopVelocity();
-    this.travel = {
-      from: { ...this.cursor },
-      to: { x: target.x, y: target.y },
-      started: Date.now(),
-      duration: travelDurationMs(this.cursor, target),
-      velocity: incoming,
-    };
+    this.clearTyping();
+    this.hoverTarget = null;
+    this.intent = this.focusId ? { kind: 'think', targetId: this.focusId } : { kind: 'think' };
     this.publishPresence({
       cursor: this.cursor,
       selectedIds: this.cursorSelection,
       view: this.cursorView,
       typing: false,
       pressing: false,
+    });
+    this.clearThink();
+    this.thinkTimer = setTimeout(() => {
+      this.thinkTimer = undefined;
+      if (this.intent?.kind !== 'think') return;
+      this.intent = null;
+      this.publishPresence({});
+    }, THINK_MS);
+  }
+
+  /**
+   * Carries a shape from where it is to where it ends up, as one gesture.
+   *
+   * The caller builds the edited document and hands in both versions, awaits
+   * this, and only then writes the change — so the shape stays under the
+   * pointer for the whole travel and is dropped when it lands.
+   */
+  async dragTo(before: ErdDocument, after: ErdDocument, focusId: string | null): Promise<boolean> {
+    if (this.route) return false;
+    this.aimAt(before, focusId);
+    const focus = this.focusId;
+    if (!focus) return false;
+    const view = this.cursorView;
+    const grab = presenceAt(before, focus, view).cursor;
+    const drop = presenceAt(after, focus, view).cursor;
+    if (!grab || !drop) return false;
+    const ids = dragShapeIds(before, focus, view);
+    const start: Record<string, CursorPoint> = {};
+    for (const id of ids) {
+      const origin = viewOrigin(before, id, view);
+      if (origin) start[id] = origin;
+    }
+    await new Promise<void>((resolve) => {
+      this.pendingDrag = { ids, start, grab, drop, resolve };
+      this.moveTo(grab, false);
+    });
+    // True only when a shape was actually carried: the caller releases a real
+    // gesture, and a skipped one must not stop a stream in flight.
+    return this.drag !== null;
+  }
+
+  /** Ends a gesture: lets go of a carried shape or a finished lasso. */
+  release(_doc: ErdDocument, focusId: string | null): void {
+    this.land();
+    this.stopMotion();
+    this.stopLasso();
+    this.pendingDrag?.resolve();
+    this.clearGesture();
+    this.cursorSelection = focusId ? [focusId] : [];
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursorSelection,
+      view: this.cursorView,
+      typing: false,
+      pressing: false,
+    });
+  }
+
+  /**
+   * Draws a loop around several shapes before an edit that takes them all.
+   *
+   * The loop is a padded rectangle around the group, walked at a steady pace
+   * and closed where it began, so a watcher sees exactly what the next write
+   * will remove.
+   */
+  lasso(doc: ErdDocument, ids: string[]): Promise<void> {
+    if (this.route || this.lassoState) return Promise.resolve();
+    const view = this.watchedView(doc.view);
+    this.cursorView = view;
+    const boxes: Box[] = [];
+    for (const id of ids) {
+      const box = shapeBox(doc, id, view);
+      if (box) boxes.push(box);
+    }
+    const loop = lassoLoop(boxes, LASSO_PAD_PX);
+    if (!loop) return Promise.resolve();
+    this.clearGesture();
+    const start = { ...loop.corners[0]! };
+    this.cursor = start;
+    this.intent = { kind: 'lasso', lasso: [start] };
+    this.publishPresence({ cursor: start, selectedIds: [], view, typing: false, pressing: false });
+    return new Promise<void>((resolve) => {
+      this.lassoState = {
+        ...loop,
+        ids: [...ids],
+        started: Date.now(),
+        duration: lassoDurationMs(loop.total),
+        timer: undefined,
+        resolve,
+      };
+      this.lassoState.timer = setInterval(() => this.advanceLasso(), MOVE_FRAME_MS);
+    });
+  }
+
+  /** Publishes the next stretch of the lasso trail, and closes it when due. */
+  private advanceLasso(): void {
+    const state = this.lassoState;
+    if (!state) return;
+    const progress = Math.min(1, (Date.now() - state.started) / state.duration);
+    const done = progress >= 1;
+    const points = lassoTrail(state, done ? state.total : travelEase(progress) * state.total);
+    const here = points[points.length - 1]!;
+    this.cursor = { x: here.x, y: here.y };
+    this.intent = { kind: 'lasso', lasso: points };
+    if (!done) {
+      this.publishPresence({
+        cursor: this.cursor,
+        selectedIds: [],
+        view: this.cursorView,
+        typing: false,
+        pressing: false,
+      });
+      return;
+    }
+    this.cursorSelection = [...state.ids];
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursorSelection,
+      view: this.cursorView,
+      typing: false,
+      pressing: true,
+    });
+    if (state.timer) clearInterval(state.timer);
+    this.lassoState = null;
+    state.resolve();
+  }
+
+  /**
+   * Starts, retargets, or finishes a pointer hop.
+   *
+   * Landing is not the end of the gesture: the pointer settles, hovers, and
+   * clicks. That sequence belongs to beginClick, so a hop is only the travel.
+   * Retargeting mid-hop keeps the in-flight position, so a burst of edits — a
+   * rename and a move in one call — reads as one continuous pointer rather than
+   * a series of separate animations.
+   */
+  private moveTo(target: CursorPoint | null, typing: boolean, mode: TravelMode = 'click'): void {
+    if (this.route) return;
+    if (!target) {
+      this.stopMotion();
+      this.clearGesture();
+      this.cursor = null;
+      this.publishPresence({
+        cursor: null,
+        selectedIds: [],
+        view: this.cursorView,
+        typing: false,
+        pressing: false,
+      });
+      this.land();
+      return;
+    }
+    if (!this.cursor) {
+      this.cursor = { x: target.x, y: target.y };
+      if (mode === 'hover') this.publishHover();
+      else this.beginClick(typing);
+      return;
+    }
+    const distance = Math.hypot(target.x - this.cursor.x, target.y - this.cursor.y);
+    if (distance < 0.75) {
+      this.cursor = { x: target.x, y: target.y };
+      if (mode === 'hover') this.publishHover();
+      else this.beginClick(typing);
+      return;
+    }
+
+    const incoming = this.hopVelocity();
+    this.startTravel(this.cursor, target, mode, typing, incoming);
+  }
+
+  /** Starts the frame loop that carries the pointer along one hop. */
+  private startTravel(
+    from: CursorPoint,
+    to: CursorPoint,
+    mode: TravelMode,
+    typing = false,
+    incoming: CursorPoint | null = null,
+  ): void {
+    this.clearTyping();
+    this.clearHover();
+    this.clearThink();
+    if (mode !== 'drag') this.clearPress();
+    this.typingOnArrival = typing;
+    this.travel = {
+      from: { x: from.x, y: from.y },
+      to: { x: to.x, y: to.y },
+      started: Date.now(),
+      duration: travelDurationMs(from, to),
+      velocity: incoming,
+      mode,
+    };
+    this.intent = mode === 'drag' && this.focusId ? { kind: 'drag', targetId: this.focusId } : null;
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursorSelection,
+      view: this.cursorView,
+      typing: false,
+      pressing: mode === 'drag',
     });
     if (this.moveTimer) return;
     this.moveTimer = setInterval(() => this.advanceMotion(), MOVE_FRAME_MS);
@@ -581,13 +847,30 @@ export class LiveRoom {
       return;
     }
     const progress = Math.min(1, (Date.now() - travel.started) / travel.duration);
-    this.cursor = travelPoint(travel.from, travel.to, progress, travel.velocity);
+    this.cursor = progress >= 1
+      ? { x: travel.to.x, y: travel.to.y }
+      : travelPoint(travel.from, travel.to, progress, travel.velocity);
     if (progress >= 1) {
-      this.cursor = { x: travel.to.x, y: travel.to.y };
       this.travel = null;
       this.stopMotion();
-      this.publishArrival(this.typingOnArrival);
-      this.typingOnArrival = false;
+      if (travel.mode === 'hover') {
+        this.publishHover();
+      } else if (travel.mode === 'drag') {
+        // The shape has arrived under the pointer but is still held: the caller
+        // writes, then releases.
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: true,
+        });
+        this.land();
+      } else {
+        const typing = this.typingOnArrival;
+        this.typingOnArrival = false;
+        this.beginClick(typing);
+      }
       return;
     }
     this.publishPresence({
@@ -595,6 +878,7 @@ export class LiveRoom {
       selectedIds: this.cursorSelection,
       view: this.cursorView,
       typing: false,
+      pressing: travel.mode === 'drag',
     });
   }
 
@@ -622,6 +906,10 @@ export class LiveRoom {
    * rather than a transition replaying.
    */
   private travelRoute(doc: ErdDocument, steps: LiveStep[]): Promise<void> {
+    // Drawing begins with a clean slate: a click or drag still in flight from
+    // the previous call must not bleed into the stream.
+    this.stopLasso();
+    this.clearGesture();
     const view = this.watchedView(doc.view);
     this.cursorView = view;
     const knots: CursorPoint[] = this.cursor ? [{ ...this.cursor }] : [];
@@ -675,7 +963,8 @@ export class LiveRoom {
     if (crossed === last && route.written === last) {
       this.cursor = { x: route.knots[last]!.x, y: route.knots[last]!.y };
       this.stopRoute();
-      this.publishArrival(false);
+      // The last click is over; the pointer comes to rest on its last shape.
+      this.publishHover();
       return;
     }
     if (route.written >= crossed) {
@@ -700,6 +989,7 @@ export class LiveRoom {
   }
 
   private publishRoute(pressing: boolean): void {
+    this.intent = pressing && this.focusId ? { kind: 'press', targetId: this.focusId } : null;
     this.publishPresence({
       cursor: this.cursor,
       selectedIds: this.cursor ? this.cursorSelection : [],
@@ -709,34 +999,127 @@ export class LiveRoom {
     });
   }
 
-  private publishArrival(typing: boolean): void {
+  /** Publishes the pointer resting on a shape, before its click. */
+  private publishHover(): void {
+    this.clearHover();
+    this.clearPress();
+    this.clearThink();
+    this.clearTyping();
+    this.hoverTarget = this.focusId;
+    this.intent = this.focusId ? { kind: 'hover', targetId: this.focusId } : null;
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursorSelection,
+      view: this.cursorView,
+      typing: false,
+      pressing: false,
+    });
+  }
+
+  /**
+   * Lands a hop: hover, then click.
+   *
+   * A write on the click already in flight is that click, not a second one: the
+   * pointer has not been lifted, so replaying hover and press would be a rerun
+   * of a gesture the watcher is already looking at.
+   */
+  private beginClick(typing: boolean): void {
+    if (this.hoverTarget === this.focusId && this.pressTimer !== undefined) {
+      if (this.pendingDrag) {
+        this.press(typing);
+        return;
+      }
+      this.pendingSelection = null;
+      if (typing) {
+        this.beginTyping();
+        this.publishPresence({ typing: true });
+      }
+      this.land();
+      return;
+    }
+    this.publishHover();
+    this.clearHover();
+    this.hoverTimer = setTimeout(() => {
+      this.hoverTimer = undefined;
+      this.press(typing);
+    }, HOVER_MS);
+  }
+
+  /**
+   * Presses: selects, publishes the click, and turns a queued drag loose.
+   *
+   * The press is the frame the caller's write is allowed to happen on, which is
+   * why it is the point a glide resolves — the shape changes under the pointer.
+   */
+  private press(typing: boolean): void {
+    this.clearPress();
+    this.clearThink();
+    if (this.pendingDrag) {
+      this.beginDrag();
+      return;
+    }
     if (this.pendingSelection) {
       this.cursorSelection = this.pendingSelection;
       this.pendingSelection = null;
     }
-    // Landing is a click: the app plays its press animation from this flag.
+    this.hoverTarget = this.focusId;
+    this.intent = this.focusId ? { kind: 'press', targetId: this.focusId } : null;
     this.publishPresence({
       cursor: this.cursor,
       selectedIds: this.cursor ? this.cursorSelection : [],
       view: this.cursorView,
       typing,
-      ...(this.cursor ? { pressing: true } : {}),
+      pressing: this.cursor !== null,
     });
-    this.clearPress();
+    if (typing) this.beginTyping();
     if (this.cursor) {
       this.pressTimer = setTimeout(() => {
         this.pressTimer = undefined;
-        this.publishPresence({ pressing: false });
+        this.finishPress();
       }, PRESS_MS);
     }
-    this.clearTyping();
-    if (typing) {
-      this.typingTimer = setTimeout(() => {
-        this.typingTimer = undefined;
-        this.publishPresence({ typing: false });
-      }, 1200);
-    }
     this.land();
+  }
+
+  /** Lets the click go, leaving the pointer hovering where it wrote. */
+  private finishPress(): void {
+    this.intent = null;
+    this.hoverTarget = null;
+    this.publishPresence({ pressing: false });
+  }
+
+  /** Turns a queued drag's press into a carry. */
+  private beginDrag(): void {
+    const pending = this.pendingDrag;
+    if (!pending) return;
+    this.pendingDrag = null;
+    this.pendingSelection = null;
+    this.drag = { ids: [...pending.ids], start: { ...pending.start }, grab: { ...pending.grab } };
+    this.cursorSelection = this.focusId ? [this.focusId] : [];
+    this.arrival = pending.resolve;
+    this.startTravel(pending.grab, pending.drop, 'drag');
+  }
+
+  /** Holds the typing indicator up for TYPING_MS, then lets it go. */
+  private beginTyping(): void {
+    this.clearTyping();
+    this.typingTimer = setTimeout(() => {
+      this.typingTimer = undefined;
+      this.publishPresence({ typing: false });
+    }, TYPING_MS);
+  }
+
+  /** The shapes in the air, in the shape the app's peer-drag preview reads. */
+  private draggingPayload(): { ids: string[]; start: Record<string, CursorPoint>; dx: number; dy: number } | null {
+    const drag = this.drag;
+    const cursor = this.cursor;
+    if (!drag || !cursor) return null;
+    return {
+      ids: [...drag.ids],
+      start: { ...drag.start },
+      dx: cursor.x - drag.grab.x,
+      dy: cursor.y - drag.grab.y,
+    };
   }
 
   private stopMotion(): void {
@@ -768,9 +1151,41 @@ export class LiveRoom {
     this.typingTimer = undefined;
   }
 
+  private clearHover(): void {
+    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+    this.hoverTimer = undefined;
+  }
+
   private clearPress(): void {
     if (this.pressTimer) clearTimeout(this.pressTimer);
     this.pressTimer = undefined;
+  }
+
+  private clearThink(): void {
+    if (this.thinkTimer) clearTimeout(this.thinkTimer);
+    this.thinkTimer = undefined;
+  }
+
+  /** Drops every gesture in flight: timers, held shapes, and the named intent. */
+  private clearGesture(): void {
+    this.clearHover();
+    this.clearPress();
+    this.clearThink();
+    this.clearTyping();
+    this.drag = null;
+    this.pendingDrag = null;
+    this.pendingSelection = null;
+    this.intent = null;
+    this.hoverTarget = null;
+  }
+
+  /** Ends the lasso loop, resolving whoever is awaiting it. */
+  private stopLasso(): void {
+    const state = this.lassoState;
+    if (!state) return;
+    if (state.timer) clearInterval(state.timer);
+    this.lassoState = null;
+    state.resolve();
   }
 
   /**
@@ -856,8 +1271,9 @@ export class LiveRoom {
     if (this.closed) return;
     this.closed = true;
     this.stopMotion();
-    this.clearTyping();
-    this.clearPress();
+    this.stopLasso();
+    this.pendingDrag?.resolve();
+    this.clearGesture();
     this.land();
     try {
       this.awareness.setLocalState(null);
@@ -894,7 +1310,15 @@ export class LiveRoom {
       dragging: null,
       ...(this.awareness.getLocalState() ?? {}),
     };
-    this.awareness.setLocalState({ ...base, ...patch });
+    // The gesture and the carried shapes are properties of the room, not of a
+    // single frame: every publish carries them so a watcher that missed one
+    // frame still knows what the pointer is doing.
+    this.awareness.setLocalState({
+      ...base,
+      ...patch,
+      intent: this.intent,
+      dragging: this.draggingPayload(),
+    });
   }
 
   /**
@@ -1143,4 +1567,147 @@ function changedIds<T extends { id: string }>(before: T[], after: T[]): { change
     changed: after.filter((item) => versions.get(item.id) !== JSON.stringify(item)),
     removed: before.filter((item) => !present.has(item.id)).map((item) => item.id),
   };
+}
+
+/** A shape's footprint, in the coordinates of the notation being read. */
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** How far outside the outermost shape a lasso is drawn. */
+const LASSO_PAD_PX = 18;
+/** How much new trail each published frame adds, so long loops still stream. */
+const LASSO_STEP_PX = 16;
+/** A loop is walked at a readable pace, never in one frame and never crawling. */
+const LASSO_MIN_MS = 420;
+const LASSO_MAX_MS = 1100;
+const LASSO_MS_PER_PX = 0.55;
+
+/** How long walking a loop of this length takes. */
+export function lassoDurationMs(total: number): number {
+  return Math.round(Math.min(LASSO_MAX_MS, Math.max(LASSO_MIN_MS, total * LASSO_MS_PER_PX)));
+}
+
+/** A shape's position in one notation, independent of what it owns. */
+function viewOrigin(doc: ErdDocument, id: string, view: ErdDocument['view']): CursorPoint | null {
+  const entity = doc.entities.find((candidate) => candidate.id === id);
+  if (entity) {
+    return view === 'crowfoot'
+      ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y }
+      : { x: entity.x, y: entity.y };
+  }
+  if (view === 'crowfoot') return null;
+  const node = doc.attributes.find((candidate) => candidate.id === id)
+    ?? doc.relationships.find((candidate) => candidate.id === id)
+    ?? doc.isas.find((candidate) => candidate.id === id);
+  return node ? { x: node.x, y: node.y } : null;
+}
+
+/** Every attribute nested under a shape, however deep the ownership goes. */
+function ownedIds(doc: ErdDocument, rootId: string): string[] {
+  const seen = new Set<string>([rootId]);
+  const found: string[] = [];
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const next: string[] = [];
+    for (const owner of frontier) {
+      for (const attribute of doc.attributes) {
+        if (attribute.ownerId !== owner || seen.has(attribute.id)) continue;
+        seen.add(attribute.id);
+        found.push(attribute.id);
+        next.push(attribute.id);
+      }
+    }
+    frontier = next;
+  }
+  return found;
+}
+
+/**
+ * Everything a grab carries.
+ *
+ * In Chen an attribute is drawn as its own bubble, so moving a table moves its
+ * column with it. In crow's-foot the rows are part of the table, so the table is
+ * the whole gesture and the rows have no positions of their own.
+ */
+function dragShapeIds(doc: ErdDocument, focusId: string, view: ErdDocument['view']): string[] {
+  if (view !== 'crowfoot') return [focusId, ...ownedIds(doc, focusId)];
+  const owner = ownerEntity(doc, focusId);
+  return owner ? [owner.id] : [focusId];
+}
+
+/** A shape's footprint in one notation, for a lasso to wrap. */
+function shapeBox(doc: ErdDocument, id: string, view: ErdDocument['view']): Box | null {
+  if (view === 'crowfoot') {
+    const owner = ownerEntity(doc, id);
+    if (!owner) return null;
+    const table = deriveTables(doc).find((candidate) => candidate.entityId === owner.id);
+    return table
+      ? { x: table.x, y: table.y, w: table.width, h: tableHeight(table) }
+      : { x: owner.crowX ?? owner.x, y: owner.crowY ?? owner.y, w: CROW_WIDTH, h: CROW_HEADER_HEIGHT };
+  }
+  const kind = nodeKind(doc, id);
+  const node = kind ? viewOrigin(doc, id, view) : null;
+  if (!kind || !node) return null;
+  return { x: node.x, y: node.y, w: NODE_SIZE[kind].w, h: NODE_SIZE[kind].h };
+}
+
+/** The rectangle around a group of shapes, as a loop that ends where it began. */
+function lassoLoop(boxes: Box[], pad: number): LassoLoop | null {
+  if (boxes.length === 0) return null;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const box of boxes) {
+    left = Math.min(left, box.x);
+    top = Math.min(top, box.y);
+    right = Math.max(right, box.x + box.w);
+    bottom = Math.max(bottom, box.y + box.h);
+  }
+  const corners: CursorPoint[] = [
+    { x: left - pad, y: top - pad },
+    { x: right + pad, y: top - pad },
+    { x: right + pad, y: bottom + pad },
+    { x: left - pad, y: bottom + pad },
+    { x: left - pad, y: top - pad },
+  ];
+  const lengths: number[] = [];
+  for (let index = 1; index < corners.length; index += 1) {
+    const from = corners[index - 1]!;
+    const to = corners[index]!;
+    lengths.push(Math.hypot(to.x - from.x, to.y - from.y));
+  }
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  return total > 0 ? { corners, lengths, total } : null;
+}
+
+/** The point a loop has reached after walking `distance` around it. */
+function loopPoint(loop: LassoLoop, distance: number): CursorPoint {
+  const walked = Math.max(0, distance);
+  if (walked >= loop.total) return { ...loop.corners[0]! };
+  let remaining = walked;
+  for (let index = 0; index < loop.lengths.length; index += 1) {
+    const length = loop.lengths[index]!;
+    if (remaining <= length) {
+      const from = loop.corners[index]!;
+      const to = loop.corners[index + 1]!;
+      const t = length > 0 ? remaining / length : 0;
+      return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t };
+    }
+    remaining -= length;
+  }
+  return { ...loop.corners[0]! };
+}
+
+/** The trail drawn after walking `distance`, sampled densely enough to look drawn. */
+function lassoTrail(loop: LassoLoop, distance: number): CursorPoint[] {
+  const walked = Math.min(loop.total, Math.max(0, distance));
+  const points: CursorPoint[] = [{ ...loop.corners[0]! }];
+  for (let step = LASSO_STEP_PX; step < walked; step += LASSO_STEP_PX) points.push(loopPoint(loop, step));
+  points.push(loopPoint(loop, walked));
+  return points;
 }

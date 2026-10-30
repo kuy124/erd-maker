@@ -839,6 +839,65 @@ async function commit(current: Session, doc: ErdDocument, focusId?: string | nul
   current.dirty = true;
 }
 
+/**
+ * Publishes an edit that moved a shape, as a carry rather than a click.
+ *
+ * The shape stays under the pointer for the whole travel and only settles where
+ * it is released, so a watcher sees the same gesture they produce by dragging
+ * it themselves. A move that appeared where it landed, with the cursor arriving
+ * afterwards, read as the diagram deciding on its own.
+ */
+async function commitDrag(current: Session, doc: ErdDocument, focusId: string): Promise<void> {
+  const next = normalizeDocument(doc);
+  if (!current.live) {
+    current.doc = next;
+    current.dirty = true;
+    return;
+  }
+  const live = current.live;
+  // Nobody watching means nobody to perform for: the move stays instant.
+  const carried = live.watching > 0 ? await live.dragTo(current.doc, next, focusId) : false;
+  writeDocumentDiff(live.ydoc, current.doc, next);
+  if (carried) live.release(next, focusId);
+  current.doc = live.snapshot();
+  current.dirty = true;
+}
+
+/**
+ * Publishes an edit that takes several shapes, with a loop drawn around them.
+ *
+ * Removing a table also removes its columns, so the loop names what is about to
+ * go before it goes. A single shape keeps the ordinary click: a loop around one
+ * box is ceremony without a payload.
+ */
+async function commitLasso(current: Session, doc: ErdDocument, ids: string[]): Promise<void> {
+  if (ids.length < 2) {
+    await commit(current, doc, ids[0] ?? null);
+    return;
+  }
+  const next = normalizeDocument(doc);
+  if (!current.live) {
+    current.doc = next;
+    current.dirty = true;
+    return;
+  }
+  const live = current.live;
+  const watched = live.watching > 0;
+  if (watched) await live.lasso(current.doc, ids);
+  writeDocumentDiff(live.ydoc, current.doc, next);
+  if (watched) live.release(next, null);
+  current.doc = live.snapshot();
+  current.dirty = true;
+}
+
+/**
+ * Leaves the thinking ring over the last shape while a read-only answer is
+ * worked out. Nobody watching means nobody to show it to, so it stays silent.
+ */
+function thinkIn(current: Session): void {
+  if (current.live && current.live.watching > 0) current.live.think();
+}
+
 /** Where a shape sits in the notation currently shown, when that notation has a place for it. */
 function activePosition(doc: ErdDocument, id: string): { x: number; y: number } | undefined {
   const entity = doc.entities.find((candidate) => candidate.id === id);
@@ -968,10 +1027,11 @@ export async function openRoom(options: OpenRoomOptions = {}): Promise<OpenRoomR
     live: next,
     liveBaseUrl: options.baseUrl ?? link.baseUrl ?? current?.liveBaseUrl,
   };
-  // Join at a real shape rather than with no cursor at all: the watcher should
-  // see the assistant arrive, not find an anonymous avatar in the header.
-  const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id;
-  if (focus) next.flash(session.doc, focus, false);
+  // Arrive at a real shape rather than with no cursor at all: the watcher should
+  // see the assistant come into the room and stop, not find an avatar that was
+  // always there.
+  const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id ?? null;
+  next.enter(session.doc, focus);
   const summary = summarizeDocument(session.doc, session.filePath);
   return {
     room,
@@ -1056,6 +1116,7 @@ export function validateSession(): {
   sqlReadiness: string;
 } {
   const current = requireSession();
+  thinkIn(current);
   const issues = issuesOf(current.doc);
   return { valid: issues.length === 0, issues, sqlReadiness: describeSqlReadiness(current.doc) };
 }
@@ -1065,6 +1126,7 @@ export function sqlForSession(
   dropFirst = false,
 ): { dialect: string; sql: string } {
   const current = requireSession();
+  thinkIn(current);
   try {
     return { dialect, sql: generateSql(current.doc, { dialect, dropFirst }) };
   } catch (error) {
@@ -1328,7 +1390,13 @@ export async function updateNode(ref: string, patch: {
       throw new Error('Specializations have no editable name or type; change their parent or children instead.');
     }
   }
-  await commit(current, doc, node.id);
+  if (move && name === undefined && patch.kind === undefined) {
+    // A bare move is a carry: the shape travels under the pointer and is
+    // dropped where it was asked to land.
+    await commitDrag(current, doc, node.id);
+  } else {
+    await commit(current, doc, node.id);
+  }
   const outcome = await persistAfterMutation();
   const displayName = name ?? node.name;
   const message = move && name === undefined && patch.kind === undefined
@@ -1341,8 +1409,11 @@ export async function removeDiagramNode(ref: string): Promise<MutationResult> {
   const current = requireSession();
   const node = resolveNode(current.doc, ref);
   const beforeAttributes = current.doc.attributes.length;
+  // The shapes that disappear, not just the one named: removing a table takes
+  // its columns with it, and the loop has to wrap all of them.
+  const doomed = [node.id, ...descendantAttributeIds(current.doc, node.id)];
   const doc = removeNode(current.doc, node.id);
-  await commit(current, doc, null);
+  await commitLasso(current, doc, doomed);
   const removedAttributes = beforeAttributes - current.doc.attributes.length;
   const outcome = await persistAfterMutation();
   return {

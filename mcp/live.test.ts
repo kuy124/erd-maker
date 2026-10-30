@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import { legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
+import { Awareness } from 'y-protocols/awareness';
+import { HOVER_MS, LiveRoom, PRESS_MS, THINK_MS, TYPING_MS, legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
 import { seedDocument, snapshotFromYdoc, upsertAttribute } from '../src/collab/ydoc';
@@ -419,5 +420,213 @@ describe('live diffs', () => {
     const snapshot = snapshotFromYdoc(ydoc);
     expect(snapshot.attributes.some((attribute) => attribute.id === 'attr_peer')).toBe(true);
     expect(snapshot.entities.some((entity) => entity.id === 'ent_shipment')).toBe(true);
+  });
+});
+
+/**
+ * The room's presence choreography.
+ *
+ * Awareness is the only channel involved, so a headless room with a local
+ * Y.Doc and a transport that never connects exercises exactly what a watcher
+ * would receive.
+ */
+describe('intent choreography', () => {
+  function headless(): { live: LiveRoom; local: () => Record<string, any> } {
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    const transport = { on: () => {}, off: () => {}, connect: () => {}, destroy: () => {} };
+    const live = new LiveRoom(
+      'room1234', ydoc, transport as never, awareness, 'wss://relay.test', 'https://app.test',
+    );
+    return { live, local: () => (awareness.getLocalState() ?? {}) as Record<string, any> };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('hovers before it presses, and releases the click afterwards', async () => {
+    const { live, local } = headless();
+    live.flash(sampleDoc(), 'ent_customer');
+
+    expect(local().cursor).toEqual({ x: 85, y: 50 });
+    expect(local().intent).toEqual({ kind: 'hover', targetId: 'ent_customer' });
+    expect(local().pressing).toBe(false);
+    expect(local().selectedIds).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(HOVER_MS);
+    expect(local().intent).toEqual({ kind: 'press', targetId: 'ent_customer' });
+    expect(local().pressing).toBe(true);
+    expect(local().selectedIds).toEqual(['ent_customer']);
+
+    await vi.advanceTimersByTimeAsync(PRESS_MS);
+    expect(local().pressing).toBe(false);
+    expect(local().intent).toBeNull();
+  });
+
+  it('resolves a glide on the press, so the caller writes when the click lands', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    live.flash(doc, 'ent_order');
+    await vi.advanceTimersByTimeAsync(HOVER_MS + PRESS_MS);
+
+    let resolved = false;
+    const gliding = live.glideTo(doc, 'ent_customer').then(() => { resolved = true; });
+    await vi.advanceTimersByTimeAsync(travelDurationMs({ x: 375, y: 50 }, { x: 85, y: 50 }));
+
+    // Landed, but still only hovering: the write must not start yet.
+    expect(local().cursor).toEqual({ x: 85, y: 50 });
+    expect(local().intent).toEqual({ kind: 'hover', targetId: 'ent_customer' });
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(HOVER_MS);
+    expect(local().intent).toEqual({ kind: 'press', targetId: 'ent_customer' });
+    await gliding;
+    expect(resolved).toBe(true);
+  });
+
+  it('treats a write on the same click as that click, not a second one', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    const gliding = live.glideTo(doc, 'ent_customer');
+    await vi.advanceTimersByTimeAsync(travelDurationMs({ x: 0, y: 0 }, { x: 85, y: 50 }) + HOVER_MS);
+
+    live.flash(doc, 'ent_customer', true);
+    expect(local().intent).toEqual({ kind: 'press', targetId: 'ent_customer' });
+    expect(local().pressing).toBe(true);
+    expect(local().typing).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(PRESS_MS);
+    expect(local().pressing).toBe(false);
+    expect(local().intent).toBeNull();
+    await gliding;
+  });
+
+  it('holds the typing indicator for 900ms, then lets it go', async () => {
+    const { live, local } = headless();
+    live.flash(sampleDoc(), 'ent_customer', true);
+
+    await vi.advanceTimersByTimeAsync(HOVER_MS);
+    expect(local().typing).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(TYPING_MS - 2);
+    expect(local().typing).toBe(true);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(local().typing).toBe(false);
+  });
+
+  it('drags a moved entity with its attributes instead of teleporting it', async () => {
+    const { live, local } = headless();
+    const before = sampleDoc();
+    const after = structuredClone(before);
+    after.entities[0]!.x = 210;
+    after.entities[0]!.y = 120;
+    for (const attribute of after.attributes) {
+      if (attribute.ownerId !== 'ent_customer') continue;
+      attribute.x += 200;
+      attribute.y += 100;
+    }
+
+    const dragging = live.dragTo(before, after, 'ent_customer');
+    await vi.advanceTimersByTimeAsync(HOVER_MS);
+
+    expect(local().intent).toEqual({ kind: 'drag', targetId: 'ent_customer' });
+    expect(local().pressing).toBe(true);
+    expect(local().dragging).toMatchObject({
+      ids: expect.arrayContaining(['ent_customer', 'attr_customer_id', 'attr_email']),
+      start: {
+        ent_customer: { x: 10, y: 20 },
+        attr_customer_id: { x: 10, y: 80 },
+        attr_email: { x: 10, y: 120 },
+      },
+      dx: 0,
+      dy: 0,
+    });
+
+    const travel = travelDurationMs({ x: 85, y: 50 }, { x: 285, y: 150 });
+    await vi.advanceTimersByTimeAsync(travel / 2);
+    expect(local().dragging.dx).toBeGreaterThan(0);
+    expect(local().dragging.dx).toBeLessThan(200);
+
+    await vi.advanceTimersByTimeAsync(travel);
+    await dragging;
+    // The shape is still in the air: the caller writes, then releases.
+    expect(local().dragging.dx).toBeCloseTo(200, 6);
+    expect(local().dragging.dy).toBeCloseTo(100, 6);
+    expect(local().cursor).toEqual({ x: 285, y: 150 });
+    expect(local().pressing).toBe(true);
+
+    live.release(after, 'ent_customer');
+    expect(local().dragging).toBeNull();
+    expect(local().pressing).toBe(false);
+    expect(local().intent).toBeNull();
+    expect(local().cursor).toEqual({ x: 285, y: 150 });
+    expect(local().selectedIds).toEqual(['ent_customer']);
+  });
+
+  it('draws a lasso around every shape a group delete will take', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    const lassoing = live.lasso(doc, ['ent_customer', 'attr_customer_id', 'attr_email']);
+
+    await vi.advanceTimersByTimeAsync(120);
+    expect(local().intent?.kind).toBe('lasso');
+    expect(local().pressing).toBe(false);
+    expect(local().intent.lasso.length).toBeGreaterThan(1);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await lassoing;
+    const state = local();
+    expect(state.pressing).toBe(true);
+    const xs = state.intent.lasso.map((point: CursorPoint) => point.x);
+    const ys = state.intent.lasso.map((point: CursorPoint) => point.y);
+    // The loop is padded around the whole group: entity (10..160 x, 20..80 y)
+    // and its two attributes (10..140 x, 80..172 y).
+    expect(Math.min(...xs)).toBeLessThan(10);
+    expect(Math.max(...xs)).toBeGreaterThan(160);
+    expect(Math.min(...ys)).toBeLessThan(20);
+    expect(Math.max(...ys)).toBeGreaterThan(172);
+    // And it closes back where it started.
+    const first = state.intent.lasso[0];
+    const last = state.intent.lasso[state.intent.lasso.length - 1];
+    expect(Math.hypot(first.x - last.x, first.y - last.y)).toBeLessThan(1e-6);
+
+    live.release(doc, null);
+    expect(local().intent).toBeNull();
+    expect(local().pressing).toBe(false);
+  });
+
+  it('shows a thinking ring over the last shape and lets it fade', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    live.flash(doc, 'rel_places');
+    await vi.advanceTimersByTimeAsync(HOVER_MS + PRESS_MS);
+    const cursor = local().cursor;
+
+    live.think();
+    expect(local().intent).toEqual({ kind: 'think', targetId: 'rel_places' });
+    expect(local().cursor).toEqual(cursor);
+
+    await vi.advanceTimersByTimeAsync(THINK_MS - 1);
+    expect(local().intent?.kind).toBe('think');
+    await vi.advanceTimersByTimeAsync(2);
+    expect(local().intent).toBeNull();
+  });
+
+  it('arrives from outside the diagram instead of materialising on the first shape', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    live.enter(doc, 'ent_customer');
+
+    const entrance = local().cursor!;
+    expect(entrance).not.toEqual({ x: 85, y: 50 });
+    await vi.advanceTimersByTimeAsync(travelDurationMs(entrance, { x: 85, y: 50 }));
+    expect(local().intent).toEqual({ kind: 'hover', targetId: 'ent_customer' });
+    expect(local().cursor).toEqual({ x: 85, y: 50 });
   });
 });
