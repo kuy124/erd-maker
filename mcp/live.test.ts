@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { presenceAt, roomFromLink, travelDurationMs, travelEase, travelPoint, writeDocumentDiff } from './live';
+import { liveSteps, presenceAt, roomFromLink, travelDurationMs, travelEase, travelPoint, writeDocumentDiff } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
 import { seedDocument, snapshotFromYdoc, upsertAttribute } from '../src/collab/ydoc';
@@ -69,10 +69,10 @@ describe('room links', () => {
 });
 
 describe('presence', () => {
-  it('points at the focused entity in the notation being read', () => {
+  it('points into the middle of the focused shape, not its corner', () => {
     expect(presenceAt(sampleDoc(), 'ent_customer', 'chen')).toEqual({
       view: 'chen',
-      cursor: { x: 10, y: 20 },
+      cursor: { x: 85, y: 50 },
       selectedIds: ['ent_customer'],
     });
   });
@@ -91,18 +91,56 @@ describe('presence', () => {
     expect(presenceAt(sampleDoc(), 'ent_customer', 'crowfoot').cursor).toEqual({ x: 10, y: 20 });
   });
 
-  it('resolves an attribute to the entity that owns it', () => {
-    expect(presenceAt(sampleDoc(), 'attr_customer_id', 'chen').cursor).toEqual({ x: 10, y: 20 });
+  it('points at an attribute’s own bubble in Chen', () => {
+    expect(presenceAt(sampleDoc(), 'attr_customer_id', 'chen').cursor).toEqual({ x: 75, y: 106 });
   });
 
-  it('resolves a relationship to an entity it connects', () => {
-    // Its own position would land on empty paper between the two tables.
-    expect(presenceAt(sampleDoc(), 'rel_places', 'chen').cursor).toEqual({ x: 10, y: 20 });
+  it('holds an attribute on its table’s header in crow’s-foot', () => {
+    const doc = sampleDoc();
+    doc.entities[0]!.crowX = 500;
+    doc.entities[0]!.crowY = 300;
+    expect(presenceAt(doc, 'attr_customer_id', 'crowfoot').cursor).toEqual({
+      x: 500 + CROW_WIDTH / 2,
+      y: 300 + CROW_HEADER_HEIGHT / 2,
+    });
+  });
+
+  it('points at the relationship diamond itself in Chen', () => {
+    expect(presenceAt(sampleDoc(), 'rel_places', 'chen').cursor).toEqual({ x: 275, y: 136 });
   });
 
   it('sends no cursor for no focus, and no selection for a shape that is gone', () => {
     expect(presenceAt(sampleDoc(), null, 'chen')).toEqual({ view: 'chen', cursor: null, selectedIds: [] });
     expect(presenceAt(sampleDoc(), 'ent_deleted', 'chen')).toEqual({ view: 'chen', cursor: null, selectedIds: [] });
+  });
+});
+
+describe('streaming order', () => {
+  it('visits every entity and every attribute before the relationships', () => {
+    expect(liveSteps(sampleDoc())).toEqual([
+      { id: 'ent_customer', kind: 'entity' },
+      { id: 'attr_customer_id', kind: 'attribute' },
+      { id: 'attr_email', kind: 'attribute' },
+      { id: 'ent_order', kind: 'entity' },
+      { id: 'attr_order_id', kind: 'attribute' },
+      { id: 'rel_places', kind: 'relationship' },
+    ]);
+  });
+
+  it('clicks a relationship’s own attributes after the diamond', () => {
+    const doc = sampleDoc();
+    doc.attributes.push({ id: 'attr_places_since', name: 'since', x: 200, y: 180, kind: 'simple', ownerId: 'rel_places' });
+    expect(liveSteps(doc).map((step) => step.id)).toEqual([
+      'ent_customer', 'attr_customer_id', 'attr_email',
+      'ent_order', 'attr_order_id',
+      'rel_places', 'attr_places_since',
+    ]);
+  });
+
+  it('keeps an attribute whose owner is missing instead of dropping it', () => {
+    const doc = sampleDoc();
+    doc.attributes.push({ id: 'attr_orphan', name: 'orphan', x: 0, y: 0, kind: 'simple', ownerId: 'ent_missing' });
+    expect(liveSteps(doc).map((step) => step.id)).toContain('attr_orphan');
   });
 });
 

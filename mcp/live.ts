@@ -33,7 +33,7 @@ import {
   upsertLeg,
   upsertRelationship,
 } from '../src/collab/ydoc';
-import type { Attribute, DiagramComment, Entity, ErdDocument } from '../src/model/types';
+import { NODE_SIZE, type DiagramComment, type Entity, type ErdDocument } from '../src/model/types';
 
 const FALLBACK_RELAY = 'wss://erd-sync.cerberus-tusk-proxy.workers.dev';
 const FALLBACK_ORIGIN = 'https://kuy124.github.io';
@@ -57,6 +57,15 @@ const MOVE_MS_PER_PX = 0.7;
 const MOVE_BOW_FROM_PX = 40;
 const MOVE_BOW_RATIO = 0.06;
 const MOVE_BOW_MAX_PX = 26;
+/**
+ * How long the pointer rests on a shape before moving to the next one.
+ *
+ * The app's click animation is 180ms; a shorter rest would cut it mid-press and
+ * the arrow would snap back instead of easing out.
+ */
+const SHAPE_HOLD_MS = 190;
+/** How long a click stays published when the pointer is not moving on. */
+const PRESS_MS = 380;
 
 export interface RoomLink {
   room?: string;
@@ -193,6 +202,11 @@ export class LiveRoom {
   private moveTimer: ReturnType<typeof setInterval> | undefined;
   private travel: { from: CursorPoint; to: CursorPoint; started: number; duration: number } | null = null;
   private typingOnArrival = false;
+  /** Resolves the glide whose landing the caller is awaiting. */
+  private arrival: (() => void) | null = null;
+  private pressTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Selection takes effect on arrival, the way a click does. */
+  private pendingSelection: string[] | null = null;
 
   private constructor(
     room: string,
@@ -296,19 +310,44 @@ export class LiveRoom {
    * even though the AI was still connected.
    */
   flash(doc: ErdDocument, focusId: string | null, typing = false): void {
+    this.aimAt(doc, focusId);
+    this.moveTo(presenceAt(doc, this.focusId, this.cursorView).cursor, typing);
+  }
+
+  /**
+   * Glides to a shape and resolves once the pointer has landed on it.
+   *
+   * Streaming a diagram uses this so the shape is only written after the
+   * cursor arrives: the watcher sees the pointer travel, click, and the shape
+   * appear under it, instead of shapes popping in while the cursor lags behind.
+   */
+  async glideTo(doc: ErdDocument, focusId: string | null, typing = false): Promise<void> {
+    this.aimAt(doc, focusId);
+    const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
+    if (!target) {
+      this.moveTo(null, false);
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.arrival = resolve;
+      this.moveTo(target, typing);
+    });
+  }
+
+  /** Points future frames at one shape without starting a hop. */
+  private aimAt(doc: ErdDocument, focusId: string | null): void {
     if (focusId) this.focusId = focusId;
     const point = presenceAt(doc, this.focusId, this.watchedView(doc.view));
     this.cursorView = point.view;
-    this.cursorSelection = point.selectedIds;
-    this.moveTo(point.cursor, typing);
+    this.pendingSelection = point.selectedIds;
   }
 
   /**
    * Starts, retargets, or finishes a pointer hop.
    *
-   * Retargeting mid-hop keeps the in-flight position, so a burst of edits —
-   * streaming a whole diagram — reads as one continuous pointer rather than a
-   * series of separate animations.
+   * Retargeting mid-hop keeps the in-flight position, so a burst of edits — a
+   * rename and a move in one call — reads as one continuous pointer rather than
+   * a series of separate animations.
    */
   private moveTo(target: CursorPoint | null, typing: boolean): void {
     if (!target) {
@@ -330,6 +369,7 @@ export class LiveRoom {
     }
 
     this.clearTyping();
+    this.clearPress();
     this.typingOnArrival = typing;
     this.travel = {
       from: { ...this.cursor },
@@ -337,7 +377,13 @@ export class LiveRoom {
       started: Date.now(),
       duration: travelDurationMs(this.cursor, target),
     };
-    this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view: this.cursorView, typing: false });
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursorSelection,
+      view: this.cursorView,
+      typing: false,
+      pressing: false,
+    });
     if (this.moveTimer) return;
     this.moveTimer = setInterval(() => this.advanceMotion(), MOVE_FRAME_MS);
   }
@@ -368,12 +414,25 @@ export class LiveRoom {
   }
 
   private publishArrival(typing: boolean): void {
+    if (this.pendingSelection) {
+      this.cursorSelection = this.pendingSelection;
+      this.pendingSelection = null;
+    }
+    // Landing is a click: the app plays its press animation from this flag.
     this.publishPresence({
       cursor: this.cursor,
       selectedIds: this.cursor ? this.cursorSelection : [],
       view: this.cursorView,
       typing,
+      ...(this.cursor ? { pressing: true } : {}),
     });
+    this.clearPress();
+    if (this.cursor) {
+      this.pressTimer = setTimeout(() => {
+        this.pressTimer = undefined;
+        this.publishPresence({ pressing: false });
+      }, PRESS_MS);
+    }
     this.clearTyping();
     if (typing) {
       this.typingTimer = setTimeout(() => {
@@ -381,6 +440,7 @@ export class LiveRoom {
         this.publishPresence({ typing: false });
       }, 1200);
     }
+    this.land();
   }
 
   private stopMotion(): void {
@@ -389,12 +449,31 @@ export class LiveRoom {
     this.travel = null;
   }
 
+  /** Resolves whoever is awaiting the current glide, so a close cannot hang it. */
+  private land(): void {
+    const resolve = this.arrival;
+    this.arrival = null;
+    resolve?.();
+  }
+
   private clearTyping(): void {
     if (this.typingTimer) clearTimeout(this.typingTimer);
     this.typingTimer = undefined;
   }
 
-  /** Replaces the room's content, optionally shape by shape for a watcher. */
+  private clearPress(): void {
+    if (this.pressTimer) clearTimeout(this.pressTimer);
+    this.pressTimer = undefined;
+  }
+
+  /**
+   * Replaces the room's content, optionally shape by shape for a watcher.
+   *
+   * Every step is a glide, a click, and then the shape: the pointer moves to
+   * the spot, lands, and the shape appears under it. Writing on arrival (rather
+   * than on a shared timer) is what makes the stream read as someone drawing
+   * instead of shapes popping in while the cursor lags a shape behind.
+   */
   async replace(source: ErdDocument, stream: boolean): Promise<void> {
     const doc = normalizeDocument(source);
     if (!stream || this.watching === 0) {
@@ -412,54 +491,42 @@ export class LiveRoom {
       setMeta(this.ydoc, { name: doc.name, view: doc.view });
     });
 
-    const steps = doc.entities.length + doc.relationships.length + doc.isas.length + 1;
-    const pace = Math.round(Math.min(160, Math.max(45, 2600 / Math.max(1, steps))));
-    const written = new Set<string>();
-
-    for (const entity of doc.entities) {
-      const attributes = ownedAttributes(doc, entity.id);
-      for (const attribute of attributes) written.add(attribute.id);
-      this.ydoc.transact(() => {
-        upsertEntity(this.ydoc, entity);
-        for (const attribute of attributes) upsertAttribute(this.ydoc, attribute);
-      });
-      this.flash(doc, entity.id, true);
-      await pause(pace);
-    }
-
-    for (const relationship of doc.relationships) {
-      const attributes = ownedAttributes(doc, relationship.id);
-      for (const attribute of attributes) written.add(attribute.id);
-      const legs = doc.legs.filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id);
-      this.ydoc.transact(() => {
-        upsertRelationship(this.ydoc, relationship);
-        for (const attribute of attributes) upsertAttribute(this.ydoc, attribute);
-        for (const leg of legs) upsertLeg(this.ydoc, leg);
-      });
-      this.flash(doc, relationship.id, true);
-      await pause(pace);
-    }
-
-    for (const isa of doc.isas) {
-      const attributes = ownedAttributes(doc, isa.id);
-      for (const attribute of attributes) written.add(attribute.id);
-      this.ydoc.transact(() => {
-        upsertIsa(this.ydoc, isa);
-        for (const attribute of attributes) upsertAttribute(this.ydoc, attribute);
-      });
-      this.flash(doc, isa.id, true);
-      await pause(pace);
+    for (const step of liveSteps(doc)) {
+      await this.glideTo(doc, step.id);
+      this.writeStep(doc, step);
+      await pause(SHAPE_HOLD_MS);
     }
 
     this.ydoc.transact(() => {
-      for (const attribute of doc.attributes) {
-        if (!written.has(attribute.id)) upsertAttribute(this.ydoc, attribute);
-      }
       for (const group of doc.groups) upsertGroup(this.ydoc, group);
       const comments = this.ydoc.getMap<DiagramComment>(COMMENTS);
       for (const comment of doc.comments) comments.set(comment.id, comment);
     });
-    this.flash(doc, null);
+  }
+
+  /** Writes one streamed shape, with the lines that make it meaningful. */
+  private writeStep(doc: ErdDocument, step: LiveStep): void {
+    this.ydoc.transact(() => {
+      if (step.kind === 'entity') {
+        const entity = doc.entities.find((candidate) => candidate.id === step.id);
+        if (entity) upsertEntity(this.ydoc, entity);
+        return;
+      }
+      if (step.kind === 'attribute') {
+        const attribute = doc.attributes.find((candidate) => candidate.id === step.id);
+        if (attribute) upsertAttribute(this.ydoc, attribute);
+        return;
+      }
+      const relationships = step.kind === 'relationship'
+        ? doc.relationships.filter((candidate) => candidate.id === step.id)
+        : [];
+      for (const relationship of relationships) upsertRelationship(this.ydoc, relationship);
+      const isas = step.kind === 'isa' ? doc.isas.filter((candidate) => candidate.id === step.id) : [];
+      for (const isa of isas) upsertIsa(this.ydoc, isa);
+      for (const leg of doc.legs) {
+        if (leg.fromId === step.id || leg.toId === step.id) upsertLeg(this.ydoc, leg);
+      }
+    });
   }
 
   close(): void {
@@ -467,6 +534,8 @@ export class LiveRoom {
     this.closed = true;
     this.stopMotion();
     this.clearTyping();
+    this.clearPress();
+    this.land();
     try {
       this.awareness.setLocalState(null);
     } catch {
@@ -561,17 +630,59 @@ function writeCollections(ydoc: Y.Doc, doc: ErdDocument): void {
   for (const comment of doc.comments) comments.set(comment.id, comment);
 }
 
-function ownedAttributes(doc: ErdDocument, ownerId: string): Attribute[] {
-  const found: Attribute[] = [];
-  const visit = (id: string) => {
+export type LiveStepKind = 'entity' | 'attribute' | 'relationship' | 'isa';
+
+export interface LiveStep {
+  id: string;
+  kind: LiveStepKind;
+}
+
+/**
+ * The order a streamed diagram is drawn in: every shape the pointer visits.
+ *
+ * Attributes are steps of their own, right after the shape that owns them. A
+ * column that appears while the arrow still sits on the table reads as the AI
+ * never touching it; a click on each attribute is what makes the stream look
+ * like someone filling the diagram in by hand.
+ */
+export function liveSteps(doc: ErdDocument): LiveStep[] {
+  const steps: LiveStep[] = [];
+  const seen = new Set<string>();
+  const visitAttributes = (ownerId: string) => {
     for (const attribute of doc.attributes) {
-      if (attribute.ownerId !== id) continue;
-      found.push(attribute);
-      visit(attribute.id);
+      if (attribute.ownerId !== ownerId || seen.has(attribute.id)) continue;
+      seen.add(attribute.id);
+      steps.push({ id: attribute.id, kind: 'attribute' });
+      visitAttributes(attribute.id);
     }
   };
-  visit(ownerId);
-  return found;
+
+  for (const entity of doc.entities) {
+    if (seen.has(entity.id)) continue;
+    seen.add(entity.id);
+    steps.push({ id: entity.id, kind: 'entity' });
+    visitAttributes(entity.id);
+  }
+  for (const relationship of doc.relationships) {
+    if (seen.has(relationship.id)) continue;
+    seen.add(relationship.id);
+    steps.push({ id: relationship.id, kind: 'relationship' });
+    visitAttributes(relationship.id);
+  }
+  for (const isa of doc.isas) {
+    if (seen.has(isa.id)) continue;
+    seen.add(isa.id);
+    steps.push({ id: isa.id, kind: 'isa' });
+    visitAttributes(isa.id);
+  }
+  // An attribute whose owner is missing still belongs in the room, so it gets
+  // its own click at the end rather than being dropped from the stream.
+  for (const attribute of doc.attributes) {
+    if (seen.has(attribute.id)) continue;
+    seen.add(attribute.id);
+    steps.push({ id: attribute.id, kind: 'attribute' });
+  }
+  return steps;
 }
 
 export interface PresencePoint {
@@ -586,15 +697,35 @@ export function presenceAt(doc: ErdDocument, focusId: string | null, view: ErdDo
   return { view, cursor, selectedIds: focusId && cursor ? [focusId] : [] };
 }
 
-/** The live cursor position that makes sense in the current notation. */
+/**
+ * The live cursor position that makes sense in the current notation.
+ *
+ * In Chen the pointer lands in the middle of the shape; an arrow resting on a
+ * shape's top-left corner reads as a miss. In crow's-foot a table is drawn from
+ * its header, so anything owned by an entity points there instead.
+ */
 function focusPoint(doc: ErdDocument, id: string): { x: number; y: number } | null {
-  const entity = ownerEntity(doc, id);
-  if (entity && doc.view === 'crowfoot' && entity.crowX !== undefined && entity.crowY !== undefined) {
-    return { x: entity.crowX + CROW_WIDTH / 2, y: entity.crowY + CROW_HEADER_HEIGHT / 2 };
+  if (doc.view === 'crowfoot') {
+    const owner = ownerEntity(doc, id);
+    if (owner) {
+      return owner.crowX !== undefined && owner.crowY !== undefined
+        ? { x: owner.crowX + CROW_WIDTH / 2, y: owner.crowY + CROW_HEADER_HEIGHT / 2 }
+        : { x: owner.x, y: owner.y };
+    }
   }
-  if (entity) return { x: entity.x, y: entity.y };
-  const node = [...doc.attributes, ...doc.relationships, ...doc.isas].find((candidate) => candidate.id === id);
-  return node ? { x: node.x, y: node.y } : null;
+  const entity = doc.entities.find((candidate) => candidate.id === id);
+  if (entity) return centerOf(entity, 'entity');
+  const attribute = doc.attributes.find((candidate) => candidate.id === id);
+  if (attribute) return centerOf(attribute, 'attribute');
+  const relationship = doc.relationships.find((candidate) => candidate.id === id);
+  if (relationship) return centerOf(relationship, 'relationship');
+  const isa = doc.isas.find((candidate) => candidate.id === id);
+  return isa ? centerOf(isa, 'isa') : null;
+}
+
+function centerOf(shape: { x: number; y: number }, kind: keyof typeof NODE_SIZE): { x: number; y: number } {
+  const size = NODE_SIZE[kind];
+  return { x: shape.x + size.w / 2, y: shape.y + size.h / 2 };
 }
 
 function ownerEntity(doc: ErdDocument, id: string): Entity | undefined {
