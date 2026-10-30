@@ -47,7 +47,7 @@ import {
   type Relationship,
   type RelationshipKind,
 } from '../src/model/types';
-import { LiveRoom, roomFromLink, writeDocumentDiff } from './live';
+import { LiveRoom, roomFromLink, writeDocumentDiff, type CursorPoint } from './live';
 
 function repositoryRoot(): string {
   // A test runner serves this module from a virtual http URL, which cannot be
@@ -221,6 +221,15 @@ interface Session {
 }
 
 let session: Session | null = null;
+
+/**
+ * Where the pointer stood the last time the assistant left a room.
+ *
+ * Kept outside the session because a session is replaced by every create and
+ * open, while the pointer is one continuous hand: rejoining should start it
+ * moving from where it stopped, not snap it onto the first shape.
+ */
+let lastPointer: CursorPoint | null = null;
 
 function liveInfo(live: LiveRoom | null): LiveInfo | null {
   return live
@@ -805,18 +814,28 @@ async function persistAfterMutation(): Promise<{ savedTo?: string; saveError?: s
  * (a bad data type on the third attribute, a duplicate name) must leave the open
  * diagram exactly as it was. A half-applied diagram is worse than a failed call:
  * the model is told nothing changed, and the file on disk disagrees.
+ *
+ * In a room with a watcher, the pointer travels to the shape first and the write
+ * lands when it arrives, so a single edit reads the way a streamed diagram
+ * already does — travel, click, change. Writing first made the shape jump into
+ * existence and the cursor arrive afterwards, which is a teleport with an
+ * explanation. Nobody watching means nobody to perform for, so the edit stays
+ * instant.
  */
-function commit(current: Session, doc: ErdDocument, focusId?: string | null): void {
+async function commit(current: Session, doc: ErdDocument, focusId?: string | null): Promise<void> {
   const next = normalizeDocument(doc);
-  if (current.live) {
-    const changed = writeDocumentDiff(current.live.ydoc, current.doc, next);
-    const focus = focusId !== undefined ? focusId : changed[0] ?? null;
-    // An edit is somebody typing at that shape, not a shape teleporting in.
-    current.live.flash(next, focus, focus !== null);
-    current.doc = current.live.snapshot();
-  } else {
+  if (!current.live) {
     current.doc = next;
+    current.dirty = true;
+    return;
   }
+  const live = current.live;
+  const watched = focusId !== null && Boolean(focusId) && live.watching > 0;
+  if (watched) await live.glideTo(next, focusId ?? null, false);
+  const changed = writeDocumentDiff(live.ydoc, current.doc, next);
+  // The landing is the click: it is published with the change, not before it.
+  live.flash(next, focusId ?? changed[0] ?? null, focusId !== null && focusId !== undefined);
+  current.doc = live.snapshot();
   current.dirty = true;
 }
 
@@ -934,7 +953,11 @@ export async function openRoom(options: OpenRoomOptions = {}): Promise<OpenRoomR
 
   // A room that already has content wins; seeding only fills an empty one.
   const seed = link.doc ?? (options.seed === false ? undefined : current?.doc);
-  const next = await LiveRoom.join({ room, ...(seed ? { seed } : {}) });
+  const next = await LiveRoom.join({
+    room,
+    ...(seed ? { seed } : {}),
+    ...(lastPointer ? { startCursor: lastPointer } : {}),
+  });
 
   current?.live?.close();
   const fileBelongs = Boolean(current?.filePath && next.seeded && seed === current.doc);
@@ -959,6 +982,35 @@ export async function openRoom(options: OpenRoomOptions = {}): Promise<OpenRoomR
     seeded: next.seeded,
     summary,
     outline: summaryOutline(summary),
+  };
+}
+
+export interface LeaveRoomResult {
+  room: string | null;
+  message: string;
+}
+
+/**
+ * Signs the assistant out of the live room it is editing.
+ *
+ * Nothing else disconnected it, so a watcher was left with an avatar that had
+ * stopped moving and no way to tell finished work from a stall. This gives the
+ * room a goodbye it can see, then keeps the diagram open locally: leaving is not
+ * undoing.
+ */
+export async function leaveRoom(): Promise<LeaveRoomResult> {
+  const current = session;
+  const live = current?.live;
+  if (!current || !live) {
+    return { room: null, message: 'This diagram is not in a live room, so there is nothing to leave.' };
+  }
+  const room = live.room;
+  lastPointer = live.pointer;
+  await live.leave(current.doc);
+  session = { ...current, live: null };
+  return {
+    room,
+    message: `Left room ${room}. The diagram stays open here, so edits keep working — they just no longer stream to watchers.`,
   };
 }
 
@@ -1024,7 +1076,7 @@ export async function arrangeSession(view?: DiagramView): Promise<MutationResult
   const current = requireSession();
   const doc = structuredClone(current.doc);
   if (view) doc.view = view;
-  commit(current, arrangeView(doc, doc.view), null);
+  await commit(current, arrangeView(doc, doc.view), null);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Arranged ${current.doc.view} view.`), ...outcome,
     summary: summarizeDocument(current.doc, current.filePath) };
@@ -1129,7 +1181,7 @@ export async function addEntity(input: {
     entity.crowX = spot.x;
     entity.crowY = spot.y;
   }
-  commit(current, doc, entity.id);
+  await commit(current, doc, entity.id);
   const outcome = await persistAfterMutation();
   return {
     ...mutation(current.doc, `Added entity ${name} at (${spot.x}, ${spot.y}).`, entity.id),
@@ -1167,7 +1219,7 @@ export async function addAttribute(input: {
     added ??= attribute.id;
     placeAttribute(doc, attribute.id);
   });
-  commit(current, doc, added ?? null);
+  await commit(current, doc, added ?? null);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Added attribute ${name} to ${owner.name}.`, added), ...outcome };
 }
@@ -1198,7 +1250,7 @@ export async function addRelationship(input: RelationshipSpec): Promise<Mutation
   });
   doc.legs.push(leg(from, fromCard, input.fromParticipation, from.name));
   doc.legs.push(leg(to, toCard, input.toParticipation, to.name));
-  commit(current, doc, relationship.id);
+  await commit(current, doc, relationship.id);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Added relationship ${name} between ${from.name} and ${to.name}.`, relationship.id), ...outcome };
 }
@@ -1276,7 +1328,7 @@ export async function updateNode(ref: string, patch: {
       throw new Error('Specializations have no editable name or type; change their parent or children instead.');
     }
   }
-  commit(current, doc, node.id);
+  await commit(current, doc, node.id);
   const outcome = await persistAfterMutation();
   const displayName = name ?? node.name;
   const message = move && name === undefined && patch.kind === undefined
@@ -1290,7 +1342,7 @@ export async function removeDiagramNode(ref: string): Promise<MutationResult> {
   const node = resolveNode(current.doc, ref);
   const beforeAttributes = current.doc.attributes.length;
   const doc = removeNode(current.doc, node.id);
-  commit(current, doc, null);
+  await commit(current, doc, null);
   const removedAttributes = beforeAttributes - current.doc.attributes.length;
   const outcome = await persistAfterMutation();
   return {
@@ -1308,7 +1360,7 @@ export async function updateDiagram(patch: { name?: string; view?: DiagramView }
     if (patch.view !== 'chen' && patch.view !== 'crowfoot') throw new Error('View must be "chen" or "crowfoot".');
     doc.view = patch.view;
   }
-  commit(current, doc, null);
+  await commit(current, doc, null);
   const outcome = await persistAfterMutation();
   return {
     ...mutation(current.doc, 'Updated the diagram.'),

@@ -24,6 +24,7 @@ import {
   createDiagram,
   errorMessage,
   getDiagram,
+  leaveRoom,
   listDiagramFiles,
   openDiagram,
   openRoom,
@@ -61,7 +62,13 @@ const server = new McpServer(
       'room\'s open tabs as it happens, with the AI\'s name, cursor, and selection, and no refresh. Omit the',
       'link to start a room, or pass the share link the person gave you to join theirs. A room that already',
       'has content wins; the open diagram or the link\'s snapshot only seeds an empty room. While in a room,',
-      'create_share_link returns that same room, so the AI\'s edits stay live for whoever opens it.',
+      'create_share_link returns that same room, so the AI\'s edits stay live for whoever opens it. Edits are',
+      'authored in view: the pointer travels to each shape, clicks it, and the shape appears under it, one',
+      'continuous stroke across the whole diagram.',
+      '',
+      'When the person says they are done, call leave_room. It glides back to the last shape, pauses with the',
+      'typing indicator up, then signs out, so the room sees a departure instead of an avatar that stopped',
+      'moving. Rejoining with open_room puts the pointer back where it left off.',
       '',
       'Cardinality "1:N" from A to B means one A relates to many Bs; the label at each end describes the',
       'entity at that end. Attribute kinds are simple, key, unique, multivalued, derived, and composite;',
@@ -165,6 +172,17 @@ server.registerTool('open_room', {
     seed: z.boolean().optional().describe('Set false to leave an empty room empty instead of copying the open diagram into it.'),
   },
 }, async (options) => json(await openRoom(options)));
+
+server.registerTool('leave_room', {
+  title: 'Leave a live room',
+  description:
+    'Sign out of the live room the assistant is editing, after gliding back to the last shape and pausing, ' +
+    'so watchers see it finish rather than watch an avatar that stopped moving. The diagram stays open here: ' +
+    'later edits keep working, they just no longer stream. Calling open_room again rejoins, and the pointer ' +
+    'resumes where it left off. Call this when the person says they are done, or when they ask the assistant ' +
+    'to leave. Does nothing if no room is open.',
+  inputSchema: {},
+}, async () => json(await leaveRoom()));
 
 server.registerTool('save_diagram', {
   title: 'Save the diagram',
@@ -389,6 +407,7 @@ server.registerPrompt('design-erd', {
         '2. Describe relationships with cardinality at each end. "1:N" from A to B means one A relates to many Bs. Use N:M when both sides can repeat; the junction table is generated for you.',
         '3. Model a dependent entity as weak when its identity includes a parent\'s key.',
         '4. Call open_room first if the person wants to watch: pass their share link to join their room, or omit it to start a new one. Edits then stream into their open tab without a refresh.',
+        'When the person says they are done, call leave_room so they see the assistant finish and go.',
         '5. Plan the layout as coordinates: give each entity an x and y, grouping related entities and leaving room for attribute columns and relationship diamonds. Do not rely on automatic arrangement.',
         '6. Call create_diagram with the whole model once, then validate_diagram, and fix anything it reports.',
         '7. Run generate_sql and include the DDL, along with the share link from create_diagram.',

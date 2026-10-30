@@ -5,6 +5,7 @@ import {
   addEntity,
   createDiagram,
   getDiagram,
+  leaveRoom,
   listDiagramFiles,
   openDiagram,
   removeDiagramNode,
@@ -268,6 +269,14 @@ describe('diagram files', () => {
     expect([entity.x, entity.y]).toEqual([900, 620]);
     const summary = (await summarizeSession()).summary;
     expect(summary.entities.find((candidate) => candidate.name === 'Product')!.position).toEqual({ x: 900, y: 620 });
+  });
+
+  it('leaves a room nothing is watching without touching the diagram', async () => {
+    await createDiagram(baseSpec());
+    const left = await leaveRoom();
+    expect(left.room).toBeNull();
+    expect(left.message).toMatch(/not in a live room/i);
+    expect(getDiagram().document.entities).toHaveLength(2);
   });
 
   it('adds a crow\'s-foot table at the coordinates it was given', async () => {

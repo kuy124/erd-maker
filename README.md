@@ -166,6 +166,7 @@ Open a diagram in the app, copy the address-bar link, and ask the assistant to c
 - Every later add/update/remove call appears in the open tab immediately, with the assistant's cursor on the shape it changed. No refresh, no re-import. The cursor slides between shapes along a curved, eased path published at screen frame rate, so the work reads as a hand moving rather than shapes teleporting.
 - The assistant is a peer like anyone else: it shows up in the presence strip and on the canvas with the name and colour from `ERD_MCP_AI_NAME` and `ERD_MCP_AI_COLOR`.
 - `open_room` with no link starts a new room and returns a link that opens it. A room with content already in it is left alone; the open diagram or the link's snapshot only seeds an empty room, so the room always wins.
+- `leave_room` signs out when the person says they are done: the pointer glides back to the last shape, pauses with the typing indicator up, then disconnects, so watchers see the assistant finish instead of an avatar that stopped moving. The diagram stays open in the MCP, and `open_room` rejoins with the pointer where it left off.
 - Edits are diffs against the current room, so concurrent changes to other shapes survive. `create_diagram` while in a room replaces the room content and streams it in shape by shape.
 - AI edits arrive as ordinary remote changes, so they are not local undo steps for the watcher. Both directions keep syncing.
 
@@ -183,7 +184,7 @@ Files stay under the repository root:
 | `ERD_MCP_AI_NAME` | `AI assistant` | Name peers see in a live room. |
 | `ERD_MCP_AI_COLOR` | `#6B3FA0` | Presence colour peers see. |
 
-Seventeen tools cover the diagram: `create_diagram`, `open_diagram`, `open_room`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
+Eighteen tools cover the diagram: `create_diagram`, `open_diagram`, `open_room`, `leave_room`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
 
 Paths must end in `.json` and stay inside the workspace. A call that fails leaves the open diagram unchanged, and saving over an existing file needs `overwrite: true`.
 

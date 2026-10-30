@@ -50,22 +50,46 @@ const ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
  * only needs the awareness field it already reads.
  */
 const MOVE_FRAME_MS = 16;
-const MOVE_MIN_MS = 220;
-const MOVE_MAX_MS = 950;
-const MOVE_MS_PER_PX = 0.7;
+const MOVE_MIN_MS = 320;
+const MOVE_MAX_MS = 1250;
+const MOVE_MS_PER_PX = 0.95;
 /** Long hops bow off the straight line a little; short ones stay exact. */
 const MOVE_BOW_FROM_PX = 40;
-const MOVE_BOW_RATIO = 0.06;
-const MOVE_BOW_MAX_PX = 34;
+const MOVE_BOW_RATIO = 0.085;
+const MOVE_BOW_MAX_PX = 48;
 /** How far a hop's arc may deviate from its nominal bow, as a fraction of it. */
 const MOVE_BOW_SPREAD = 0.35;
 /**
- * How long the pointer rests on a shape before moving to the next one.
+ * How far past the target the pointer carries before easing back, as a
+ * fraction of the hop, and where that follow-through begins.
  *
- * The app's click animation is 180ms; a shorter rest would cut it mid-press and
- * the arrow would snap back instead of easing out.
+ * A hand stopping a mouse does not decelerate in a straight line: it travels a
+ * hair past the goal and takes it back. Without it every landing looks placed by
+ * a transition, however good the approach curve is.
  */
-const SHAPE_HOLD_MS = 190;
+const SETTLE_RATIO = 0.04;
+const SETTLE_FROM_T = 0.75;
+/**
+ * Velocity carried into a retarget, in px/ms, and how much of the hop's length
+ * it is allowed to bend the new path.
+ *
+ * A pointer that is already moving does not restart its muscles: when a new
+ * target appears mid-hop, the first part of the new path still leans the way it
+ * was going. Below the minimum the previous hop is over, so there is nothing to
+ * carry.
+ */
+const CARRY_MIN_PX_PER_MS = 0.2;
+const CARRY_RATIO = 0.18;
+/**
+ * How much of a stitched route's leg keeps the minimum-jerk shape.
+ *
+ * At 0 a leg is linear, so the pointer crosses an interior knot at its cruising
+ * speed; at 1 it stops dead there, which is the stop-start stream this replaces.
+ * A third of the curve makes each knot a check — slow down, click, carry on.
+ */
+const ROUTE_EASE_BLEND = 0.65;
+/** How long the typing indicator is held before the AI leaves a room. */
+const FAREWELL_MS = 700;
 /** How long a click stays published when the pointer is not moving on. */
 const PRESS_MS = 380;
 
@@ -122,6 +146,8 @@ export interface LiveRoomOptions {
   relayOrigin?: string;
   /** Content to write when the room has never been used. */
   seed?: ErdDocument;
+  /** Where the pointer stood when it last left, so a rejoin does not snap. */
+  startCursor?: CursorPoint;
   timeoutMs?: number;
 }
 
@@ -177,6 +203,49 @@ export function travelBow(from: CursorPoint, to: CursorPoint): number {
 }
 
 /**
+ * How far past the target a hop carries at `t` in 0..1, along its own line.
+ *
+ * One half-sine, so the pointer eases out of the cruise into the overshoot and
+ * back to zero exactly at the destination. Only the last quarter of the reach
+ * has any: a hand does not overshoot while it is still accelerating.
+ */
+export function settleOffset(t: number, length: number): number {
+  if (t <= SETTLE_FROM_T || t >= 1) return 0;
+  const part = (t - SETTLE_FROM_T) / (1 - SETTLE_FROM_T);
+  return length * SETTLE_RATIO * Math.sin(Math.PI * part);
+}
+
+/**
+ * The control point of a hop's quadratic, given its sideways bow.
+ *
+ * A quadratic leaves its first point aimed at the control, so bending the
+ * control is how the path is steered. When the pointer was already moving — a
+ * retarget, not a cold start — part of that velocity is folded into the control
+ * so the new path leaves along the old direction instead of restarting from it.
+ */
+export function travelControl(
+  from: CursorPoint,
+  to: CursorPoint,
+  bow: number,
+  incoming: CursorPoint | null = null,
+): CursorPoint {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const plain = {
+    x: (from.x + to.x) / 2 - (dy / length) * bow,
+    y: (from.y + to.y) / 2 + (dx / length) * bow,
+  };
+  const speed = incoming ? Math.hypot(incoming.x, incoming.y) : 0;
+  if (!incoming || !(speed > CARRY_MIN_PX_PER_MS)) return plain;
+  const carry = length * CARRY_RATIO;
+  return {
+    x: plain.x + (incoming.x / speed) * carry,
+    y: plain.y + (incoming.y / speed) * carry,
+  };
+}
+
+/**
  * A point along the travel path at `t` in 0..1.
  *
  * The path is a quadratic curve rather than a straight line: a real pointer
@@ -184,25 +253,97 @@ export function travelBow(from: CursorPoint, to: CursorPoint): number {
  * moved rather than animated by a transition. At t = 1 the result is exactly
  * the destination, so the cursor rests precisely on the shape.
  */
-export function travelPoint(from: CursorPoint, to: CursorPoint, t: number): CursorPoint {
+export function travelPoint(
+  from: CursorPoint,
+  to: CursorPoint,
+  t: number,
+  incoming: CursorPoint | null = null,
+): CursorPoint {
   const eased = travelEase(t);
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const length = Math.hypot(dx, dy);
   if (length < 1e-6) return { x: to.x, y: to.y };
-  const bow = travelBow(from, to);
-  const control = {
-    x: (from.x + to.x) / 2 - (dy / length) * bow,
-    y: (from.y + to.y) / 2 + (dx / length) * bow,
-  };
+  const control = travelControl(from, to, travelBow(from, to), incoming);
   const rest = 1 - eased;
+  const settle = settleOffset(t, length);
   return {
-    x: rest * rest * from.x + 2 * rest * eased * control.x + eased * eased * to.x,
-    y: rest * rest * from.y + 2 * rest * eased * control.y + eased * eased * to.y,
+    x: rest * rest * from.x + 2 * rest * eased * control.x + eased * eased * to.x + (dx / length) * settle,
+    y: rest * rest * from.y + 2 * rest * eased * control.y + eased * eased * to.y + (dy / length) * settle,
   };
 }
 
-/** A `ws` socket that claims the origin the relay allowlists. */
+/**
+ * Progress along one leg of a stitched route, given whether its ends are rests.
+ *
+ * A route is travelled as one continuous stroke, so an interior knot must not be
+ * reached at zero speed — that is the stop-start stream this replaces. The ends
+ * of the whole route keep the full minimum-jerk shape, since the pointer does
+ * start from rest there and has to stop somewhere to click the last shape.
+ */
+export function legEase(p: number, restStart: boolean, restEnd: boolean): number {
+  const value = Math.min(1, Math.max(0, p));
+  if (restStart && restEnd) return travelEase(value);
+  if (restStart) return value * value;
+  if (restEnd) return 1 - (1 - value) * (1 - value);
+  return value + ROUTE_EASE_BLEND * (travelEase(value) - value);
+}
+
+/**
+ * A point along a route through several shapes, at `u` in 0..knots-1.
+ *
+ * Catmull-Rom, so the curve passes exactly through every knot — each one is
+ * where a shape gets clicked — while the tangent at a knot is set by its
+ * neighbours. That is what stitches separate hops into one stroke: the pointer
+ * never leaves the shape it stopped at, and never kinks on the way through it.
+ */
+export function routePoint(knots: CursorPoint[], u: number): CursorPoint | null {
+  if (knots.length === 0) return null;
+  const last = knots.length - 1;
+  if (last === 0) return { x: knots[0]!.x, y: knots[0]!.y };
+  const value = Math.min(last, Math.max(0, u));
+  const i = Math.min(last - 1, Math.floor(value));
+  const t = value - i;
+  const p0 = knots[i - 1] ?? knots[i]!;
+  const p1 = knots[i]!;
+  const p2 = knots[i + 1]!;
+  const p3 = knots[i + 2] ?? knots[i + 1]!;
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const blend = (a: number, b: number, c: number, d: number): number =>
+    0.5 * ((2 * b) + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+  return {
+    x: blend(p0.x, p1.x, p2.x, p3.x),
+    y: blend(p0.y, p1.y, p2.y, p3.y),
+  };
+}
+
+/** How long each leg of a route takes, timed by its own chord. */
+export function routeDurationsMs(knots: CursorPoint[]): number[] {
+  const durations: number[] = [];
+  for (let i = 1; i < knots.length; i += 1) {
+    durations.push(travelDurationMs(knots[i - 1]!, knots[i]!));
+  }
+  return durations;
+}
+
+/** One stitched pass over a stream of shapes. */
+interface StreamRoute {
+  doc: ErdDocument;
+  steps: LiveStep[];
+  /** Every shape the pointer passes through, starting where it already is. */
+  knots: CursorPoint[];
+  /** When each knot is reached, in ms from the start of the route. */
+  reaches: number[];
+  started: number;
+  /** Knots whose shape has been written. */
+  written: number;
+  /** Set on the frame a knot is crossed; the click lands on the frame after it. */
+  arming: boolean;
+  resolve: () => void;
+}
+
+/** A ws socket that claims the origin the relay allowlists. */
 function socketWithOrigin(origin: string): typeof WebSocket {
   class OriginSocket extends NodeWebSocket {
     constructor(address: string | URL, protocols?: string | string[]) {
@@ -227,13 +368,21 @@ export class LiveRoom {
   private cursorView: ErdDocument['view'] = 'chen';
   private cursorSelection: string[] = [];
   private moveTimer: ReturnType<typeof setInterval> | undefined;
-  private travel: { from: CursorPoint; to: CursorPoint; started: number; duration: number } | null = null;
+  private travel: {
+    from: CursorPoint;
+    to: CursorPoint;
+    started: number;
+    duration: number;
+    velocity: CursorPoint | null;
+  } | null = null;
   private typingOnArrival = false;
   /** Resolves the glide whose landing the caller is awaiting. */
   private arrival: (() => void) | null = null;
   private pressTimer: ReturnType<typeof setTimeout> | undefined;
   /** Selection takes effect on arrival, the way a click does. */
   private pendingSelection: string[] | null = null;
+  private route: StreamRoute | null = null;
+  private routeTimer: ReturnType<typeof setInterval> | undefined;
 
   private constructor(
     room: string,
@@ -272,7 +421,10 @@ export class LiveRoom {
       maxBackoffTime: 10000,
     });
     const live = new LiveRoom(room, ydoc, provider, awareness, relayUrl, relayOrigin);
-    live.publishPresence({ cursor: null, selectedIds: [], view: 'chen', typing: false });
+    // Rejoining a room the assistant left keeps the pointer where it stopped:
+    // arriving at a shape is a move, not a teleport onto the first one.
+    if (options.startCursor) live.cursor = { x: options.startCursor.x, y: options.startCursor.y };
+    live.publishPresence({ cursor: live.cursor, selectedIds: [], view: 'chen', typing: false });
 
     try {
       await live.waitForSync(options.timeoutMs ?? 12_000);
@@ -349,6 +501,9 @@ export class LiveRoom {
    * appear under it, instead of shapes popping in while the cursor lags behind.
    */
   async glideTo(doc: ErdDocument, focusId: string | null, typing = false): Promise<void> {
+    // A stream in flight owns the pointer and moves it faster than any single
+    // glide could, so an edit that lands mid-stream simply follows it.
+    if (this.route) return;
     this.aimAt(doc, focusId);
     const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
     if (!target) {
@@ -377,6 +532,7 @@ export class LiveRoom {
    * a series of separate animations.
    */
   private moveTo(target: CursorPoint | null, typing: boolean): void {
+    if (this.route) return;
     if (!target) {
       this.stopMotion();
       this.cursor = null;
@@ -398,11 +554,13 @@ export class LiveRoom {
     this.clearTyping();
     this.clearPress();
     this.typingOnArrival = typing;
+    const incoming = this.hopVelocity();
     this.travel = {
       from: { ...this.cursor },
       to: { x: target.x, y: target.y },
       started: Date.now(),
       duration: travelDurationMs(this.cursor, target),
+      velocity: incoming,
     };
     this.publishPresence({
       cursor: this.cursor,
@@ -423,7 +581,7 @@ export class LiveRoom {
       return;
     }
     const progress = Math.min(1, (Date.now() - travel.started) / travel.duration);
-    this.cursor = travelPoint(travel.from, travel.to, progress);
+    this.cursor = travelPoint(travel.from, travel.to, progress, travel.velocity);
     if (progress >= 1) {
       this.cursor = { x: travel.to.x, y: travel.to.y };
       this.travel = null;
@@ -437,6 +595,117 @@ export class LiveRoom {
       selectedIds: this.cursorSelection,
       view: this.cursorView,
       typing: false,
+    });
+  }
+
+  /** The speed the pointer is travelling at now, in px per ms. */
+  private hopVelocity(): CursorPoint | null {
+    const travel = this.travel;
+    if (!travel) return null;
+    const progress = (Date.now() - travel.started) / travel.duration;
+    if (progress <= 0 || progress >= 1) return null;
+    const step = 0.02;
+    const before = travelPoint(travel.from, travel.to, progress - step, travel.velocity);
+    const after = travelPoint(travel.from, travel.to, progress + step, travel.velocity);
+    const span = travel.duration * step * 2;
+    return { x: (after.x - before.x) / span, y: (after.y - before.y) / span };
+  }
+
+  /**
+   * Travels a whole stream of shapes as one continuous stroke.
+   *
+   * Every shape is a knot of a Catmull-Rom route, so the pointer passes through
+   * each one without ever coming to rest between two: it checks — slows to a
+   * third of cruising speed, clicks, and carries on. Writing on the crossing is
+   * what keeps the shape appearing under the cursor rather than ahead of it, and
+   * one hop's travel for fifty shapes is what makes it read as a hand at work
+   * rather than a transition replaying.
+   */
+  private travelRoute(doc: ErdDocument, steps: LiveStep[]): Promise<void> {
+    const view = this.watchedView(doc.view);
+    this.cursorView = view;
+    const knots: CursorPoint[] = this.cursor ? [{ ...this.cursor }] : [];
+    for (const step of steps) {
+      const point = presenceAt(doc, step.id, view).cursor;
+      if (point) knots.push(point);
+    }
+    const expected = steps.length + (this.cursor ? 1 : 0);
+    if (knots.length < 2 || knots.length !== expected) {
+      // No curve to stitch through: visit each shape on its own rather than
+      // dropping the ones that could not be aimed at.
+      return this.travelEach(doc, steps);
+    }
+    const reaches: number[] = [0];
+    for (const duration of routeDurationsMs(knots)) reaches.push(reaches[reaches.length - 1]! + duration);
+    return new Promise<void>((resolve) => {
+      this.route = { doc, steps, knots, reaches, started: Date.now(), written: 0, arming: false, resolve };
+      this.advanceRoute();
+      this.routeTimer = setInterval(() => this.advanceRoute(), MOVE_FRAME_MS);
+    });
+  }
+
+  /** The fallback: one glide and one write per shape, in stream order. */
+  private async travelEach(doc: ErdDocument, steps: LiveStep[]): Promise<void> {
+    for (const step of steps) {
+      await this.glideTo(doc, step.id);
+      this.writeStep(doc, step);
+    }
+  }
+
+  /** Publishes the next frame of the route, clicking every knot it crosses. */
+  private advanceRoute(): void {
+    const route = this.route;
+    if (!route) {
+      this.stopRoute();
+      return;
+    }
+    const elapsed = Date.now() - route.started;
+    const last = route.knots.length - 1;
+    let leg = 0;
+    while (leg < last - 1 && elapsed >= route.reaches[leg + 1]!) leg += 1;
+    const start = route.reaches[leg]!;
+    const end = route.reaches[leg + 1]!;
+    const progress = end > start ? Math.min(1, (elapsed - start) / (end - start)) : 1;
+    const point = routePoint(route.knots, leg + legEase(progress, leg === 0, leg === last - 1));
+    if (point) this.cursor = point;
+
+    let crossed = 0;
+    while (crossed < last && elapsed >= route.reaches[crossed + 1]!) crossed += 1;
+
+    if (crossed === last && route.written === last) {
+      this.cursor = { x: route.knots[last]!.x, y: route.knots[last]!.y };
+      this.stopRoute();
+      this.publishArrival(false);
+      return;
+    }
+    if (route.written >= crossed) {
+      this.publishRoute(false);
+      return;
+    }
+    if (route.arming) {
+      route.arming = false;
+      const step = route.steps[route.written]!;
+      route.written += 1;
+      this.focusId = step.id;
+      this.cursorSelection = [step.id];
+      this.writeStep(route.doc, step);
+      this.publishRoute(true);
+      return;
+    }
+    // Release the previous click one frame before the next is pressed. Published
+    // in the same tick they arrive as one awareness message, and the app only
+    // replays its press animation when the flag actually changes.
+    route.arming = true;
+    this.publishRoute(false);
+  }
+
+  private publishRoute(pressing: boolean): void {
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursor ? this.cursorSelection : [],
+      view: this.cursorView,
+      typing: false,
+      pressing,
     });
   }
 
@@ -474,6 +743,17 @@ export class LiveRoom {
     if (this.moveTimer) clearInterval(this.moveTimer);
     this.moveTimer = undefined;
     this.travel = null;
+    this.stopRoute();
+  }
+
+  /** Ends the route loop, resolving whoever is awaiting the stream. */
+  private stopRoute(): void {
+    if (this.routeTimer) clearInterval(this.routeTimer);
+    this.routeTimer = undefined;
+    const route = this.route;
+    if (!route) return;
+    this.route = null;
+    route.resolve();
   }
 
   /** Resolves whoever is awaiting the current glide, so a close cannot hang it. */
@@ -518,11 +798,7 @@ export class LiveRoom {
       setMeta(this.ydoc, { name: doc.name, view: doc.view });
     });
 
-    for (const step of liveSteps(doc)) {
-      await this.glideTo(doc, step.id);
-      this.writeStep(doc, step);
-      await pause(SHAPE_HOLD_MS);
-    }
+    await this.travelRoute(doc, liveSteps(doc));
 
     this.ydoc.transact(() => {
       for (const group of doc.groups) upsertGroup(this.ydoc, group);
@@ -554,6 +830,26 @@ export class LiveRoom {
         if (leg.fromId === step.id || leg.toId === step.id) upsertLeg(this.ydoc, leg);
       }
     });
+  }
+
+  /** Where the pointer is right now, for a caller that means to come back. */
+  get pointer(): CursorPoint | null {
+    return this.cursor ? { x: this.cursor.x, y: this.cursor.y } : null;
+  }
+
+  /**
+   * Finishes in front of the watchers, then disconnects.
+   *
+   * Dropping the socket mid-sentence reads as a network failure. Gliding back to
+   * the last shape and holding the typing indicator for a beat makes it a
+   * departure, and the room's own leaving notice then lands on an exit.
+   */
+  async leave(doc: ErdDocument): Promise<void> {
+    if (this.watching > 0 && this.focusId) {
+      await this.glideTo(doc, this.focusId, true);
+      await pause(FAREWELL_MS);
+    }
+    this.close();
   }
 
   close(): void {

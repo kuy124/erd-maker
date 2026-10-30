@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { liveSteps, presenceAt, roomFromLink, travelBow, travelDurationMs, travelEase, travelPoint, writeDocumentDiff } from './live';
+import { legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
 import { seedDocument, snapshotFromYdoc, upsertAttribute } from '../src/collab/ydoc';
@@ -164,7 +164,7 @@ describe('pointer travel', () => {
     const mid = travelPoint(from, to, 0.5);
     const bow = Math.hypot(mid.x - 200, mid.y - 150);
     expect(bow).toBeGreaterThan(1);
-    expect(bow).toBeLessThan(30);
+    expect(bow).toBeLessThan(34);
   });
 
   it('stays on the straight line for short hops', () => {
@@ -174,13 +174,13 @@ describe('pointer travel', () => {
 
   it('keeps a hop between a readable floor and ceiling, longer for longer distances', () => {
     const near = travelDurationMs({ x: 0, y: 0 }, { x: 20, y: 0 });
-    const far = travelDurationMs({ x: 0, y: 0 }, { x: 1200, y: 0 });
+    const mid = travelDurationMs({ x: 0, y: 0 }, { x: 600, y: 0 });
     const huge = travelDurationMs({ x: 0, y: 0 }, { x: 5000, y: 0 });
-    expect(near).toBeGreaterThanOrEqual(220);
-    expect(far).toBeGreaterThan(near);
-    expect(far).toBeLessThanOrEqual(950);
+    // Slow enough to look like a hand reaching, not a transition firing.
+    expect(near).toBe(320);
+    expect(mid).toBe(570);
     // Across a big canvas the pointer still should not crawl off screen.
-    expect(huge).toBeLessThanOrEqual(950);
+    expect(huge).toBe(1250);
   });
 
   it('arcs successive hops differently, but the same pair the same way', () => {
@@ -201,13 +201,149 @@ describe('pointer travel', () => {
     const to = { x: 600, y: 0 };
     const frames = Math.ceil(travelDurationMs(from, to) / 16);
     let previous = travelPoint(from, to, 0);
+    let backward = 0;
     for (let frame = 1; frame <= frames; frame += 1) {
       const next = travelPoint(from, to, frame / frames);
-      expect(next.x).toBeGreaterThanOrEqual(previous.x);
       expect(Math.hypot(next.x - previous.x, next.y - previous.y)).toBeLessThan(80);
+      if (next.x < previous.x) backward += previous.x - next.x;
       previous = next;
     }
+    // The only backward travel is the follow-through giving the overshoot back.
+    const overshoot = Math.max(...Array.from({ length: frames + 1 },
+      (_, frame) => travelPoint(from, to, frame / frames).x)) - to.x;
+    expect(overshoot).toBeGreaterThan(1);
+    expect(overshoot).toBeLessThan(36);
+    expect(backward).toBeCloseTo(overshoot, 1);
     expect(previous).toEqual(to);
+  });
+});
+
+describe('follow-through settle', () => {
+  it('adds nothing at either end of the hop', () => {
+    expect(settleOffset(0, 600)).toBe(0);
+    expect(settleOffset(1, 600)).toBe(0);
+    // And nothing during the cruise: the settle belongs to the end of the reach.
+    expect(settleOffset(0.2, 600)).toBe(0);
+    expect(settleOffset(0.7, 600)).toBe(0);
+  });
+
+  it('carries the pointer a little past the target before it settles back', () => {
+    const peak = settleOffset(0.88, 600);
+    expect(peak).toBeGreaterThan(0);
+    expect(peak).toBeLessThan(600 * 0.06);
+    // A longer reach overshoots proportionally further, like a real hand.
+    expect(settleOffset(0.88, 1200)).toBeGreaterThan(peak);
+  });
+});
+
+describe('carried retarget', () => {
+  it('bows the plain way when the pointer was not already moving', () => {
+    const plain = travelControl({ x: 0, y: 0 }, { x: 0, y: 400 }, 30, null);
+    expect(plain.x).toBeCloseTo(-30, 6);
+    expect(plain.y).toBeCloseTo(200, 6);
+    expect(travelControl({ x: 0, y: 0 }, { x: 0, y: 400 }, 30)).toEqual(plain);
+  });
+
+  it('leaves a retargeted hop along the direction the pointer was already going', () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 0, y: 400 };
+    // Already moving hard to the right when the new target appears straight above.
+    const carried = travelControl(from, to, 30, { x: 300, y: 0 });
+    const plain = travelControl(from, to, 30, null);
+    expect(carried.x).toBeGreaterThan(plain.x + 1);
+    // The carry is a corner cut, not a detour: it stays a fraction of the hop.
+    expect(Math.hypot(carried.x - plain.x, carried.y - plain.y)).toBeLessThan(400 * 0.25);
+    // And the landing never moves: only the shape of the path changes.
+    expect(travelPoint(from, to, 1, { x: 300, y: 0 })).toEqual(to);
+  });
+
+  it('ignores a carried velocity too small to read as momentum', () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 0, y: 400 };
+    expect(travelControl(from, to, 30, { x: 0.2, y: 0 })).toEqual(travelControl(from, to, 30, null));
+  });
+});
+
+describe('stitched route travel', () => {
+  const knots = [
+    { x: 0, y: 0 },
+    { x: 400, y: 0 },
+    { x: 800, y: 300 },
+    { x: 1200, y: 120 },
+  ];
+  const at = (u: number): CursorPoint => routePoint(knots, u)!;
+
+  it('passes exactly through every knot at its whole route parameter', () => {
+    knots.forEach((knot, index) => {
+      expect(at(index).x).toBeCloseTo(knot.x, 6);
+      expect(at(index).y).toBeCloseTo(knot.y, 6);
+    });
+    expect(routePoint(knots, -2)).toEqual(knots[0]);
+    expect(routePoint(knots, knots.length + 5)).toEqual(knots[knots.length - 1]);
+  });
+
+  it('keeps travelling through an interior knot instead of coming to rest', () => {
+    const before = at(1.98);
+    const here = at(2);
+    const after = at(2.02);
+    const v1 = { x: here.x - before.x, y: here.y - before.y };
+    const v2 = { x: after.x - here.x, y: after.y - here.y };
+    const dot = v1.x * v2.x + v1.y * v2.y;
+    const cross = v1.x * v2.y - v1.y * v2.x;
+    // Never stops, and never kinks: a stream of shapes reads as one stroke.
+    expect(Math.hypot(v1.x, v1.y)).toBeGreaterThan(0);
+    expect(Math.abs(Math.atan2(cross, dot))).toBeLessThan(0.35);
+  });
+
+  it('handles a route that is one shape, or none', () => {
+    expect(routePoint([{ x: 5, y: 7 }], 0.5)).toEqual({ x: 5, y: 7 });
+    expect(routePoint([], 0)).toBeNull();
+  });
+
+  it('times each route segment by its own chord', () => {
+    const durations = routeDurationsMs(knots);
+    expect(durations).toHaveLength(3);
+    expect(durations).toEqual([
+      travelDurationMs(knots[0]!, knots[1]!),
+      travelDurationMs(knots[1]!, knots[2]!),
+      travelDurationMs(knots[2]!, knots[3]!),
+    ]);
+  });
+});
+
+describe('leg easing across a stitched route', () => {
+  const slope = (restStart: boolean, restEnd: boolean, from: number): number =>
+    (legEase(from + 0.01, restStart, restEnd) - legEase(from, restStart, restEnd)) / 0.01;
+
+  it('starts and finishes every leg exactly where the next one begins', () => {
+    expect(legEase(0, true, true)).toBe(0);
+    expect(legEase(1, true, true)).toBe(1);
+    expect(legEase(0, false, true)).toBe(0);
+    expect(legEase(1, false, true)).toBe(1);
+    expect(legEase(0, true, false)).toBe(0);
+    expect(legEase(1, true, false)).toBe(1);
+    expect(legEase(0, false, false)).toBe(0);
+    expect(legEase(1, false, false)).toBe(1);
+  });
+
+  it('rests at both ends of a lone leg, the way a single hop does', () => {
+    expect(slope(true, true, 0)).toBeLessThan(0.05);
+    expect(slope(true, true, 0.99)).toBeLessThan(0.05);
+  });
+
+  it('keeps the pointer moving through the middle of a route', () => {
+    // A dip to a third of cruising speed: a check at the shape, not a stop.
+    expect(slope(false, false, 0)).toBeGreaterThan(0.2);
+    expect(slope(false, false, 0.99)).toBeGreaterThan(0.2);
+    // Halfway along, the leg is at full speed.
+    expect(slope(false, false, 0.5)).toBeGreaterThan(slope(false, false, 0));
+  });
+
+  it('arrives at the first knot already moving and leaves the last at rest', () => {
+    expect(slope(true, false, 0)).toBeLessThan(0.05);
+    expect(slope(true, false, 0.99)).toBeGreaterThan(0.5);
+    expect(slope(false, true, 0)).toBeGreaterThan(0.5);
+    expect(slope(false, true, 0.99)).toBeLessThan(0.05);
   });
 });
 
