@@ -41,6 +41,23 @@ const AI_USER_ID = 'erd-mcp';
 const AI_COLOR = '#6B3FA0';
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 
+/**
+ * Pointer travel, in the same cadence the app publishes a real mouse at.
+ *
+ * A cursor that jumps from shape to shape reads as the page teleporting, not
+ * as somebody working. Publishing a frame every 16ms along an eased path gives
+ * watchers the same stream of positions a human pointer produces, and the app
+ * only needs the awareness field it already reads.
+ */
+const MOVE_FRAME_MS = 16;
+const MOVE_MIN_MS = 220;
+const MOVE_MAX_MS = 700;
+const MOVE_MS_PER_PX = 0.7;
+/** Long hops bow off the straight line a little; short ones stay exact. */
+const MOVE_BOW_FROM_PX = 40;
+const MOVE_BOW_RATIO = 0.06;
+const MOVE_BOW_MAX_PX = 26;
+
 export interface RoomLink {
   room?: string;
   /** App URL without its fragment, for building links back into the room. */
@@ -102,8 +119,51 @@ export interface LivePeer {
   color: string;
 }
 
+export interface CursorPoint {
+  x: number;
+  y: number;
+}
+
 function pause(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Minimum-jerk easing: the acceleration profile of a hand moving a mouse. */
+export function travelEase(t: number): number {
+  const value = Math.min(1, Math.max(0, t));
+  return value * value * value * (10 - 15 * value + 6 * value * value);
+}
+
+/** How long a hop between two shapes should take, from its distance. */
+export function travelDurationMs(from: CursorPoint, to: CursorPoint): number {
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  return Math.round(Math.min(MOVE_MAX_MS, Math.max(MOVE_MIN_MS, distance * MOVE_MS_PER_PX)));
+}
+
+/**
+ * A point along the travel path at `t` in 0..1.
+ *
+ * The path is a quadratic curve rather than a straight line: a real pointer
+ * bows as the wrist pivots, and the small arc is what makes a long hop look
+ * moved rather than animated by a transition. At t = 1 the result is exactly
+ * the destination, so the cursor rests precisely on the shape.
+ */
+export function travelPoint(from: CursorPoint, to: CursorPoint, t: number): CursorPoint {
+  const eased = travelEase(t);
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-6) return { x: to.x, y: to.y };
+  const bow = length > MOVE_BOW_FROM_PX ? Math.min(MOVE_BOW_MAX_PX, length * MOVE_BOW_RATIO) : 0;
+  const control = {
+    x: (from.x + to.x) / 2 - (dy / length) * bow,
+    y: (from.y + to.y) / 2 + (dx / length) * bow,
+  };
+  const rest = 1 - eased;
+  return {
+    x: rest * rest * from.x + 2 * rest * eased * control.x + eased * eased * to.x,
+    y: rest * rest * from.y + 2 * rest * eased * control.y + eased * eased * to.y,
+  };
 }
 
 /** A `ws` socket that claims the origin the relay allowlists. */
@@ -124,8 +184,15 @@ export class LiveRoom {
   private readonly provider: WebsocketProvider;
   private readonly awareness: Awareness;
   private typingTimer: ReturnType<typeof setTimeout> | undefined;
+  private focusId: string | null = null;
   private closed = false;
   private seededRoom = false;
+  private cursor: CursorPoint | null = null;
+  private cursorView: ErdDocument['view'] = 'chen';
+  private cursorSelection: string[] = [];
+  private moveTimer: ReturnType<typeof setInterval> | undefined;
+  private travel: { from: CursorPoint; to: CursorPoint; started: number; duration: number } | null = null;
+  private typingOnArrival = false;
 
   private constructor(
     room: string,
@@ -220,23 +287,111 @@ export class LiveRoom {
    * Shows the AI working at a shape.
    *
    * The app reads presence from awareness, so moving the cursor and selection
-   * is enough to make the change look authored rather than teleported.
+   * is enough to make the change look authored rather than teleported. A hop to
+   * a different shape is played out as an eased, slightly arched path instead of
+   * a single jump, because that is what a pointer being moved looks like.
+   *
+   * The last shape is kept: a commit with no focus (a re-arrange, a room-level
+   * change) used to publish a null cursor, so the arrow vanished mid-session
+   * even though the AI was still connected.
    */
   flash(doc: ErdDocument, focusId: string | null, typing = false): void {
+    if (focusId) this.focusId = focusId;
+    const point = presenceAt(doc, this.focusId, this.watchedView(doc.view));
+    this.cursorView = point.view;
+    this.cursorSelection = point.selectedIds;
+    this.moveTo(point.cursor, typing);
+  }
+
+  /**
+   * Starts, retargets, or finishes a pointer hop.
+   *
+   * Retargeting mid-hop keeps the in-flight position, so a burst of edits —
+   * streaming a whole diagram — reads as one continuous pointer rather than a
+   * series of separate animations.
+   */
+  private moveTo(target: CursorPoint | null, typing: boolean): void {
+    if (!target) {
+      this.stopMotion();
+      this.cursor = null;
+      this.publishArrival(false);
+      return;
+    }
+    if (!this.cursor) {
+      this.cursor = { x: target.x, y: target.y };
+      this.publishArrival(typing);
+      return;
+    }
+    const distance = Math.hypot(target.x - this.cursor.x, target.y - this.cursor.y);
+    if (distance < 0.75) {
+      this.cursor = { x: target.x, y: target.y };
+      this.publishArrival(typing);
+      return;
+    }
+
+    this.clearTyping();
+    this.typingOnArrival = typing;
+    this.travel = {
+      from: { ...this.cursor },
+      to: { x: target.x, y: target.y },
+      started: Date.now(),
+      duration: travelDurationMs(this.cursor, target),
+    };
+    this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view: this.cursorView, typing: false });
+    if (this.moveTimer) return;
+    this.moveTimer = setInterval(() => this.advanceMotion(), MOVE_FRAME_MS);
+  }
+
+  /** Publishes the next frame of the current hop, and lands it when due. */
+  private advanceMotion(): void {
+    const travel = this.travel;
+    if (!travel) {
+      this.stopMotion();
+      return;
+    }
+    const progress = Math.min(1, (Date.now() - travel.started) / travel.duration);
+    this.cursor = travelPoint(travel.from, travel.to, progress);
+    if (progress >= 1) {
+      this.cursor = { x: travel.to.x, y: travel.to.y };
+      this.travel = null;
+      this.stopMotion();
+      this.publishArrival(this.typingOnArrival);
+      this.typingOnArrival = false;
+      return;
+    }
     this.publishPresence({
-      view: doc.view,
-      cursor: focusId ? focusPoint(doc, focusId) : null,
-      selectedIds: focusId ? [focusId] : [],
+      cursor: this.cursor,
+      selectedIds: this.cursorSelection,
+      view: this.cursorView,
+      typing: false,
+    });
+  }
+
+  private publishArrival(typing: boolean): void {
+    this.publishPresence({
+      cursor: this.cursor,
+      selectedIds: this.cursor ? this.cursorSelection : [],
+      view: this.cursorView,
       typing,
     });
-    if (this.typingTimer) clearTimeout(this.typingTimer);
-    this.typingTimer = undefined;
+    this.clearTyping();
     if (typing) {
       this.typingTimer = setTimeout(() => {
         this.typingTimer = undefined;
         this.publishPresence({ typing: false });
       }, 1200);
     }
+  }
+
+  private stopMotion(): void {
+    if (this.moveTimer) clearInterval(this.moveTimer);
+    this.moveTimer = undefined;
+    this.travel = null;
+  }
+
+  private clearTyping(): void {
+    if (this.typingTimer) clearTimeout(this.typingTimer);
+    this.typingTimer = undefined;
   }
 
   /** Replaces the room's content, optionally shape by shape for a watcher. */
@@ -310,8 +465,8 @@ export class LiveRoom {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.typingTimer) clearTimeout(this.typingTimer);
-    this.typingTimer = undefined;
+    this.stopMotion();
+    this.clearTyping();
     try {
       this.awareness.setLocalState(null);
     } catch {
@@ -348,6 +503,23 @@ export class LiveRoom {
       ...(this.awareness.getLocalState() ?? {}),
     };
     this.awareness.setLocalState({ ...base, ...patch });
+  }
+
+  /**
+   * The notation somebody in the room is actually reading.
+   *
+   * Cursors are drawn only in the notation the reader chose, so an AI that
+   * always published its document's view disappeared for anyone working in the
+   * other one. Following a watcher keeps the arrow on their screen.
+   */
+  private watchedView(fallback: ErdDocument['view']): ErdDocument['view'] {
+    let view: ErdDocument['view'] | null = null;
+    this.awareness.getStates().forEach((state, clientId) => {
+      if (view || clientId === this.awareness.clientID) return;
+      const candidate = (state as { view?: unknown }).view;
+      if (candidate === 'chen' || candidate === 'crowfoot') view = candidate;
+    });
+    return view ?? fallback;
   }
 
   private waitForSync(timeoutMs: number): Promise<void> {
@@ -400,6 +572,18 @@ function ownedAttributes(doc: ErdDocument, ownerId: string): Attribute[] {
   };
   visit(ownerId);
   return found;
+}
+
+export interface PresencePoint {
+  view: ErdDocument['view'];
+  cursor: { x: number; y: number } | null;
+  selectedIds: string[];
+}
+
+/** Turns a focused shape into awareness fields, resolved for one notation. */
+export function presenceAt(doc: ErdDocument, focusId: string | null, view: ErdDocument['view']): PresencePoint {
+  const cursor = focusId ? focusPoint({ ...doc, view }, focusId) : null;
+  return { view, cursor, selectedIds: focusId && cursor ? [focusId] : [] };
 }
 
 /** The live cursor position that makes sense in the current notation. */

@@ -13,6 +13,7 @@ import {
   shareSession,
   sqlForSession,
   summarizeSession,
+  updateNode,
   validateSession,
   type AttributeSpec,
   type CreateSpec,
@@ -40,7 +41,7 @@ function baseSpec(): CreateSpec {
 }
 
 describe('diagram service', () => {
-  it('builds, lays out, and summarizes a diagram', async () => {
+  it('builds, places, and summarizes a diagram', async () => {
     const result = await createDiagram(baseSpec());
     expect(result.filePath).toBeNull();
     expect(result.summary.counts).toEqual({ entities: 2, attributes: 4, relationships: 1, specializations: 0 });
@@ -128,6 +129,85 @@ describe('diagram service', () => {
     expect(after).toBe(0);
   });
 
+  it('keeps the coordinates the caller gives instead of arranging', async () => {
+    const result = await createDiagram({
+      name: 'Placed', save: false,
+      entities: [
+        { name: 'Left', x: 120, y: 300 },
+        { name: 'Right', x: 560, y: 300 },
+      ],
+      relationships: [{ name: 'links', from: 'Left', to: 'Right', cardinality: 'N:M' }],
+    });
+    expect(result.summary.entities.map((entity) => entity.position)).toEqual([
+      { x: 120, y: 300 },
+      { x: 560, y: 300 },
+    ]);
+    expect(result.outline).toContain('Left [strong] ent_left at (120, 300)');
+    const { document } = getDiagram();
+    expect(document.entities.map((entity) => [entity.x, entity.y])).toEqual([[120, 300], [560, 300]]);
+  });
+
+  it('places unplaced entities around the ones that already have a home', async () => {
+    await createDiagram({
+      name: 'Mixed', save: false,
+      entities: [{ name: 'Fixed', x: 120, y: 120 }, { name: 'Loose' }],
+    });
+    const loose = getDiagram().document.entities.find((entity) => entity.name === 'Loose')!;
+    expect([loose.x, loose.y]).not.toEqual([120, 120]);
+    expect([loose.x, loose.y]).not.toEqual([0, 0]);
+  });
+
+  it('rejects half a coordinate', async () => {
+    await expect(createDiagram({
+      name: 'Half', save: false,
+      entities: [{ name: 'A', x: 10 }],
+    })).rejects.toThrow(/both x and y/);
+  });
+
+  it('keeps a crow\'s-foot table at the given point', async () => {
+    const result = await createDiagram({
+      name: 'Tables', view: 'crowfoot', save: false,
+      entities: [{ name: 'Account', x: 300, y: 200, attributes: [{ name: 'account_id', kind: 'key' }] }],
+    });
+    expect(result.summary.entities[0]!.position).toEqual({ x: 300, y: 200 });
+    const entity = getDiagram().document.entities[0]!;
+    expect([entity.crowX, entity.crowY]).toEqual([300, 200]);
+  });
+
+  it('moves an entity and carries its attributes', async () => {
+    await createDiagram(baseSpec());
+    const before = getDiagram().document;
+    const entity = before.entities.find((candidate) => candidate.name === 'Customer')!;
+    const attribute = before.attributes.find((candidate) => candidate.name === 'email')!;
+    const dx = 400 - entity.x;
+    const dy = 260 - entity.y;
+    const outcome = await updateNode('Customer', { x: 400, y: 260 });
+    expect(outcome.message).toBe('Moved entity Customer to (400, 260).');
+    expect(outcome.position).toEqual({ x: 400, y: 260 });
+    const after = getDiagram().document;
+    expect(after.entities.find((candidate) => candidate.name === 'Customer')).toMatchObject({ x: 400, y: 260 });
+    expect(after.attributes.find((candidate) => candidate.name === 'email')).toMatchObject({
+      x: attribute.x + dx,
+      y: attribute.y + dy,
+    });
+  });
+
+  it('moves a crow\'s-foot table without disturbing its Chen position', async () => {
+    await createDiagram({ ...baseSpec(), view: 'crowfoot' });
+    const entity = getDiagram().document.entities.find((candidate) => candidate.name === 'Customer')!;
+    const outcome = await updateNode('Customer', { x: 640, y: 480 });
+    expect(outcome.position).toEqual({ x: 640, y: 480 });
+    const after = getDiagram().document.entities.find((candidate) => candidate.name === 'Customer')!;
+    expect([after.crowX, after.crowY]).toEqual([640, 480]);
+    expect([after.x, after.y]).toEqual([entity.x, entity.y]);
+  });
+
+  it('refuses to move anything but an entity, and needs both axes', async () => {
+    await createDiagram(baseSpec());
+    await expect(updateNode('places', { x: 10, y: 10 })).rejects.toThrow(/Only entities/);
+    await expect(updateNode('Customer', { x: 10 })).rejects.toThrow(/both x and y/);
+  });
+
   it('keeps Chen coordinates when a crow\'s-foot diagram is created', async () => {
     const result = await createDiagram({ ...baseSpec(), view: 'crowfoot' });
     expect(result.summary.view).toBe('crowfoot');
@@ -178,5 +258,26 @@ describe('diagram files', () => {
     const outcome = await addEntity({ name: 'Product', attributes: [{ name: 'product_id', kind: 'key', dataType: 'INT' }] });
     expect(outcome.nodeId).toContain('ent_product');
     expect(outcome.issues.every((issue) => issue.nodeId !== outcome.nodeId || issue.code !== 'unnamed')).toBe(true);
+  });
+
+  it('adds an entity at the coordinates it was given', async () => {
+    await createDiagram(baseSpec());
+    const outcome = await addEntity({ name: 'Product', x: 900, y: 620 });
+    expect(outcome.position).toEqual({ x: 900, y: 620 });
+    const entity = getDiagram().document.entities.find((candidate) => candidate.name === 'Product')!;
+    expect([entity.x, entity.y]).toEqual([900, 620]);
+    const summary = (await summarizeSession()).summary;
+    expect(summary.entities.find((candidate) => candidate.name === 'Product')!.position).toEqual({ x: 900, y: 620 });
+  });
+
+  it('adds a crow\'s-foot table at the coordinates it was given', async () => {
+    await createDiagram({ ...baseSpec(), view: 'crowfoot' });
+    const outcome = await addEntity({
+      name: 'Product', x: 900, y: 620,
+      attributes: [{ name: 'product_id', kind: 'key' }, { name: 'price' }],
+    });
+    expect(outcome.position).toEqual({ x: 900, y: 620 });
+    const entity = getDiagram().document.entities.find((candidate) => candidate.name === 'Product')!;
+    expect([entity.crowX, entity.crowY]).toEqual([900, 620]);
   });
 });

@@ -133,6 +133,8 @@ Types are a base plus numbers: length for `VARCHAR`, precision and scale for `DE
 
 An AI assistant can open, build, and edit diagrams through the MCP server in `mcp/`. It works on the same JSON the app imports, so its output opens here, and its validation, SQL, and share links come from the app's own code. It can also join a live room as a collaborator: its edits then appear in every open tab as it makes them, with its name, cursor, and selection, so there is nothing to refresh.
 
+Placement is the assistant's job, not a side effect. `create_diagram` accepts an `x` and `y` for each entity, `summarize_diagram` reports where every entity sits, and `update_node` moves one, carrying its attributes in Chen notation. Anything left without coordinates takes the next free slot beside its neighbours. Automatic arrangement is opt-in through `layout: true` or `arrange_diagram`, so a diagram drawn with positions opens exactly as drawn.
+
 <details>
 <summary><strong>⚙️ For developers: MCP setup</strong></summary>
 
@@ -161,7 +163,7 @@ Restart the client or reconnect the server after adding the entry. To confirm th
 
 Open a diagram in the app, copy the address-bar link, and ask the assistant to call `open_room` with it. The app already syncs through its relay, so the MCP joins the same room as an ordinary client:
 
-- Every later add/update/remove call appears in the open tab immediately, with the assistant's cursor on the shape it changed. No refresh, no re-import.
+- Every later add/update/remove call appears in the open tab immediately, with the assistant's cursor on the shape it changed. No refresh, no re-import. The cursor slides between shapes along a curved, eased path published at screen frame rate, so the work reads as a hand moving rather than shapes teleporting.
 - The assistant is a peer like anyone else: it shows up in the presence strip and on the canvas with the name and colour from `ERD_MCP_AI_NAME` and `ERD_MCP_AI_COLOR`.
 - `open_room` with no link starts a new room and returns a link that opens it. A room with content already in it is left alone; the open diagram or the link's snapshot only seeds an empty room, so the room always wins.
 - Edits are diffs against the current room, so concurrent changes to other shapes survive. `create_diagram` while in a room replaces the room content and streams it in shape by shape.

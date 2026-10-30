@@ -51,6 +51,12 @@ const server = new McpServer(
       'tools edit it, and every edit is written back to its file. Shapes can be referenced by id or by a',
       'unique name; summarize_diagram returns both.',
       '',
+      'Place shapes by coordinates instead of leaving the layout to chance: create_diagram accepts x and y',
+      '(top-left in the view being created), summarize_diagram reports each entity\'s position, and update_node',
+      'moves one. Plan the diagram — related entities near each other, a column of attributes beside each owner,',
+      'room for relationship diamonds in between. Anything without coordinates takes the next free slot, and',
+      'layout:true or arrange_diagram runs the app\'s own layout when you want that instead.',
+      '',
       'Live rooms: open_room joins an ERD Maker room as a collaborator, so every later edit appears in the',
       'room\'s open tabs as it happens, with the AI\'s name, cursor, and selection, and no refresh. Omit the',
       'link to start a room, or pass the share link the person gave you to join theirs. A room that already',
@@ -87,6 +93,8 @@ const entitySpecSchema = z.object({
   name: z.string(),
   kind: entityKindSchema.optional().describe('strong (default) or weak. A weak entity derives its key from a parent through an identifying relationship.'),
   attributes: z.array(attributeSpecSchema).optional(),
+  x: z.number().optional().describe('Left edge in the view being created, in pixels. Give both x and y to place the entity deliberately; omit both to take the first free slot.'),
+  y: z.number().optional().describe('Top edge in the view being created, in pixels.'),
 });
 
 const participationSchema = z.object({
@@ -114,7 +122,9 @@ server.registerTool('create_diagram', {
   title: 'Create a diagram',
   description:
     'Build an ERD from a complete description and open it as the current diagram. List every entity with its attributes, then relationships between entities by name, then optional specializations. ' +
-    'The diagram is validated, laid out automatically, and saved to diagrams/<slug>.json unless path or save:false says otherwise. ' +
+    'Entities keep the x and y you give them; anything without coordinates takes the next free slot beside its neighbours, with attributes stacked beside their owner. ' +
+    'Pass layout:true only when you want the app to arrange the whole diagram for you. ' +
+    'The diagram is validated and saved to diagrams/<slug>.json unless path or save:false says otherwise. ' +
     'In a live room the new diagram replaces the room content and streams in shape by shape for whoever is watching. ' +
     'Returns the file path, a text outline, validation issues, and a share link that opens it in ERD Maker.',
   inputSchema: {
@@ -125,7 +135,7 @@ server.registerTool('create_diagram', {
     isas: z.array(isaSpecSchema).optional(),
     path: z.string().optional().describe('Workspace-relative .json path. Omit to use diagrams/<name>.json.'),
     overwrite: z.boolean().optional().describe('Replace the file at path if it already exists.'),
-    layout: z.boolean().optional().describe('Auto-arrange after building. Defaults to true.'),
+    layout: z.boolean().optional().describe('Auto-arrange the whole diagram. Defaults to false: the x and y you give are kept, and shapes without coordinates take the first free slot.'),
     save: z.boolean().optional().describe('Set false to keep the diagram only in this session.'),
   },
 }, async (spec) => json(await createDiagram(spec)));
@@ -178,9 +188,9 @@ server.registerTool('get_diagram', {
 server.registerTool('summarize_diagram', {
   title: 'Summarize the diagram',
   description:
-    'Describe the open diagram compactly: entities with their attributes, derived table columns and foreign keys, ' +
-    'relationships with cardinality and participation, specializations, and validation issues. ' +
-    'Returns both structured data and a readable text outline.',
+    'Describe the open diagram compactly: entities with their attributes and position in the current view, ' +
+    'derived table columns and foreign keys, relationships with cardinality and participation, specializations, and validation issues. ' +
+    'Returns both structured data and a readable text outline. Use position to see where each entity sits before moving one.',
   inputSchema: {},
 }, async () => json(summarizeSession()));
 
@@ -262,13 +272,17 @@ server.registerTool('add_relationship', {
 server.registerTool('update_node', {
   title: 'Update a shape',
   description:
-    'Rename or retype a shape: an entity\'s name or kind, a relationship\'s name or kind, or an attribute\'s name, kind, or data type. ' +
+    'Rename or retype a shape, or move an entity to a given point. ' +
+    'An entity takes a name, kind, and x/y; a relationship takes a name or kind; an attribute takes a name, kind, or data type. ' +
+    'x and y are the entity\'s top-left in the current view, and moving one carries its attributes with it in Chen notation. ' +
     'Data types are normalized to the app\'s canonical form. Refer to the shape by id or unique name.',
   inputSchema: {
     node: z.string().describe('Shape id or unique name.'),
     name: z.string().optional(),
     kind: z.string().optional().describe('Entity: strong|weak. Relationship: strong|weak. Attribute: simple|key|unique|multivalued|derived|composite.'),
     dataType: z.string().optional().describe('Attributes only.'),
+    x: z.number().optional().describe('Entities only. Left edge in the current view; give both x and y.'),
+    y: z.number().optional().describe('Entities only. Top edge in the current view; give both x and y.'),
   },
 }, async ({ node, ...patch }) => json(await updateNode(node, patch)));
 
@@ -375,8 +389,9 @@ server.registerPrompt('design-erd', {
         '2. Describe relationships with cardinality at each end. "1:N" from A to B means one A relates to many Bs. Use N:M when both sides can repeat; the junction table is generated for you.',
         '3. Model a dependent entity as weak when its identity includes a parent\'s key.',
         '4. Call open_room first if the person wants to watch: pass their share link to join their room, or omit it to start a new one. Edits then stream into their open tab without a refresh.',
-        '5. Call create_diagram with the whole model once, then validate_diagram, and fix anything it reports.',
-        '6. Run generate_sql and include the DDL, along with the share link from create_diagram.',
+        '5. Plan the layout as coordinates: give each entity an x and y, grouping related entities and leaving room for attribute columns and relationship diamonds. Do not rely on automatic arrangement.',
+        '6. Call create_diagram with the whole model once, then validate_diagram, and fix anything it reports.',
+        '7. Run generate_sql and include the DDL, along with the share link from create_diagram.',
         view ? `Show the diagram in the ${view} view after creating it.` : '',
         '',
         'Use the vocabulary of the requirements and do not invent attributes they do not imply.',

@@ -17,16 +17,23 @@ import { access, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promi
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { attributeType, normalizeDataType } from '../src/model/dataTypes';
-import { leafAttributesOf } from '../src/model/attributes';
+import { descendantAttributeIds, leafAttributesOf } from '../src/model/attributes';
 import { toSqlName } from '../src/model/columnNames';
-import { CROW_HEADER_HEIGHT, CROW_ROW_HEIGHT, CROW_WIDTH, deriveTables } from '../src/model/crowfoot';
+import {
+  CROW_HEADER_HEIGHT,
+  CROW_ROW_HEIGHT,
+  CROW_WIDTH,
+  deriveTables,
+  tableHeight,
+} from '../src/model/crowfoot';
 import { getDiagramIssues, validParticipation, type DiagramIssue } from '../src/model/issues';
 import { applyLayout } from '../src/model/layout';
-import { findAttributeSlot, findFreeSlot, findRelationshipSlot, occupiedBoxes } from '../src/model/placement';
+import { findAttributeSlot, findFreeSlot, findRelationshipSlot, occupiedBoxes, type Box } from '../src/model/placement';
 import { buildShareUrl, newRoomId, normalizeDocument } from '../src/model/snapshot';
 import { describeSqlReadiness, generateSql } from '../src/model/sql';
 import {
   ENTITY_KINDS,
+  NODE_SIZE,
   emptyDocument,
   removeNode,
   type Attribute,
@@ -73,6 +80,9 @@ export interface EntitySpec {
   name: string;
   kind?: EntityKind;
   attributes?: AttributeSpec[];
+  /** Top-left in the view being created. Omit to take the first free slot. */
+  x?: number;
+  y?: number;
 }
 
 export interface ParticipationSpec {
@@ -114,7 +124,7 @@ export interface CreateSpec {
   path?: string;
   /** Replace an explicitly named file that already exists. */
   overwrite?: boolean;
-  /** Auto-arrange after building. Defaults to true. */
+  /** Run the app's whole-diagram layout instead of keeping the supplied positions. */
   layout?: boolean;
   /** Set false to keep the diagram in this session without writing a file. */
   save?: boolean;
@@ -158,6 +168,8 @@ export interface DiagramSummary {
     id: string;
     name: string;
     kind: EntityKind;
+    /** Top-left of the entity in the current view; a table's top-left in crow's-foot. */
+    position: { x: number; y: number };
     attributes: SummaryAttribute[];
     columns: SummaryColumn[];
   }>;
@@ -190,6 +202,8 @@ export interface ShareInfo {
 export interface MutationResult {
   message: string;
   nodeId?: string;
+  /** Where the shape was placed, for the current view. */
+  position?: { x: number; y: number };
   filePath: string | null;
   savedTo?: string;
   saveError?: string;
@@ -452,7 +466,22 @@ function addRelationshipSpec(
   return relationship;
 }
 
-function buildDocument(spec: CreateSpec): ErdDocument {
+/** A point the caller chose, or null to let placement pick one. */
+function specPoint(spec: { x?: number; y?: number }, label: string): { x: number; y: number } | null {
+  if (spec.x === undefined && spec.y === undefined) return null;
+  if (spec.x === undefined || spec.y === undefined || !Number.isFinite(spec.x) || !Number.isFinite(spec.y)) {
+    throw new Error(`${label} needs both x and y, or neither. Omit both to take the first free slot.`);
+  }
+  return { x: Math.round(spec.x), y: Math.round(spec.y) };
+}
+
+interface BuiltDocument {
+  doc: ErdDocument;
+  /** Entities whose coordinates the caller chose. Placement leaves these alone. */
+  fixed: Set<string>;
+}
+
+function buildDocument(spec: CreateSpec): BuiltDocument {
   if (!Array.isArray(spec.entities) || spec.entities.length === 0) {
     throw new Error('A diagram needs at least one entity.');
   }
@@ -461,18 +490,24 @@ function buildDocument(spec: CreateSpec): ErdDocument {
   doc.view = spec.view === 'crowfoot' ? 'crowfoot' : 'chen';
   const used = new Set<string>();
   const byName = new Map<string, Entity>();
+  const fixed = new Set<string>();
 
   for (const entitySpec of spec.entities) {
     const entityName = requireName(entitySpec.name, 'Entity');
     const key = entityName.toLowerCase();
     if (byName.has(key)) throw new Error(`Duplicate entity name "${entityName}". Use one entity per table.`);
+    const point = specPoint(entitySpec, `Entity "${entityName}"`);
     const entity: Entity = {
       id: newId('ent', entityName, used),
       name: entityName,
-      x: 0,
-      y: 0,
+      x: point?.x ?? 0,
+      y: point?.y ?? 0,
+      // In the crow's-foot view the caller's point is the table's top-left, and
+      // it seeds the Chen position too so neither view starts in a pile.
+      ...(point && doc.view === 'crowfoot' ? { crowX: point.x, crowY: point.y } : {}),
       kind: entityKind(entitySpec.kind),
     };
+    if (point) fixed.add(entity.id);
     doc.entities.push(entity);
     byName.set(key, entity);
   }
@@ -501,7 +536,7 @@ function buildDocument(spec: CreateSpec): ErdDocument {
     });
   }
 
-  return normalizeDocument(doc);
+  return { doc: normalizeDocument(doc), fixed };
 }
 
 /** Arranges one notation, leaving the other one's coordinates alone. */
@@ -515,6 +550,96 @@ function arrangeView(doc: ErdDocument, view: DiagramView): ErdDocument {
 function arrangeNewDocument(doc: ErdDocument, view: DiagramView): ErdDocument {
   const chen = arrangeView(doc, 'chen');
   return view === 'crowfoot' ? arrangeView(chen, 'crowfoot') : chen;
+}
+
+/**
+ * Coordinates for the shapes the caller did not place.
+ *
+ * This is placement, not arrangement: a coordinate the caller supplied is never
+ * touched, and everything else takes the first free slot or stacks beside its
+ * owner. A diagram that arrives with coordinates arrives exactly as drawn.
+ * Both notations are seeded, so flipping views shows a layout instead of a pile
+ * of tables at the origin.
+ */
+function placeNewDocument(built: BuiltDocument, view: DiagramView): ErdDocument {
+  // A coordinate belongs to the notation it was written for. The other view is
+  // placed freely, so a Chen column of entities does not become a pile of
+  // half-overlapping tables in crow's-foot.
+  placeChen(built.doc, view === 'chen' ? built.fixed : new Set());
+  placeCrow(built.doc, view === 'crowfoot' ? built.fixed : new Set());
+  return normalizeDocument(built.doc);
+}
+
+/** Places the Chen-only shapes: entities, diamonds, specializations, attributes. */
+function placeChen(doc: ErdDocument, fixed: Set<string>): void {
+  const placed = new Set(fixed);
+  // A shape still sitting at its origin is not a neighbour. Counting it would
+  // push every new shape away from the grid slot it belongs on.
+  const placedDoc = (): ErdDocument => ({
+    ...doc,
+    view: 'chen',
+    entities: doc.entities.filter((node) => placed.has(node.id)),
+    attributes: doc.attributes.filter((node) => placed.has(node.id)),
+    relationships: doc.relationships.filter((node) => placed.has(node.id)),
+    isas: doc.isas.filter((node) => placed.has(node.id)),
+    legs: doc.legs.filter((leg) => placed.has(leg.fromId) && placed.has(leg.toId)),
+  });
+
+  for (const entity of doc.entities) {
+    if (placed.has(entity.id)) continue;
+    const slot = findFreeSlot(occupiedBoxes(placedDoc()), undefined, NODE_SIZE.entity);
+    entity.x = slot.x;
+    entity.y = slot.y;
+    placed.add(entity.id);
+  }
+
+  for (const isa of doc.isas) {
+    const slot = findFreeSlot(occupiedBoxes(placedDoc()), undefined, NODE_SIZE.isa);
+    isa.x = slot.x;
+    isa.y = slot.y;
+    placed.add(isa.id);
+  }
+
+  for (const relationship of doc.relationships) {
+    const ends = doc.legs.filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id);
+    const from = ends[0] ? doc.entities.find((entity) => entity.id === ends[0]!.toId) : undefined;
+    const to = ends[1] ? doc.entities.find((entity) => entity.id === ends[1]!.toId) : undefined;
+    const spot = from && to
+      ? findRelationshipSlot(placedDoc(), from.id, to.id)
+      : findFreeSlot(occupiedBoxes(placedDoc()), undefined, NODE_SIZE.relationship);
+    relationship.x = spot.x;
+    relationship.y = spot.y;
+    placed.add(relationship.id);
+  }
+
+  for (const attribute of doc.attributes) {
+    const slot = findAttributeSlot(placedDoc(), attribute.ownerId) ??
+      findFreeSlot(occupiedBoxes(placedDoc()), undefined, NODE_SIZE.attribute);
+    attribute.x = slot.x;
+    attribute.y = slot.y;
+    placed.add(attribute.id);
+  }
+}
+
+/** Places crow's-foot tables, which store their own coordinates. */
+function placeCrow(doc: ErdDocument, fixed: Set<string>): void {
+  const heights = new Map(deriveTables(doc).map((table) => [table.entityId, tableHeight(table)]));
+  const occupied: Box[] = [];
+  for (const entity of doc.entities) {
+    const size = { w: CROW_WIDTH, h: heights.get(entity.id) ?? CROW_HEADER_HEIGHT + CROW_ROW_HEIGHT };
+    if (fixed.has(entity.id)) {
+      const x = entity.crowX ?? entity.x;
+      const y = entity.crowY ?? entity.y;
+      entity.crowX = x;
+      entity.crowY = y;
+      occupied.push({ x, y, ...size });
+      continue;
+    }
+    const slot = findFreeSlot(occupied, undefined, size);
+    entity.crowX = slot.x;
+    entity.crowY = slot.y;
+    occupied.push({ ...slot, ...size });
+  }
 }
 
 function nodeName(doc: ErdDocument, id: string): string | null {
@@ -547,6 +672,9 @@ export function summarizeDocument(doc: ErdDocument, filePath: string | null = nu
         id: entity.id,
         name: entity.name,
         kind: entity.kind,
+        position: doc.view === 'crowfoot'
+          ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y }
+          : { x: entity.x, y: entity.y },
         attributes: leafAttributesOf(doc, entity.id).map((attribute) => ({
           id: attribute.id,
           name: attribute.name,
@@ -605,7 +733,9 @@ export function summaryOutline(summary: DiagramSummary): string {
   for (const entity of summary.entities) {
     const attributes = entity.attributes.map((attribute) =>
       `${attribute.name} ${attribute.kind}${attribute.type ? `:${attribute.type}` : ''}`).join(', ');
-    lines.push(`- ${entity.name} [${entity.kind}] ${entity.id}${attributes ? `: ${attributes}` : ''}`);
+    const x = Math.round(entity.position.x);
+    const y = Math.round(entity.position.y);
+    lines.push(`- ${entity.name} [${entity.kind}] ${entity.id} at (${x}, ${y})${attributes ? `: ${attributes}` : ''}`);
   }
   if (summary.relationships.length) {
     lines.push(`Relationships (${summary.counts.relationships}):`);
@@ -680,7 +810,9 @@ function commit(current: Session, doc: ErdDocument, focusId?: string | null): vo
   const next = normalizeDocument(doc);
   if (current.live) {
     const changed = writeDocumentDiff(current.live.ydoc, current.doc, next);
-    current.live.flash(next, focusId !== undefined ? focusId : changed[0] ?? null);
+    const focus = focusId !== undefined ? focusId : changed[0] ?? null;
+    // An edit is somebody typing at that shape, not a shape teleporting in.
+    current.live.flash(next, focus, focus !== null);
     current.doc = current.live.snapshot();
   } else {
     current.doc = next;
@@ -688,11 +820,27 @@ function commit(current: Session, doc: ErdDocument, focusId?: string | null): vo
   current.dirty = true;
 }
 
+/** Where a shape sits in the notation currently shown, when that notation has a place for it. */
+function activePosition(doc: ErdDocument, id: string): { x: number; y: number } | undefined {
+  const entity = doc.entities.find((candidate) => candidate.id === id);
+  if (entity) {
+    return doc.view === 'crowfoot'
+      ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y }
+      : { x: entity.x, y: entity.y };
+  }
+  if (doc.view === 'crowfoot') return undefined;
+  const node = [...doc.attributes, ...doc.relationships, ...doc.isas]
+    .find((candidate) => candidate.id === id);
+  return node ? { x: node.x, y: node.y } : undefined;
+}
+
 function mutation(doc: ErdDocument, message: string, nodeId?: string): MutationResult {
   const current = requireSession();
+  const position = nodeId ? activePosition(doc, nodeId) : undefined;
   return {
     message,
     ...(nodeId ? { nodeId } : {}),
+    ...(position ? { position } : {}),
     filePath: current.filePath,
     ...(current.live ? { live: liveInfo(current.live)! } : {}),
     issues: issuesOf(doc),
@@ -706,8 +854,12 @@ export async function createDiagram(spec: CreateSpec): Promise<{
   share: ShareInfo;
 }> {
   const previous = session;
-  let doc = buildDocument(spec);
-  if (spec.layout !== false) doc = arrangeNewDocument(doc, doc.view);
+  const built = buildDocument(spec);
+  // Layout is opt-in. A diagram that says where its shapes go opens exactly
+  // where it was drawn; without coordinates, shapes take the next free slot.
+  let doc = spec.layout === true
+    ? arrangeNewDocument(built.doc, built.doc.view)
+    : placeNewDocument(built, built.doc.view);
   const filePath = spec.save === false ? null : await saveNew(doc, spec.path, spec.overwrite ?? false);
   if (previous?.live) {
     // Someone is watching: replace the room shape by shape and keep the file in
@@ -793,6 +945,10 @@ export async function openRoom(options: OpenRoomOptions = {}): Promise<OpenRoomR
     live: next,
     liveBaseUrl: options.baseUrl ?? link.baseUrl ?? current?.liveBaseUrl,
   };
+  // Join at a real shape rather than with no cursor at all: the watcher should
+  // see the assistant arrive, not find an anonymous avatar in the header.
+  const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id;
+  if (focus) next.flash(session.doc, focus, false);
   const summary = summarizeDocument(session.doc, session.filePath);
   return {
     room,
@@ -939,28 +1095,46 @@ export async function addEntity(input: {
     throw new Error(`An entity named "${name}" already exists.`);
   }
   const doc = structuredClone(current.doc);
-  const attributeCount = input.attributes?.length ?? 0;
-  const size = doc.view === 'crowfoot'
-    ? { w: CROW_WIDTH, h: CROW_HEADER_HEIGHT + Math.max(1, attributeCount) * CROW_ROW_HEIGHT }
-    : { w: 150, h: 60 };
-  const spot = input.x !== undefined && input.y !== undefined
-    ? { x: input.x, y: input.y }
-    : findFreeSlot(occupiedBoxes(doc), undefined, size);
   const used = collectIds(doc);
   const entity: Entity = {
     id: newId('ent', name, used),
     name,
-    x: spot.x,
-    y: spot.y,
+    x: 0,
+    y: 0,
     kind: entityKind(input.kind),
-    ...(doc.view === 'crowfoot' ? { crowX: spot.x, crowY: spot.y } : {}),
   };
+  if (doc.view === 'crowfoot') {
+    // A table placed in crow's-foot still needs a Chen home for when the
+    // notation changes, but it must not push its neighbours around there.
+    const chen = findFreeSlot(occupiedBoxes({ ...doc, view: 'chen' }), undefined, NODE_SIZE.entity);
+    entity.x = chen.x;
+    entity.y = chen.y;
+  } else {
+    const spot = specPoint(input, `Entity "${name}"`) ?? findFreeSlot(occupiedBoxes(doc), undefined, NODE_SIZE.entity);
+    entity.x = spot.x;
+    entity.y = spot.y;
+  }
   doc.entities.push(entity);
   addAttributeSpecs(doc, entity.id, entity.name, input.attributes ?? [], used,
     (attribute) => placeAttribute(doc, attribute.id));
+
+  let spot = { x: entity.x, y: entity.y };
+  if (doc.view === 'crowfoot') {
+    // How tall the table is depends on the rows its attributes and generated
+    // key produce, so its slot is measured once they exist.
+    const table = deriveTables(doc).find((candidate) => candidate.entityId === entity.id)!;
+    const occupied = occupiedBoxes({ ...doc, entities: doc.entities.filter((node) => node.id !== entity.id) });
+    spot = specPoint(input, `Entity "${name}"`) ??
+      findFreeSlot(occupied, undefined, { w: CROW_WIDTH, h: tableHeight(table) });
+    entity.crowX = spot.x;
+    entity.crowY = spot.y;
+  }
   commit(current, doc, entity.id);
   const outcome = await persistAfterMutation();
-  return { ...mutation(current.doc, `Added entity ${name}.`, entity.id), ...outcome };
+  return {
+    ...mutation(current.doc, `Added entity ${name} at (${spot.x}, ${spot.y}).`, entity.id),
+    ...outcome,
+  };
 }
 
 export async function addAttribute(input: {
@@ -1033,16 +1207,47 @@ export async function updateNode(ref: string, patch: {
   name?: string;
   kind?: string;
   dataType?: string;
+  x?: number;
+  y?: number;
 }): Promise<MutationResult> {
   const current = requireSession();
   const node = resolveNode(current.doc, ref);
   const name = patch.name === undefined ? undefined : requireName(patch.name, 'Shape');
+  let move: { x: number; y: number } | null = null;
+  if (patch.x !== undefined || patch.y !== undefined) {
+    if (node.kind !== 'entity') throw new Error('Only entities can be moved with x and y.');
+    if (patch.x === undefined || patch.y === undefined || !Number.isFinite(patch.x) || !Number.isFinite(patch.y)) {
+      throw new Error('Moving an entity needs a number for both x and y.');
+    }
+    move = { x: Math.round(patch.x), y: Math.round(patch.y) };
+  }
   const doc = structuredClone(current.doc);
   if (node.kind === 'entity') {
     const entity = doc.entities.find((candidate) => candidate.id === node.id)!;
     if (name !== undefined) entity.name = name;
     if (patch.kind !== undefined) entity.kind = entityKind(patch.kind as EntityKind);
     if (patch.dataType !== undefined) throw new Error('Only attributes have a data type.');
+    if (move) {
+      if (doc.view === 'crowfoot') {
+        // Only the table moves; the Chen position is the other notation's own
+        // arrangement, and moving it here would move the shape twice.
+        entity.crowX = move.x;
+        entity.crowY = move.y;
+      } else {
+        // Attributes are drawn hanging off their owner, so they travel with it,
+        // exactly as dragging the shape does in the canvas.
+        const dx = move.x - entity.x;
+        const dy = move.y - entity.y;
+        entity.x = move.x;
+        entity.y = move.y;
+        const owned = descendantAttributeIds(doc, entity.id);
+        for (const attribute of doc.attributes) {
+          if (!owned.has(attribute.id)) continue;
+          attribute.x += dx;
+          attribute.y += dy;
+        }
+      }
+    }
   } else if (node.kind === 'relationship') {
     const relationship = doc.relationships.find((candidate) => candidate.id === node.id)!;
     if (name !== undefined) relationship.name = name;
@@ -1074,7 +1279,10 @@ export async function updateNode(ref: string, patch: {
   commit(current, doc, node.id);
   const outcome = await persistAfterMutation();
   const displayName = name ?? node.name;
-  return { ...mutation(current.doc, `Updated ${node.kind} ${displayName}.`, node.id), ...outcome };
+  const message = move && name === undefined && patch.kind === undefined
+    ? `Moved entity ${displayName} to (${move.x}, ${move.y}).`
+    : `Updated ${node.kind} ${displayName}.`;
+  return { ...mutation(current.doc, message, node.id), ...outcome };
 }
 
 export async function removeDiagramNode(ref: string): Promise<MutationResult> {

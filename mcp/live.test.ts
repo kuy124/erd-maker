@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { roomFromLink, writeDocumentDiff } from './live';
+import { presenceAt, roomFromLink, travelDurationMs, travelEase, travelPoint, writeDocumentDiff } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
 import { seedDocument, snapshotFromYdoc, upsertAttribute } from '../src/collab/ydoc';
+import { CROW_HEADER_HEIGHT, CROW_WIDTH } from '../src/model/crowfoot';
 
 function sampleDoc(): ErdDocument {
   const doc = emptyDocument('Sales');
@@ -64,6 +65,95 @@ describe('room links', () => {
   it('rejects text that is neither a link nor a room id', () => {
     expect(roomFromLink('not a room!')).toEqual({});
     expect(roomFromLink('   ')).toEqual({});
+  });
+});
+
+describe('presence', () => {
+  it('points at the focused entity in the notation being read', () => {
+    expect(presenceAt(sampleDoc(), 'ent_customer', 'chen')).toEqual({
+      view: 'chen',
+      cursor: { x: 10, y: 20 },
+      selectedIds: ['ent_customer'],
+    });
+  });
+
+  it('uses the table header in crow’s-foot, where the entity itself has no position', () => {
+    const doc = sampleDoc();
+    doc.entities[0]!.crowX = 500;
+    doc.entities[0]!.crowY = 300;
+    expect(presenceAt(doc, 'ent_customer', 'crowfoot').cursor).toEqual({
+      x: 500 + CROW_WIDTH / 2,
+      y: 300 + CROW_HEADER_HEIGHT / 2,
+    });
+  });
+
+  it('falls back to the plain position when the table has not been arranged', () => {
+    expect(presenceAt(sampleDoc(), 'ent_customer', 'crowfoot').cursor).toEqual({ x: 10, y: 20 });
+  });
+
+  it('resolves an attribute to the entity that owns it', () => {
+    expect(presenceAt(sampleDoc(), 'attr_customer_id', 'chen').cursor).toEqual({ x: 10, y: 20 });
+  });
+
+  it('resolves a relationship to an entity it connects', () => {
+    // Its own position would land on empty paper between the two tables.
+    expect(presenceAt(sampleDoc(), 'rel_places', 'chen').cursor).toEqual({ x: 10, y: 20 });
+  });
+
+  it('sends no cursor for no focus, and no selection for a shape that is gone', () => {
+    expect(presenceAt(sampleDoc(), null, 'chen')).toEqual({ view: 'chen', cursor: null, selectedIds: [] });
+    expect(presenceAt(sampleDoc(), 'ent_deleted', 'chen')).toEqual({ view: 'chen', cursor: null, selectedIds: [] });
+  });
+});
+
+describe('pointer travel', () => {
+  it('eases with a minimum-jerk curve that starts and ends at rest', () => {
+    expect(travelEase(0)).toBe(0);
+    expect(travelEase(1)).toBe(1);
+    expect(travelEase(0.5)).toBeCloseTo(0.5, 6);
+    // Slow at both ends, fastest in the middle: that is the shape a hand makes.
+    expect(travelEase(0.25)).toBeLessThan(0.25);
+    expect(travelEase(0.75)).toBeGreaterThan(0.75);
+    expect(travelEase(-1)).toBe(0);
+    expect(travelEase(2)).toBe(1);
+  });
+
+  it('lands exactly on the destination and bows only slightly on the way', () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 400, y: 300 };
+    expect(travelPoint(from, to, 0)).toEqual(from);
+    expect(travelPoint(from, to, 1)).toEqual(to);
+    const mid = travelPoint(from, to, 0.5);
+    const bow = Math.hypot(mid.x - 200, mid.y - 150);
+    expect(bow).toBeGreaterThan(1);
+    expect(bow).toBeLessThan(30);
+  });
+
+  it('stays on the straight line for short hops', () => {
+    const mid = travelPoint({ x: 0, y: 0 }, { x: 20, y: 0 }, 0.5);
+    expect(mid).toEqual({ x: 10, y: 0 });
+  });
+
+  it('keeps a hop between a readable floor and ceiling, longer for longer distances', () => {
+    const near = travelDurationMs({ x: 0, y: 0 }, { x: 20, y: 0 });
+    const far = travelDurationMs({ x: 0, y: 0 }, { x: 1200, y: 0 });
+    expect(near).toBeGreaterThanOrEqual(220);
+    expect(far).toBeLessThanOrEqual(700);
+    expect(far).toBeGreaterThan(near);
+  });
+
+  it('moves in small steps when sampled at the app’s frame rate', () => {
+    const from = { x: 0, y: 0 };
+    const to = { x: 600, y: 0 };
+    const frames = Math.ceil(travelDurationMs(from, to) / 16);
+    let previous = travelPoint(from, to, 0);
+    for (let frame = 1; frame <= frames; frame += 1) {
+      const next = travelPoint(from, to, frame / frames);
+      expect(next.x).toBeGreaterThanOrEqual(previous.x);
+      expect(Math.hypot(next.x - previous.x, next.y - previous.y)).toBeLessThan(80);
+      previous = next;
+    }
+    expect(previous).toEqual(to);
   });
 });
 
