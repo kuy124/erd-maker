@@ -26,6 +26,7 @@ import {
   getDiagram,
   listDiagramFiles,
   openDiagram,
+  openRoom,
   peekSession,
   removeDiagramNode,
   saveDiagram,
@@ -49,6 +50,12 @@ const server = new McpServer(
       'One diagram is open at a time: create_diagram or open_diagram makes it current, the add/update/remove',
       'tools edit it, and every edit is written back to its file. Shapes can be referenced by id or by a',
       'unique name; summarize_diagram returns both.',
+      '',
+      'Live rooms: open_room joins an ERD Maker room as a collaborator, so every later edit appears in the',
+      'room\'s open tabs as it happens, with the AI\'s name, cursor, and selection, and no refresh. Omit the',
+      'link to start a room, or pass the share link the person gave you to join theirs. A room that already',
+      'has content wins; the open diagram or the link\'s snapshot only seeds an empty room. While in a room,',
+      'create_share_link returns that same room, so the AI\'s edits stay live for whoever opens it.',
       '',
       'Cardinality "1:N" from A to B means one A relates to many Bs; the label at each end describes the',
       'entity at that end. Attribute kinds are simple, key, unique, multivalued, derived, and composite;',
@@ -108,6 +115,7 @@ server.registerTool('create_diagram', {
   description:
     'Build an ERD from a complete description and open it as the current diagram. List every entity with its attributes, then relationships between entities by name, then optional specializations. ' +
     'The diagram is validated, laid out automatically, and saved to diagrams/<slug>.json unless path or save:false says otherwise. ' +
+    'In a live room the new diagram replaces the room content and streams in shape by shape for whoever is watching. ' +
     'Returns the file path, a text outline, validation issues, and a share link that opens it in ERD Maker.',
   inputSchema: {
     name: z.string().describe('Diagram name, e.g. "Sales".'),
@@ -132,6 +140,21 @@ server.registerTool('open_diagram', {
     view: viewSchema.optional().describe('Show this notation after opening.'),
   },
 }, async ({ path, view }) => json(await openDiagram(path, view)));
+
+server.registerTool('open_room', {
+  title: 'Open a live room',
+  description:
+    'Join an ERD Maker room as a collaborator. Every later edit streams into the room\'s open tabs as it happens, ' +
+    'shown with the AI\'s cursor and selection, and the person watching does not need to refresh. ' +
+    'Pass the share link they sent you, a "#room=..." fragment, or a room id; omit link to start a new room. ' +
+    'An empty room is seeded from the link\'s snapshot or the open diagram; a room that already has content wins. ' +
+    'Returns the room id, a share link, who is watching, whether the room was seeded, and the diagram summary.',
+  inputSchema: {
+    link: z.string().optional().describe('Share link, "#room=..." fragment, or room id. Omit to start a new room.'),
+    baseUrl: z.string().optional().describe('App URL for the returned link, e.g. https://kuy124.github.io/erd-maker/.'),
+    seed: z.boolean().optional().describe('Set false to leave an empty room empty instead of copying the open diagram into it.'),
+  },
+}, async (options) => json(await openRoom(options)));
 
 server.registerTool('save_diagram', {
   title: 'Save the diagram',
@@ -273,7 +296,8 @@ server.registerTool('create_share_link', {
   title: 'Create a share link',
   description:
     'Build a URL that opens the open diagram in ERD Maker. The snapshot is embedded by default, so the link works without a server. ' +
-    'baseUrl defaults to http://localhost:5173/ (or ERD_MCP_APP_URL); room reuses an existing room id instead of generating one.',
+    'In a live room the URL points at that room instead, so the AI\'s edits keep streaming to whoever opens it. ' +
+    'baseUrl defaults to the live room\'s app URL, then http://localhost:5173/ (or ERD_MCP_APP_URL); room reuses an existing room id instead of generating one.',
   inputSchema: {
     baseUrl: z.string().optional().describe('App origin, e.g. https://erd.example.com/.'),
     room: z.string().optional(),
@@ -298,7 +322,7 @@ server.registerResource('current-diagram', 'erd://current', {
     contents: [{
       uri: uri.href,
       mimeType: 'application/json',
-      text: JSON.stringify({ filePath: current.filePath, dirty: current.dirty, document: current.doc }, null, 2),
+      text: JSON.stringify({ filePath: current.filePath, dirty: current.dirty, live: current.live, document: current.doc }, null, 2),
     }],
   };
 });
@@ -350,8 +374,9 @@ server.registerPrompt('design-erd', {
         '1. List entities and their attributes. Mark the identifier of each entity with kind "key" and give attributes a dataType.',
         '2. Describe relationships with cardinality at each end. "1:N" from A to B means one A relates to many Bs. Use N:M when both sides can repeat; the junction table is generated for you.',
         '3. Model a dependent entity as weak when its identity includes a parent\'s key.',
-        '4. Call create_diagram with the whole model once, then validate_diagram, and fix anything it reports.',
-        '5. Run generate_sql and include the DDL, along with the share link from create_diagram.',
+        '4. Call open_room first if the person wants to watch: pass their share link to join their room, or omit it to start a new one. Edits then stream into their open tab without a refresh.',
+        '5. Call create_diagram with the whole model once, then validate_diagram, and fix anything it reports.',
+        '6. Run generate_sql and include the DDL, along with the share link from create_diagram.',
         view ? `Show the diagram in the ${view} view after creating it.` : '',
         '',
         'Use the vocabulary of the requirements and do not invent attributes they do not imply.',

@@ -170,6 +170,10 @@ export function upsertEntity(ydoc: Y.Doc, entity: Entity): void {
   const existing = map.get(entity.id) as Y.Map<unknown> | undefined;
   if (existing) {
     setFields(existing, { ...entity });
+    // An import that restates the whole entity must not leave a field the
+    // source no longer has, or a removed placement would come back on reload.
+    if (entity.crowX === undefined) existing.delete('crowX');
+    if (entity.crowY === undefined) existing.delete('crowY');
     return;
   }
   const next = new Y.Map<unknown>();
@@ -199,6 +203,14 @@ export function upsertRelationship(ydoc: Y.Doc, relationship: Relationship): voi
   const existing = map.get(relationship.id) as Y.Map<unknown> | undefined;
   if (existing) {
     setFields(existing, { ...relationship });
+    // Routing is optional; dropping it has to mean "route automatically"
+    // rather than keeping the line where the previous version drew it.
+    if (relationship.route === undefined) existing.delete('route');
+    if (relationship.bendX === undefined || relationship.bendY === undefined) {
+      existing.delete('bendX');
+      existing.delete('bendY');
+    }
+    if (relationship.routePoints === undefined) existing.delete('routePoints');
     return;
   }
   const next = new Y.Map<unknown>();

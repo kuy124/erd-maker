@@ -131,7 +131,7 @@ Types are a base plus numbers: length for `VARCHAR`, precision and scale for `DE
 
 ## AI authoring (MCP)
 
-An AI assistant can open, build, and edit diagrams through the MCP server in `mcp/`. It works on the same JSON the app imports, so its output opens here, and its validation, SQL, and share links come from the app's own code.
+An AI assistant can open, build, and edit diagrams through the MCP server in `mcp/`. It works on the same JSON the app imports, so its output opens here, and its validation, SQL, and share links come from the app's own code. It can also join a live room as a collaborator: its edits then appear in every open tab as it makes them, with its name, cursor, and selection, so there is nothing to refresh.
 
 <details>
 <summary><strong>⚙️ For developers: MCP setup</strong></summary>
@@ -157,15 +157,31 @@ To connect a client:
 
 Restart the client or reconnect the server after adding the entry. To confirm the connection, ask the assistant to create a diagram for customers and orders and return the share link, or check that the tool list contains `create_diagram`.
 
+### Live rooms
+
+Open a diagram in the app, copy the address-bar link, and ask the assistant to call `open_room` with it. The app already syncs through its relay, so the MCP joins the same room as an ordinary client:
+
+- Every later add/update/remove call appears in the open tab immediately, with the assistant's cursor on the shape it changed. No refresh, no re-import.
+- The assistant is a peer like anyone else: it shows up in the presence strip and on the canvas with the name and colour from `ERD_MCP_AI_NAME` and `ERD_MCP_AI_COLOR`.
+- `open_room` with no link starts a new room and returns a link that opens it. A room with content already in it is left alone; the open diagram or the link's snapshot only seeds an empty room, so the room always wins.
+- Edits are diffs against the current room, so concurrent changes to other shapes survive. `create_diagram` while in a room replaces the room content and streams it in shape by shape.
+- AI edits arrive as ordinary remote changes, so they are not local undo steps for the watcher. Both directions keep syncing.
+
+The MCP reaches the hosted app through the same Cloudflare relay the app uses, joining with the app's origin because the relay allowlists browsers. The two relay variables below override that for a relay of your own.
+
 Files stay under the repository root:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ERD_MCP_ROOT` | repository root | Paths outside this directory are refused. |
 | `ERD_MCP_DIR` | `diagrams` | Where a new diagram goes when the call omits a path. |
-| `ERD_MCP_APP_URL` | `http://localhost:5173/` | Base URL for share links. |
+| `ERD_MCP_APP_URL` | `http://localhost:5173/` | Base URL for share links, including a room started by `open_room`. |
+| `ERD_MCP_RELAY_URL` | `wss://erd-sync.cerberus-tusk-proxy.workers.dev` | Relay a live room connects to. |
+| `ERD_MCP_RELAY_ORIGIN` | `https://kuy124.github.io` | Origin sent to the relay; it must be in `ALLOWED_ORIGINS`. |
+| `ERD_MCP_AI_NAME` | `AI assistant` | Name peers see in a live room. |
+| `ERD_MCP_AI_COLOR` | `#6B3FA0` | Presence colour peers see. |
 
-Sixteen tools cover the diagram: `create_diagram`, `open_diagram`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
+Seventeen tools cover the diagram: `create_diagram`, `open_diagram`, `open_room`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
 
 Paths must end in `.json` and stay inside the workspace. A call that fails leaves the open diagram unchanged, and saving over an existing file needs `overwrite: true`.
 

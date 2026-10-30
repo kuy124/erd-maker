@@ -40,6 +40,7 @@ import {
   type Relationship,
   type RelationshipKind,
 } from '../src/model/types';
+import { LiveRoom, roomFromLink, writeDocumentDiff } from './live';
 
 function repositoryRoot(): string {
   // A test runner serves this module from a virtual http URL, which cannot be
@@ -172,10 +173,18 @@ export interface DiagramSummary {
   sqlReadiness: string;
 }
 
+export interface LiveInfo {
+  room: string;
+  relay: string;
+  watching: number;
+  peers: string[];
+}
+
 export interface ShareInfo {
   room: string;
   url: string;
   hash: string;
+  live?: LiveInfo;
 }
 
 export interface MutationResult {
@@ -184,6 +193,7 @@ export interface MutationResult {
   filePath: string | null;
   savedTo?: string;
   saveError?: string;
+  live?: LiveInfo;
   issues: Array<DiagramIssue & { nodeName: string | null }>;
 }
 
@@ -191,19 +201,41 @@ interface Session {
   doc: ErdDocument;
   filePath: string | null;
   dirty: boolean;
+  live: LiveRoom | null;
+  /** Where the live room's app is served, when a share link said so. */
+  liveBaseUrl?: string;
 }
 
 let session: Session | null = null;
 
+function liveInfo(live: LiveRoom | null): LiveInfo | null {
+  return live
+    ? { room: live.room, relay: live.relayUrl, watching: live.watching, peers: live.peers.map((peer) => peer.name) }
+    : null;
+}
+
+/** The live room is the source of truth while it is open. */
+function refreshSession(current: Session): void {
+  if (current.live) current.doc = current.live.snapshot();
+}
+
 /** The open diagram, or null when the session has not opened one yet. */
-export function peekSession(): { doc: ErdDocument; filePath: string | null; dirty: boolean } | null {
-  return session ? { doc: session.doc, filePath: session.filePath, dirty: session.dirty } : null;
+export function peekSession(): {
+  doc: ErdDocument;
+  filePath: string | null;
+  dirty: boolean;
+  live: LiveInfo | null;
+} | null {
+  if (!session) return null;
+  refreshSession(session);
+  return { doc: session.doc, filePath: session.filePath, dirty: session.dirty, live: liveInfo(session.live) };
 }
 
 function requireSession(): Session {
   if (!session) {
     throw new Error('No diagram is open. Call create_diagram or open_diagram first.');
   }
+  refreshSession(session);
   return session;
 }
 
@@ -599,12 +631,20 @@ export function summaryOutline(summary: DiagramSummary): string {
 }
 
 function shareInfo(doc: ErdDocument, options: { baseUrl?: string; room?: string; includeSnapshot?: boolean } = {}): ShareInfo {
-  const baseUrl = options.baseUrl ?? process.env.ERD_MCP_APP_URL ?? 'http://localhost:5173/';
-  const room = options.room?.trim() || newRoomId();
+  const current = session;
+  const live = current?.live ?? null;
+  const baseUrl = options.baseUrl ?? current?.liveBaseUrl ?? process.env.ERD_MCP_APP_URL ?? 'http://localhost:5173/';
+  // A link to a room the AI is already in keeps the AI's edits live.
+  const room = options.room?.trim() || live?.room || newRoomId();
   const includeSnapshot = options.includeSnapshot ?? true;
   const url = buildShareUrl(baseUrl, doc, room, includeSnapshot);
   const hashIndex = url.indexOf('#');
-  return { room, url, hash: hashIndex === -1 ? '' : url.slice(hashIndex) };
+  return {
+    room,
+    url,
+    hash: hashIndex === -1 ? '' : url.slice(hashIndex),
+    ...(live ? { live: liveInfo(live)! } : {}),
+  };
 }
 
 async function saveNew(doc: ErdDocument, requested: string | undefined, overwrite: boolean): Promise<string> {
@@ -636,16 +676,25 @@ async function persistAfterMutation(): Promise<{ savedTo?: string; saveError?: s
  * diagram exactly as it was. A half-applied diagram is worse than a failed call:
  * the model is told nothing changed, and the file on disk disagrees.
  */
-function commit(current: Session, doc: ErdDocument): void {
-  current.doc = normalizeDocument(doc);
+function commit(current: Session, doc: ErdDocument, focusId?: string | null): void {
+  const next = normalizeDocument(doc);
+  if (current.live) {
+    const changed = writeDocumentDiff(current.live.ydoc, current.doc, next);
+    current.live.flash(next, focusId !== undefined ? focusId : changed[0] ?? null);
+    current.doc = current.live.snapshot();
+  } else {
+    current.doc = next;
+  }
   current.dirty = true;
 }
 
 function mutation(doc: ErdDocument, message: string, nodeId?: string): MutationResult {
+  const current = requireSession();
   return {
     message,
     ...(nodeId ? { nodeId } : {}),
-    filePath: requireSession().filePath,
+    filePath: current.filePath,
+    ...(current.live ? { live: liveInfo(current.live)! } : {}),
     issues: issuesOf(doc),
   };
 }
@@ -656,10 +705,20 @@ export async function createDiagram(spec: CreateSpec): Promise<{
   outline: string;
   share: ShareInfo;
 }> {
+  const previous = session;
   let doc = buildDocument(spec);
   if (spec.layout !== false) doc = arrangeNewDocument(doc, doc.view);
   const filePath = spec.save === false ? null : await saveNew(doc, spec.path, spec.overwrite ?? false);
-  session = { doc, filePath, dirty: false };
+  if (previous?.live) {
+    // Someone is watching: replace the room shape by shape and keep the file in
+    // step with what the room actually ended up containing.
+    await previous.live.replace(doc, previous.live.watching > 0);
+    doc = previous.live.snapshot();
+    if (filePath) await writeDocument(doc, filePath);
+    session = { doc, filePath, dirty: false, live: previous.live, liveBaseUrl: previous.liveBaseUrl };
+  } else {
+    session = { doc, filePath, dirty: false, live: null };
+  }
   const summary = summarizeDocument(doc, filePath);
   return { filePath, summary, outline: summaryOutline(summary), share: shareInfo(doc) };
 }
@@ -672,9 +731,79 @@ export async function openDiagram(path: string, view?: DiagramView): Promise<{
   const filePath = resolveDiagramPath(path);
   const doc = await readDocument(filePath);
   if (view) doc.view = view;
-  session = { doc, filePath, dirty: false };
+  session?.live?.close();
+  session = { doc, filePath, dirty: false, live: null };
   const summary = summarizeDocument(doc, filePath);
   return { filePath, summary, outline: summaryOutline(summary) };
+}
+
+export interface OpenRoomOptions {
+  /** Share link, share fragment, or room id. Omit to start a new room. */
+  link?: string;
+  /** App URL used for the returned share link. */
+  baseUrl?: string;
+  /** Copy the open diagram into an empty room. Defaults to true. */
+  seed?: boolean;
+}
+
+export interface OpenRoomResult {
+  room: string;
+  url: string;
+  relay: string;
+  watching: number;
+  peers: string[];
+  seeded: boolean;
+  summary: DiagramSummary;
+  outline: string;
+}
+
+export async function openRoom(options: OpenRoomOptions = {}): Promise<OpenRoomResult> {
+  const linkText = (options.link ?? '').trim();
+  const link = roomFromLink(linkText);
+  if (linkText && !link.room && !link.baseUrl) {
+    throw new Error('That is not a room id or share link. Paste a link like https://kuy124.github.io/erd-maker/#room=... or an 8+ character room id.');
+  }
+  const current = session;
+  const room = link.room ?? (link.baseUrl ? newRoomId() : current?.live?.room ?? newRoomId());
+
+  if (current?.live?.room === room) {
+    const summary = summarizeDocument(current.doc, current.filePath);
+    return {
+      room,
+      url: shareInfo(current.doc).url,
+      relay: current.live.relayUrl,
+      watching: current.live.watching,
+      peers: current.live.peers.map((peer) => peer.name),
+      seeded: false,
+      summary,
+      outline: summaryOutline(summary),
+    };
+  }
+
+  // A room that already has content wins; seeding only fills an empty one.
+  const seed = link.doc ?? (options.seed === false ? undefined : current?.doc);
+  const next = await LiveRoom.join({ room, ...(seed ? { seed } : {}) });
+
+  current?.live?.close();
+  const fileBelongs = Boolean(current?.filePath && next.seeded && seed === current.doc);
+  session = {
+    doc: next.snapshot(),
+    filePath: fileBelongs ? current!.filePath : null,
+    dirty: false,
+    live: next,
+    liveBaseUrl: options.baseUrl ?? link.baseUrl ?? current?.liveBaseUrl,
+  };
+  const summary = summarizeDocument(session.doc, session.filePath);
+  return {
+    room,
+    url: shareInfo(session.doc, { baseUrl: session.liveBaseUrl }).url,
+    relay: next.relayUrl,
+    watching: next.watching,
+    peers: next.peers.map((peer) => peer.name),
+    seeded: next.seeded,
+    summary,
+    outline: summaryOutline(summary),
+  };
 }
 
 export async function saveDiagram(path?: string, overwrite = false): Promise<string> {
@@ -692,15 +821,25 @@ export async function saveDiagram(path?: string, overwrite = false): Promise<str
   return target;
 }
 
-export function getDiagram(): { filePath: string | null; dirty: boolean; document: ErdDocument } {
+export function getDiagram(): {
+  filePath: string | null;
+  dirty: boolean;
+  live: LiveInfo | null;
+  document: ErdDocument;
+} {
   const current = requireSession();
-  return { filePath: current.filePath, dirty: current.dirty, document: current.doc };
+  return { filePath: current.filePath, dirty: current.dirty, live: liveInfo(current.live), document: current.doc };
 }
 
-export function summarizeSession(): { filePath: string | null; summary: DiagramSummary; outline: string } {
+export function summarizeSession(): {
+  filePath: string | null;
+  live: LiveInfo | null;
+  summary: DiagramSummary;
+  outline: string;
+} {
   const current = requireSession();
   const summary = summarizeDocument(current.doc, current.filePath);
-  return { filePath: current.filePath, summary, outline: summaryOutline(summary) };
+  return { filePath: current.filePath, live: liveInfo(current.live), summary, outline: summaryOutline(summary) };
 }
 
 export function validateSession(): {
@@ -727,9 +866,9 @@ export function sqlForSession(
 
 export async function arrangeSession(view?: DiagramView): Promise<MutationResult & { summary: DiagramSummary }> {
   const current = requireSession();
-  if (view) current.doc = { ...current.doc, view };
-  current.doc = arrangeView(current.doc, current.doc.view);
-  current.dirty = true;
+  const doc = structuredClone(current.doc);
+  if (view) doc.view = view;
+  commit(current, arrangeView(doc, doc.view), null);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Arranged ${current.doc.view} view.`), ...outcome,
     summary: summarizeDocument(current.doc, current.filePath) };
@@ -819,7 +958,7 @@ export async function addEntity(input: {
   doc.entities.push(entity);
   addAttributeSpecs(doc, entity.id, entity.name, input.attributes ?? [], used,
     (attribute) => placeAttribute(doc, attribute.id));
-  commit(current, doc);
+  commit(current, doc, entity.id);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Added entity ${name}.`, entity.id), ...outcome };
 }
@@ -854,7 +993,7 @@ export async function addAttribute(input: {
     added ??= attribute.id;
     placeAttribute(doc, attribute.id);
   });
-  commit(current, doc);
+  commit(current, doc, added ?? null);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Added attribute ${name} to ${owner.name}.`, added), ...outcome };
 }
@@ -885,7 +1024,7 @@ export async function addRelationship(input: RelationshipSpec): Promise<Mutation
   });
   doc.legs.push(leg(from, fromCard, input.fromParticipation, from.name));
   doc.legs.push(leg(to, toCard, input.toParticipation, to.name));
-  commit(current, doc);
+  commit(current, doc, relationship.id);
   const outcome = await persistAfterMutation();
   return { ...mutation(current.doc, `Added relationship ${name} between ${from.name} and ${to.name}.`, relationship.id), ...outcome };
 }
@@ -932,7 +1071,7 @@ export async function updateNode(ref: string, patch: {
       throw new Error('Specializations have no editable name or type; change their parent or children instead.');
     }
   }
-  commit(current, doc);
+  commit(current, doc, node.id);
   const outcome = await persistAfterMutation();
   const displayName = name ?? node.name;
   return { ...mutation(current.doc, `Updated ${node.kind} ${displayName}.`, node.id), ...outcome };
@@ -942,8 +1081,8 @@ export async function removeDiagramNode(ref: string): Promise<MutationResult> {
   const current = requireSession();
   const node = resolveNode(current.doc, ref);
   const beforeAttributes = current.doc.attributes.length;
-  current.doc = removeNode(current.doc, node.id);
-  current.dirty = true;
+  const doc = removeNode(current.doc, node.id);
+  commit(current, doc, null);
   const removedAttributes = beforeAttributes - current.doc.attributes.length;
   const outcome = await persistAfterMutation();
   return {
@@ -961,7 +1100,7 @@ export async function updateDiagram(patch: { name?: string; view?: DiagramView }
     if (patch.view !== 'chen' && patch.view !== 'crowfoot') throw new Error('View must be "chen" or "crowfoot".');
     doc.view = patch.view;
   }
-  commit(current, doc);
+  commit(current, doc, null);
   const outcome = await persistAfterMutation();
   return {
     ...mutation(current.doc, 'Updated the diagram.'),
