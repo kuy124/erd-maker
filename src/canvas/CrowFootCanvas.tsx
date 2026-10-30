@@ -292,11 +292,23 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   }, [tables, drag.drag, peers]);
 
   const byId = useMemo(() => new Map(positioned.map((t) => [t.entityId, t])), [positioned]);
+  // Where a table is, so a peer's aim is drawn around the table it names.
+  const boundsOf = useCallback((id: string) => {
+    const table = byId.get(id);
+    return table ? { x: table.x, y: table.y, w: table.width, h: tableHeight(table) } : null;
+  }, [byId]);
   // Where every table is drawn, so a connector can be kept off them.
   const obstacles = useMemo(() => positioned.map(tableObstacle), [positioned]);
   const routes = useMemo(() => routeLinks(positioned, links), [positioned, links]);
 
   const isEmpty = positioned.length === 0;
+
+  // The connectors that were already drawn when this view opened. Anything
+  // that arrives later inks itself in; a link that was already on the paper
+  // never re-draws when a table moves.
+  const settledLinks = useRef<Set<string> | null>(null);
+  if (!settledLinks.current && !isEmpty) settledLinks.current = new Set(links.map((link) => link.id));
+  const linkEnters = (id: string) => settledLinks.current !== null && !settledLinks.current.has(id);
 
   return (
     <div
@@ -337,6 +349,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   from={from}
                   to={to}
                   automaticRoute={routes.get(link.id)!}
+                  fresh={linkEnters(link.id)}
                   selected={selection.includes(link.relId)}
                   hovered={hoveredLine === link.relId}
                   obstacles={obstacles}
@@ -495,7 +508,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
           ) : null}
 
           <CommentPins state={state} onSelect={onCommentSelect} />
-          <PeerCursors peers={peers} view="crowfoot" onFollow={(id) => onFollowPeer?.(id)} />
+          <PeerCursors peers={peers} view="crowfoot" boundsOf={boundsOf} onFollow={(id) => onFollowPeer?.(id)} />
         </g>
       </svg>
 
@@ -540,6 +553,7 @@ function CrowConnector({
   from,
   to,
   automaticRoute,
+  fresh,
   selected,
   hovered,
   onSelect,
@@ -556,6 +570,8 @@ function CrowConnector({
   from: CrowTable;
   to: CrowTable;
   automaticRoute: ReturnType<typeof routeColumns>;
+  /** True when the link arrived after this view opened, so it inks itself in. */
+  fresh: boolean;
   selected: boolean;
   hovered: boolean;
   onSelect: (event: React.PointerEvent) => void;
@@ -704,7 +720,8 @@ function CrowConnector({
             if (tool === 'select' && !fixed) startRouteDrag(event, index, 'segment');
           }} />;
       })}
-      <path className="leg crow-link__path" d={roundedRoutePath(route.points, route.guard)} />
+      <path className={`leg crow-link__path${fresh ? ' ink-in' : ''}`}
+        pathLength={fresh ? 1 : undefined} d={roundedRoutePath(route.points, route.guard)} />
       <CardinalityMarker origin={route.a} toward={route.aToward} many={link.fromMany} required={link.fromMandatory}
         scale={Math.min(1, stubs.start / ENDPOINT_STUB)} />
       <CardinalityMarker origin={route.b} toward={route.bToward} many={link.toMany} required={link.toMandatory}

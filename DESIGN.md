@@ -89,9 +89,37 @@ secondary ink would fall below 4.5:1, a step from the same ramp is used instead.
 Short, functional, and never ambient. Entrances and exits only, driven by user
 action; exits are faster than entrances.
 
-There are **no keyframe animations and no infinite loops in this app**, and that
-is a rule rather than an accident. Motion draws attention to a change; a pulse
-that never stops competes with the content for a fact that does not exist.
+There are **no ambient keyframe animations and no loop that outlives the state
+it reports**, and that is a rule rather than an accident. Motion draws attention
+to a change; a pulse that never stops competes with the content for a fact that
+does not exist.
+
+### Presence motion
+
+The one motion that runs without a local user action is a collaborator's hand,
+because a second person *is* the event. The AI peer publishes what it is doing —
+hovering, pressing, carrying, lassoing, thinking — and the app draws exactly
+that, and nothing more:
+
+- Every gesture visual exists only while its state is published. The halo ends
+  with the hover, the ripple with the press, the loop with the lasso, the ring
+  with the thought. **A peer at rest is completely still.** Breathing at idle is
+  the pulse this document forbids: idleness is not work.
+- The short loop that remains on a working peer — the carried shape rocking, the
+  thinking ring breathing — is state-bound, not ambient. It ends with the state
+  and is the only moving thing that says the peer is still working. A loop is
+  allowed here because it reports a real `thinking` state, not a decoration.
+- Entrances may use keyframes when something is actually being drawn: a new
+  entity traces its outline, a new relationship line inks along its length
+  (~420ms), a new attribute springs into place. These are one-shot, never
+  repeat, and never run for a drawing that was already on the paper when the
+  view opened.
+- `prefers-reduced-motion` collapses all of it to its end state. The peer
+  cursor's spring is the only motion kept, because it turns a bursty network
+  feed into a readable hand rather than a sequence of jumps.
+
+This is the same rule as `--shadow-menu`: motion that depicts a real, current
+fact earns its place; motion that exists to make the screen feel alive does not.
 
 ## Accessibility floor
 

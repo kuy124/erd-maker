@@ -673,6 +673,59 @@ body {
   100% { scale: 1; }
 }
 
+/*
+ * An arriving entity is drawn, not popped.
+ *
+ * Its outline traces itself first — dash offset over a normalised path — then
+ * the paper fill comes up underneath and the label settles. Entities are the
+ * nouns of the diagram, the shape somebody is waiting to see land, so they earn
+ * the longer gesture; the other primitives keep the bloom above.
+ */
+.node--enter-entity .node--enter {
+  animation: none;
+}
+
+.node--enter-entity .node__body {
+  fill-opacity: 0;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation:
+    node-body-fill 200ms 260ms var(--ease-out) forwards,
+    node-outline-draw 420ms var(--ease-out) forwards;
+}
+
+.node--enter-entity .node__label {
+  opacity: 0;
+  animation: node-label-in 220ms 300ms var(--ease-out) forwards;
+}
+
+@keyframes node-outline-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes node-body-fill {
+  to { fill-opacity: 1; }
+}
+
+@keyframes node-label-in {
+  to { opacity: 1; }
+}
+
+/*
+ * An attribute springs: it is the smallest shape on the paper and the one most
+ * likely to arrive in a burst, so a quick overshoot separates one arrival from
+ * the next without holding each one back.
+ */
+.node--enter-attribute .node--enter {
+  animation: node-spring 340ms var(--ease-out);
+}
+
+@keyframes node-spring {
+  0% { opacity: 0; scale: .55; }
+  60% { opacity: 1; scale: 1.06; }
+  100% { scale: 1; }
+}
+
 /* Drawing a relationship line. The source shape is ringed so it is obvious
    which shape the line is leaving, and the shape under the pointer is filled so
    it is obvious what clicking will connect to. Both use the signal colour
@@ -731,6 +784,24 @@ body {
    weight: the two are different kinds of statement and should not look alike. */
 .leg--attribute {
   stroke-width: 1.2;
+}
+
+/*
+ * A connector arriving on the paper inks along its own length.
+ *
+ * `pathLength=1` normalises a straight leg and a bent route to the same unit,
+ * so one dash offset draws both at the same pace. Only a line that arrived
+ * after the view opened carries this class; a connector that was already on the
+ * paper never re-draws when its endpoints move.
+ */
+.leg.ink-in {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: leg-ink-in 420ms var(--ease-out) forwards;
+}
+
+@keyframes leg-ink-in {
+  to { stroke-dashoffset: 0; }
 }
 
 /* ------------------------------------------- crow's-foot connectors */
@@ -1183,11 +1254,65 @@ body {
   transform-origin: center;
   pointer-events: none;
 }
+/*
+ * The second ripple that turns one ring into a click.
+ *
+ * A single expanding ring reads as a bounce; a second, later ring reads as a
+ * press, because that is the shape a click makes. It is hidden by default so a
+ * peer that is not pressing has no ring at all, and it is driven by the
+ * published `pressing` flag rather than by anything on this screen.
+ */
+.peer-cursor__ripple {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+}
+.peer-cursor--pressed .peer-cursor__ripple {
+  animation: peer-cursor-ripple 360ms 110ms cubic-bezier(.16, .8, .3, 1) both;
+}
+/*
+ * The halo a peer leaves around the shape it is about to act on.
+ *
+ * Mounting is the event: a new intent names a shape, the ring opens around it,
+ * and withdrawing the intent removes it. The small scale entrance exists so the
+ * ring reads as attention arriving rather than a border that was always there.
+ */
+.peer-intent__halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: peer-halo-in 200ms var(--ease-out);
+}
+.peer-intent--lasso {
+  pointer-events: none;
+}
+@keyframes peer-halo-in {
+  0% { opacity: 0; scale: .97; }
+  100% { opacity: 1; scale: 1; }
+}
+/*
+ * Thinking: the ring around the name marches while a query or a generation is
+ * in flight. It exists only while the peer publishes `think`, so the loop is
+ * the state it reports — the same rule that lets a carried shape rock.
+ */
+.peer-cursor__thinking {
+  pointer-events: none;
+}
+.peer-cursor--thinking .peer-cursor__thinking {
+  animation: peer-cursor-think 1.2s linear infinite;
+}
+@keyframes peer-cursor-think {
+  to { stroke-dashoffset: -14; }
+}
 .peer-cursor--pressed path {
   animation: peer-cursor-press 180ms cubic-bezier(.2, .7, .3, 1);
 }
 .peer-cursor--pressed .peer-cursor__ring {
   animation: peer-cursor-press-ring 360ms cubic-bezier(.16, .8, .3, 1);
+}
+@keyframes peer-cursor-ripple {
+  0% { opacity: .55; transform: scale(.7); stroke-width: 2px; }
+  100% { opacity: 0; transform: scale(3.4); stroke-width: .5px; }
 }
 .peer-cursor--carrying path {
   animation: peer-cursor-carry-hand 800ms ease-in-out infinite;

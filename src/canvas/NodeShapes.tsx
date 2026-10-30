@@ -15,6 +15,7 @@ import { memo, useEffect, useRef } from 'react';
 import { NODE_SIZE, type Attribute, type Entity, type Isa, type Relationship } from '../model/types';
 import type { PeerState } from '../collab/provider';
 import { groupFrame, type ErdDocument, type Group } from '../model/types';
+import { intentHalo, lassoPolygon, type ShapeBounds } from './peerIntents';
 import { createTrack, prefersReducedMotion, pushTrail, stepTrack, trackSpeed, trailOpacity, trailPoints, type CursorTrack, type TrailSample } from './peerMotion';
 import type { Point } from './geometry';
 
@@ -49,12 +50,19 @@ function nodeClass(props: Pick<BaseProps, 'connecting' | 'connectable'>, extra =
 /**
  * A shape's ink, as one group.
  *
- * The group exists for the entrance bloom. A `scale` on the shape's own group
+ * The group exists for the entrance. A `scale` on the shape's own group
  * would compose with its `translate(x y)` and shrink the position too, so every
  * new shape would slide across the paper toward the origin as it appeared. One
  * level in, the group has no transform of its own and scales about its centre.
+ *
+ * The kind of entrance — an entity tracing its outline, an attribute springing —
+ * is named on the shape's own group instead, where the stylesheet can select the
+ * body and label underneath it.
  */
-function Ink({ enter, children }: { enter?: boolean | undefined; children: React.ReactNode }) {
+function Ink({ enter, children }: {
+  enter?: boolean | undefined;
+  children: React.ReactNode;
+}) {
   return <g className={enter ? 'node--enter' : undefined}>{children}</g>;
 }
 
@@ -85,7 +93,7 @@ export const EntityShape = memo(function EntityShape({
   const weak = entity.kind === 'weak';
   return (
     <g
-      className={nodeClass({ connecting, connectable }, weak ? ' node--weak' : '')}
+      className={nodeClass({ connecting, connectable }, `${weak ? ' node--weak' : ''}${enter ? ' node--enter-entity' : ''}`)}
       transform={`translate(${entity.x} ${entity.y})`}
       onPointerDown={onPointerDown}
       role="button"
@@ -94,9 +102,9 @@ export const EntityShape = memo(function EntityShape({
       data-node-id={entity.id}
     >
       <Ink enter={enter}>
-        <rect className="node__body" width={w} height={h} />
-        {weak ? <rect className="node__body" x={5} y={5} width={w - 10} height={h - 10} /> : null}
-        {entity.kind === 'associative' ? <polygon className="node__body entity-associative"
+        <rect className="node__body" width={w} height={h} pathLength={1} />
+        {weak ? <rect className="node__body" x={5} y={5} width={w - 10} height={h - 10} pathLength={1} /> : null}
+        {entity.kind === 'associative' ? <polygon className="node__body entity-associative" pathLength={1}
           points={`${w / 2},5 ${w - 5},${h / 2} ${w / 2},${h - 5} 5,${h / 2}`} /> : null}
         <ShapeLabel name={entity.name} x={w / 2} y={h / 2} limit={20} />
         <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />
@@ -163,7 +171,7 @@ export const AttributeShape = memo(function AttributeShape({
 
   return (
     <g
-      className={nodeClass({ connecting, connectable })}
+      className={nodeClass({ connecting, connectable }, enter ? ' node--enter-attribute' : '')}
       transform={`translate(${attribute.x} ${attribute.y})`}
       onPointerDown={onPointerDown}
       role="button"
@@ -313,7 +321,13 @@ export function CardinalityMarker({ origin, toward, many, required, className = 
  * The name always travels with the colour: colour alone is not something
  * everyone can tell apart, and an unnamed arrow says nothing.
  */
-export function PeerCursors({ peers, view, onFollow }: { peers: PeerState[]; view: 'chen' | 'crowfoot'; onFollow?: (id: number) => void }) {
+export function PeerCursors({ peers, view, onFollow, boundsOf }: {
+  peers: PeerState[];
+  view: 'chen' | 'crowfoot';
+  onFollow?: (id: number) => void;
+  /** Where a shape sits, so a gesture that names one can be drawn around it. */
+  boundsOf?: (id: string) => ShapeBounds | null;
+}) {
   const visible = peers.filter((peer) => peer.view === view && peer.cursor);
   // Keep stacked peer names from covering each other by nudging chips.
   const names = visible.map((peer) => {
@@ -384,10 +398,45 @@ export function PeerCursors({ peers, view, onFollow }: { peers: PeerState[]; vie
 
   return (
     <g className="layer-peers" ref={layerRef}>
+      {/*
+        What the peer is aiming at, under its cursor.
+
+        A published intent is an assertion about a shape, so it is drawn around
+        that shape in the peer's colour rather than inferred from cursor speed.
+        The layer is decorative: it repeats nothing a screen reader has not
+        already been told by the name chip.
+      */}
+      <g className="layer-peer-intents" aria-hidden="true">
+        {visible.map((peer) => {
+          const target = intentHalo(peer);
+          const bounds = target && boundsOf ? boundsOf(target) : null;
+          const loop = lassoPolygon(peer);
+          if (!bounds && !loop) return null;
+          return (
+            <g key={`intent-${peer.clientId}`}>
+              {bounds ? (
+                <g key={target!} className="peer-intent__halo">
+                  <rect className="peer-intent peer-intent--hover"
+                    x={bounds.x - 9} y={bounds.y - 9} width={bounds.w + 18} height={bounds.h + 18}
+                    rx={10} fill="none" stroke={peer.color} strokeWidth={1.5} strokeDasharray="2 6" />
+                  <rect className="peer-intent__halo-outer"
+                    x={bounds.x - 4} y={bounds.y - 4} width={bounds.w + 8} height={bounds.h + 8}
+                    rx={7} fill="none" stroke={peer.color} strokeWidth={1} strokeOpacity={0.35} />
+                </g>
+              ) : null}
+              {loop ? (
+                <polygon className="peer-intent--lasso" points={loop}
+                  fill={peer.color} fillOpacity={0.06} stroke={peer.color}
+                  strokeWidth={1.5} strokeDasharray="6 5" strokeLinejoin="round" />
+              ) : null}
+            </g>
+          );
+        })}
+      </g>
       {names.map(({ peer, offset }) =>
         peer.cursor ? (
           <g key={peer.clientId}
-            className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}${peer.typing ? ' peer-cursor--typing' : ''}`}
+            className={`peer-cursor${peer.dragging ? ' peer-cursor--carrying' : ''}${peer.pressing ? ' peer-cursor--pressed' : ''}${peer.typing ? ' peer-cursor--typing' : ''}${peer.intent?.kind === 'think' ? ' peer-cursor--thinking' : ''}`}
             data-peer-id={peer.clientId}
             style={{ cursor: onFollow ? 'pointer' : undefined }}
             onClick={() => onFollow?.(peer.clientId)}
@@ -395,11 +444,18 @@ export function PeerCursors({ peers, view, onFollow }: { peers: PeerState[]; vie
             <polyline className="peer-cursor__trail" points="" fill="none" stroke={peer.color} strokeOpacity="0" />
             <g transform={`translate(${offset} 0)`}>
               <circle className="peer-cursor__ring" cx="0" cy="0" r="8" fill="none" stroke={peer.color} strokeWidth="1.5" />
+              {/* A second, later ring: one ripple reads as a bounce, two as a click. */}
+              <circle className="peer-cursor__ripple" cx="0" cy="0" r="8" fill="none" stroke={peer.color} strokeWidth="1.5" />
               <path d="M0 0 L0 15 L4 11 L7 17 L10 15.5 L7 10 L12 10 Z" fill={peer.color} stroke="var(--paper)" strokeWidth="1" />
               <rect className="peer-cursor__chip" x="14" y="12" width={peer.name.length * 6.4 + 10} height="17" fill={peer.color} />
               <text className="peer-cursor__name" x="19" y="24">
                 {peer.name}
               </text>
+              {peer.intent?.kind === 'think' ? (
+                <rect className="peer-cursor__thinking" x="11" y="9"
+                  width={peer.name.length * 6.4 + 16} height="23" rx="4"
+                  fill="none" stroke={peer.color} strokeWidth="1.5" strokeDasharray="3 4" />
+              ) : null}
               {peer.typing ? (
                 <g className="peer-cursor__typing" transform={`translate(${peer.name.length * 6.4 + 30} 20)`}>
                   <circle r="2" cx="0" cy="0" className="dots d1" />

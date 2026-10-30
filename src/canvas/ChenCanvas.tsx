@@ -15,10 +15,11 @@ import type { EditorState } from '../state/useEditor';
 import { descendantAttributeIds } from '../model/attributes';
 import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentForLeg, type Point } from './geometry';
 import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
+import { attributeEdgeId, connectorIds, isaChildEdgeId, isaParentEdgeId } from './entrance';
 import { useDrag, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
 import { CommentPins, useCommentPlacement } from './CommentPins';
-import { allNodes, findNode, type ErdDocument, type Positioned } from '../model/types';
+import { allNodes, findNode, NODE_SIZE, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
 
 interface Props {
@@ -499,6 +500,21 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
     return map;
   }, [peers]);
 
+  // Where a shape is, for drawing a peer's aim around it. Read from the same
+  // display document the shapes are drawn from, so a halo follows a carried
+  // shape under the carrier's cursor instead of staying at its old position.
+  const boundsOf = useCallback((id: string) => {
+    const entity = displayDoc.entities.find((e) => e.id === id);
+    if (entity) return { x: entity.x, y: entity.y, w: NODE_SIZE.entity.w, h: NODE_SIZE.entity.h };
+    const relationship = displayDoc.relationships.find((r) => r.id === id);
+    if (relationship) return { x: relationship.x, y: relationship.y, w: NODE_SIZE.relationship.w, h: NODE_SIZE.relationship.h };
+    const attribute = displayDoc.attributes.find((a) => a.id === id);
+    if (attribute) return { x: attribute.x, y: attribute.y, w: NODE_SIZE.attribute.w, h: NODE_SIZE.attribute.h };
+    const isa = displayDoc.isas.find((i) => i.id === id);
+    if (isa) return { x: isa.x, y: isa.y, w: NODE_SIZE.isa.w, h: NODE_SIZE.isa.h };
+    return null;
+  }, [displayDoc]);
+
   const isEmpty =
     displayDoc.entities.length === 0 &&
     displayDoc.attributes.length === 0 &&
@@ -516,6 +532,17 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
   const settled = useRef<Set<string> | null>(null);
   if (!settled.current && !isEmpty) settled.current = new Set(allNodes(doc).map((node) => node.id));
   const enters = (id: string) => settled.current !== null && !settled.current.has(id);
+
+  /**
+   * The connectors that were already drawn when this view opened.
+   *
+   * Same baseline idea as the shapes above, on the same first non-empty render.
+   * A line that arrives afterwards inks along its length; one that was already
+   * there keeps still even while its endpoints move.
+   */
+  const settledLinks = useRef<Set<string> | null>(null);
+  if (!settledLinks.current && !isEmpty) settledLinks.current = new Set(connectorIds(doc));
+  const linkEnters = (id: string) => settledLinks.current !== null && !settledLinks.current.has(id);
 
   const commentPlacement = useCommentPlacement(state, toWorld);
 
@@ -567,6 +594,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
                 leg.participation.max !== (many ? 'N' : 1);
               const labels = legLabelPoints(seg.from, seg.to, [0.28, 0.52]);
               const participationLabel = legLabelPoints(seg.from, seg.to, [0.28, 0.52], -14)[1];
+              const fresh = linkEnters(leg.id);
               return (
                 <g key={leg.id} className="leg-group" data-selection-id={leg.id} tabIndex={-1}>
                   {/* An invisible wider band under the visible line, so the thin
@@ -590,8 +618,10 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
                       state.setSelection([leg.id]);
                     }}
                   />}
-                  {path ? <path className={`leg${isSelected ? ' leg--selected' : ''}`} d={path} /> : <line
-                    className={`leg${isSelected ? ' leg--selected' : ''}`}
+                  {path ? <path className={`leg${isSelected ? ' leg--selected' : ''}${fresh ? ' ink-in' : ''}`}
+                    pathLength={fresh ? 1 : undefined} d={path} /> : <line
+                    className={`leg${isSelected ? ' leg--selected' : ''}${fresh ? ' ink-in' : ''}`}
+                    pathLength={fresh ? 1 : undefined}
                     x1={seg.from.x}
                     y1={seg.from.y}
                     x2={seg.to.x}
@@ -658,11 +688,13 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               const parent = isa.parentId
                 ? displayDoc.entities.find((e) => e.id === isa.parentId)
                 : undefined;
+              const freshParent = linkEnters(isaParentEdgeId(isa.id));
               return (
                 <g key={isa.id}>
                   {parent ? (
                     <line
-                      className="leg"
+                      className={`leg${freshParent ? ' ink-in' : ''}`}
+                      pathLength={freshParent ? 1 : undefined}
                       x1={isaCenter.x}
                       y1={isaCenter.y}
                       x2={edgePoint(displayDoc, parent.id, isaCenter)?.x ?? parent.x}
@@ -673,10 +705,12 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
                     const child = displayDoc.entities.find((e) => e.id === childId);
                     if (!child) return null;
                     const edge = edgePoint(displayDoc, childId, isaCenter);
+                    const fresh = linkEnters(isaChildEdgeId(isa.id, childId));
                     return (
                       <line
                         key={childId}
-                        className="leg"
+                        className={`leg${fresh ? ' ink-in' : ''}`}
+                        pathLength={fresh ? 1 : undefined}
                         x1={isaCenter.x}
                         y1={isaCenter.y}
                         x2={edge?.x ?? child.x}
@@ -696,12 +730,14 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               const from = edgePoint(displayDoc, attr.ownerId, attrCenter);
               const to = edgePoint(displayDoc, attr.id, owner);
               if (!from || !to) return null;
+              const fresh = linkEnters(attributeEdgeId(attr.id));
               return (
                 <line
                   key={`${attr.id}-link`}
                   // Distinguished from a relationship leg: this one says which
                   // shape an attribute belongs to and carries no cardinality.
-                  className="leg leg--attribute"
+                  className={`leg leg--attribute${fresh ? ' ink-in' : ''}`}
+                  pathLength={fresh ? 1 : undefined}
                   data-attribute-link={attr.id}
                   x1={from.x}
                   y1={from.y}
@@ -803,7 +839,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
 
           {/* Peer cursors. The name always travels with the colour. */}
           <CommentPins state={state} onSelect={onCommentSelect} />
-          <PeerCursors peers={peers} view="chen" onFollow={(id) => onFollowPeer?.(id)} />
+          <PeerCursors peers={peers} view="chen" boundsOf={boundsOf} onFollow={(id) => onFollowPeer?.(id)} />
         </g>
       </svg>
 

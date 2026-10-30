@@ -23,6 +23,7 @@ import { WebrtcProvider } from 'y-webrtc';
 import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
 import { needsReconnect } from './recovery';
+import { readIntent, type PeerIntent } from './presence';
 
 const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
 
@@ -49,6 +50,8 @@ export interface PeerState {
   pressing: boolean;
   /** True while this peer is typing in a text field. */
   typing: boolean;
+  /** The gesture this peer is performing, when it names one (the AI does). */
+  intent: PeerIntent | null;
   /** In-flight positions while the peer carries (drags) shapes. Ephemeral. */
   dragging: {
     ids: string[];
@@ -342,6 +345,7 @@ export function readPeers(awareness: Awareness, localClientId: number): PeerStat
       view: raw.view === 'crowfoot' ? 'crowfoot' : 'chen',
       pressing: raw.pressing === true,
       typing: raw.typing === true,
+      intent: readIntent((raw as { intent?: unknown }).intent),
       following: typeof raw.following === 'number' ? raw.following : null,
       dragging,
     });
