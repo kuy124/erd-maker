@@ -18,7 +18,7 @@ import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, 
 import { useDrag, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
 import { CommentPins, useCommentPlacement } from './CommentPins';
-import { findNode, type ErdDocument, type Positioned } from '../model/types';
+import { allNodes, findNode, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
 
 interface Props {
@@ -505,6 +505,18 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
     displayDoc.relationships.length === 0 &&
     displayDoc.isas.length === 0;
 
+  /**
+   * The shapes that were already on the paper when this view opened.
+   *
+   * Everything after that baseline blooms in, because it was just drawn. The
+   * baseline itself does not: loading a saved diagram or switching notation back
+   * to Chen re-mounts the whole drawing, and re-animating all of it at once is
+   * motion with no event behind it.
+   */
+  const settled = useRef<Set<string> | null>(null);
+  if (!settled.current && !isEmpty) settled.current = new Set(allNodes(doc).map((node) => node.id));
+  const enters = (id: string) => settled.current !== null && !settled.current.has(id);
+
   const commentPlacement = useCommentPlacement(state, toWorld);
 
   return (
@@ -732,6 +744,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               <IsaShape
                 key={isa.id}
                 isa={isa}
+                enter={enters(isa.id)}
                 selected={selection.includes(isa.id)}
                 peerColor={peerBySelection.get(isa.id)}
                 connecting={connectFrom === isa.id}
@@ -743,6 +756,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               <RelationshipShape
                 key={rel.id}
                 relationship={rel}
+                enter={enters(rel.id)}
                 selected={selection.includes(rel.id)}
                 peerColor={peerBySelection.get(rel.id)}
                 connecting={connectFrom === rel.id}
@@ -754,6 +768,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               <AttributeShape
                 key={attr.id}
                 attribute={attr}
+                enter={enters(attr.id)}
                 selected={selection.includes(attr.id)}
                 peerColor={peerBySelection.get(attr.id)}
                 connecting={connectFrom === attr.id}
@@ -765,6 +780,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               <EntityShape
                 key={entity.id}
                 entity={entity}
+                enter={enters(entity.id)}
                 selected={selection.includes(entity.id)}
                 peerColor={peerBySelection.get(entity.id)}
                 connecting={connectFrom === entity.id}

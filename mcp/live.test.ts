@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import { liveSteps, presenceAt, roomFromLink, travelDurationMs, travelEase, travelPoint, writeDocumentDiff } from './live';
+import { liveSteps, presenceAt, roomFromLink, travelBow, travelDurationMs, travelEase, travelPoint, writeDocumentDiff } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
 import { seedDocument, snapshotFromYdoc, upsertAttribute } from '../src/collab/ydoc';
@@ -175,9 +175,25 @@ describe('pointer travel', () => {
   it('keeps a hop between a readable floor and ceiling, longer for longer distances', () => {
     const near = travelDurationMs({ x: 0, y: 0 }, { x: 20, y: 0 });
     const far = travelDurationMs({ x: 0, y: 0 }, { x: 1200, y: 0 });
+    const huge = travelDurationMs({ x: 0, y: 0 }, { x: 5000, y: 0 });
     expect(near).toBeGreaterThanOrEqual(220);
-    expect(far).toBeLessThanOrEqual(700);
     expect(far).toBeGreaterThan(near);
+    expect(far).toBeLessThanOrEqual(950);
+    // Across a big canvas the pointer still should not crawl off screen.
+    expect(huge).toBeLessThanOrEqual(950);
+  });
+
+  it('arcs successive hops differently, but the same pair the same way', () => {
+    const first = { from: { x: 100, y: 120 }, to: { x: 620, y: 240 } };
+    const hops = [
+      first,
+      { from: { x: 620, y: 240 }, to: { x: 300, y: 710 } },
+      { from: { x: 300, y: 710 }, to: { x: 980, y: 640 } },
+      { from: { x: 980, y: 640 }, to: { x: 1180, y: 190 } },
+      { from: { x: 1180, y: 190 }, to: { x: 460, y: 60 } },
+    ].map(({ from, to }) => travelBow(from, to));
+    expect(new Set(hops.map((bow) => bow.toFixed(2))).size).toBe(hops.length);
+    expect(travelBow(first.from, first.to)).toBe(hops[0]);
   });
 
   it('moves in small steps when sampled at the app’s frame rate', () => {

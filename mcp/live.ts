@@ -51,12 +51,14 @@ const ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
  */
 const MOVE_FRAME_MS = 16;
 const MOVE_MIN_MS = 220;
-const MOVE_MAX_MS = 700;
+const MOVE_MAX_MS = 950;
 const MOVE_MS_PER_PX = 0.7;
 /** Long hops bow off the straight line a little; short ones stay exact. */
 const MOVE_BOW_FROM_PX = 40;
 const MOVE_BOW_RATIO = 0.06;
-const MOVE_BOW_MAX_PX = 26;
+const MOVE_BOW_MAX_PX = 34;
+/** How far a hop's arc may deviate from its nominal bow, as a fraction of it. */
+const MOVE_BOW_SPREAD = 0.35;
 /**
  * How long the pointer rests on a shape before moving to the next one.
  *
@@ -150,6 +152,31 @@ export function travelDurationMs(from: CursorPoint, to: CursorPoint): number {
 }
 
 /**
+ * How far a hop arcs sideways, signed so the arc can fall on either side.
+ *
+ * A fixed bow makes every hop curve the same way, and a stream of fifty of them
+ * reads as a transition replaying rather than as a hand working. Which way the
+ * pointer swings is derived from the two endpoints, so it varies from hop to hop
+ * but the same pair always arcs identically — a reviewer can rerun the demo and
+ * watch the same path.
+ */
+export function travelBow(from: CursorPoint, to: CursorPoint): number {
+  const length = Math.hypot(to.x - from.x, to.y - from.y);
+  if (length <= MOVE_BOW_FROM_PX) return 0;
+  const nominal = Math.min(MOVE_BOW_MAX_PX, length * MOVE_BOW_RATIO);
+  // FNV-1a over the rounded coordinates: cheap, and stable across a restart.
+  let hash = 2166136261;
+  for (const value of [Math.round(from.x), Math.round(from.y), Math.round(to.x), Math.round(to.y)]) {
+    hash = Math.imul(hash ^ (value & 0xff), 16777619) >>> 0;
+    hash = Math.imul(hash ^ ((value >> 8) & 0xff), 16777619) >>> 0;
+    hash = Math.imul(hash ^ ((value >> 16) & 0xff), 16777619) >>> 0;
+    hash = Math.imul(hash ^ ((value >> 24) & 0xff), 16777619) >>> 0;
+  }
+  const spread = (hash % 1000) / 1000 * 2 - 1;
+  return nominal * (1 + spread * MOVE_BOW_SPREAD) * (hash % 2 ? 1 : -1);
+}
+
+/**
  * A point along the travel path at `t` in 0..1.
  *
  * The path is a quadratic curve rather than a straight line: a real pointer
@@ -163,7 +190,7 @@ export function travelPoint(from: CursorPoint, to: CursorPoint, t: number): Curs
   const dy = to.y - from.y;
   const length = Math.hypot(dx, dy);
   if (length < 1e-6) return { x: to.x, y: to.y };
-  const bow = length > MOVE_BOW_FROM_PX ? Math.min(MOVE_BOW_MAX_PX, length * MOVE_BOW_RATIO) : 0;
+  const bow = travelBow(from, to);
   const control = {
     x: (from.x + to.x) / 2 - (dy / length) * bow,
     y: (from.y + to.y) / 2 + (dx / length) * bow,

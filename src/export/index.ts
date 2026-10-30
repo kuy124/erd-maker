@@ -135,8 +135,11 @@ export function serializeSvg(
     node.style.strokeWidth = '1.5';
     node.style.fill = node.closest('.node--weak') ? 'none' : vars['--paper-raised'] ?? '#fbfcfb';
   });
+  // A shape caught mid-bloom has its entrance opacity computed into the file,
+  // which would export it permanently translucent. The animation is screen-only.
+  clone.querySelectorAll<SVGElement>('.node--enter').forEach((node) => node.style.removeProperty('opacity'));
   clone.querySelectorAll('[class]').forEach((node) => {
-    node.classList.remove('leg--selected', 'crow-link--selected', 'node--connecting', 'node--connectable', 'crow-row--connecting', 'crow-row--connectable');
+    node.classList.remove('leg--selected', 'crow-link--selected', 'node--connecting', 'node--connectable', 'crow-row--connecting', 'crow-row--connectable', 'node--enter');
   });
 
   clone.querySelectorAll('.leg-endpoint__hit').forEach((node) => node.remove());

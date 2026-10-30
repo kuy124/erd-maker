@@ -647,6 +647,32 @@ body {
   fill: none;
 }
 
+/*
+ * A shape blooms in as it is drawn.
+ *
+ * The brief overshoot is the point: it reads as a shape being set down and
+ * settling, which is what the click that just landed on the paper did. Without
+ * it a diagram arriving one shape at a time — an AI authoring it, a version
+ * restored — pops into existence with no connection to the pointer that placed
+ * it. It runs on mount, so moving, renaming, or selecting a shape that is
+ * already on the paper stays still.
+ *
+ * This sits on the shape's inner group, not on `.node` itself: a `scale` on the
+ * group that carries `translate(x y)` scales the position too, and every shape
+ * would slide in from the world origin instead of opening where it was placed.
+ */
+.node--enter {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: node-bloom 220ms var(--ease-out);
+}
+
+@keyframes node-bloom {
+  0% { opacity: 0; scale: .86; }
+  60% { opacity: 1; scale: 1.03; }
+  100% { scale: 1; }
+}
+
 /* Drawing a relationship line. The source shape is ringed so it is obvious
    which shape the line is leaving, and the shape under the pointer is filled so
    it is obvious what clicking will connect to. Both use the signal colour
@@ -1129,9 +1155,27 @@ body {
 .layer-peers {
   pointer-events: none;
 }
+/*
+ * Where a peer's pointer is drawn is integrated one frame at a time by the
+ * spring in src/canvas/peerMotion.ts, not by a CSS transition. A transition
+ * restarts on every awareness message, and messages arrive in bursts, so a hand
+ * moving at an even pace rendered as a wobble. The spring carries velocity and
+ * keeps its own clock, so the same feed reads as a glide.
+ */
 .peer-cursor {
-  transition: transform 70ms cubic-bezier(.22, .72, .3, 1.12);
   will-change: transform;
+}
+/*
+ * The short tail behind a moving pointer. It says how fast and in which
+ * direction somebody is travelling, which a static arrow cannot, and it fades
+ * out on its own the moment they stop.
+ */
+.peer-cursor__trail {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 .peer-cursor__ring {
   opacity: 0;
