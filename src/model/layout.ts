@@ -23,8 +23,10 @@ import { descendantAttributeIds } from './attributes';
 import { overlaps, type Box } from './placement';
 import { diamondEdge, ellipseEdge, rectEdge, segmentBetween, segmentForLeg, type Point } from '../canvas/geometry';
 
-const V_GAP = 105;
-const LAYER_GAP = 105;
+// Space between siblings inside a layer. It only has to clear the connector
+// lanes, so it is much tighter than a relationship diamond is wide.
+const V_GAP = 70;
+const LAYER_GAP = 70;
 // Bounded fans reserve extra angular space instead of borrowing distant rings.
 const COMPACT_FAN_CAPACITY = 6;
 const DENSE_ENTITY_COUNT = 25;
@@ -366,7 +368,9 @@ function arrangeChenComponent(doc: ErdDocument, graph: Map<string, GraphNode>, s
     return [...found].sort();
   };
   const linked = new Map([...anchors].map(id => [id, { id, neighbors: neighbours(id) }]));
-  const gap = NODE_SIZE.relationship.w + 40;
+  // Enough room for a relationship diamond between two owner groups, and no
+  // more: the 40px of slack this used to add was pure margin around every cell.
+  const gap = NODE_SIZE.relationship.w + 20;
   const grid = arrangeGridComponent(linked, sizes, gap);
   const coreBox = (block: Positioned & { w: number; h: number }) => {
     const size = sizeFor(doc, block.id);

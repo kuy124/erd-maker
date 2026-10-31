@@ -514,7 +514,9 @@ export class LiveRoom {
     }
 
     if (options.seed && live.isEmpty()) {
-      live.writeAll(options.seed);
+      // Seed through the same path an edit takes, so a watcher sees the diagram
+      // drawn shape by shape instead of appearing all at once.
+      await live.replace(options.seed, true);
       live.seededRoom = true;
     }
     await pause(150);
@@ -1328,14 +1330,6 @@ export class LiveRoom {
     this.provider.destroy();
     this.awareness.destroy();
     this.ydoc.destroy();
-  }
-
-  private writeAll(source: ErdDocument): void {
-    const doc = normalizeDocument(source);
-    this.ydoc.transact(() => {
-      setMeta(this.ydoc, { name: doc.name, view: doc.view });
-      writeCollections(this.ydoc, doc);
-    });
   }
 
   private publishPresence(patch: Record<string, unknown>): void {

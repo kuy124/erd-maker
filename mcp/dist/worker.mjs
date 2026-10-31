@@ -38997,8 +38997,8 @@ function findRelationshipSlot(doc2, fromId, toId) {
 }
 
 // src/model/layout.ts
-var V_GAP = 105;
-var LAYER_GAP = 105;
+var V_GAP = 70;
+var LAYER_GAP = 70;
 var COMPACT_FAN_CAPACITY = 6;
 var DENSE_ENTITY_COUNT = 25;
 function buildGraph(doc2) {
@@ -39292,7 +39292,7 @@ function arrangeChenComponent(doc2, graph, sizes) {
     return [...found].sort();
   };
   const linked = new Map([...anchors].map((id2) => [id2, { id: id2, neighbors: neighbours(id2) }]));
-  const gap = NODE_SIZE.relationship.w + 40;
+  const gap = NODE_SIZE.relationship.w + 20;
   const grid = arrangeGridComponent(linked, sizes, gap);
   const coreBox = (block) => {
     const size2 = sizeFor(doc2, block.id);
@@ -49865,7 +49865,7 @@ var LiveRoom = class _LiveRoom {
       );
     }
     if (options.seed && live.isEmpty()) {
-      live.writeAll(options.seed);
+      await live.replace(options.seed, true);
       live.seededRoom = true;
     }
     await pause(150);
@@ -50594,13 +50594,6 @@ var LiveRoom = class _LiveRoom {
     this.provider.destroy();
     this.awareness.destroy();
     this.ydoc.destroy();
-  }
-  writeAll(source) {
-    const doc2 = normalizeDocument(source);
-    this.ydoc.transact(() => {
-      setMeta(this.ydoc, { name: doc2.name, view: doc2.view });
-      writeCollections(this.ydoc, doc2);
-    });
   }
   publishPresence(patch) {
     const base = {
