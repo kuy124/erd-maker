@@ -16,7 +16,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "verify": "npm run test && npm run build && npm run test:e2e"
+    "verify": "npm run test && npm run build && npm run test:e2e",
+    "mcp:build:worker": "node mcp/build-worker.mjs",
+    "mcp:deploy": "npm run mcp:build:worker && wrangler deploy --config mcp/wrangler.jsonc",
+    "mcp:typecheck:worker": "tsc -p mcp/tsconfig.worker.json --noEmit",
+    "mcp:verify:worker": "node mcp/verify-worker.mjs"
   },
   "dependencies": {
     "lz-string": "^1.5.0",
@@ -29,6 +33,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
+    "@cloudflare/workers-types": "^5.20261031.1",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@playwright/test": "^1.49.1",
     "@types/node": "^22.20.5",

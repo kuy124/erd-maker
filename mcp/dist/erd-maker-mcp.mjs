@@ -1177,15 +1177,15 @@ var init_dist = __esm({
     WAIT_FOR_WEBSOCKET_SYMBOL = Symbol("WAIT_FOR_WEBSOCKET_SYMBOL");
     upgradeWebSocket = defineWebSocketHelper(async (c, events, options) => {
       if (c.req.header("upgrade")?.toLowerCase() !== "websocket") return;
-      const env = c.env;
-      const waitForWebSocket = env[WAIT_FOR_WEBSOCKET_SYMBOL];
-      if (!waitForWebSocket || !env.incoming) return new Response(null, { status: 500 });
+      const env2 = c.env;
+      const waitForWebSocket = env2[WAIT_FOR_WEBSOCKET_SYMBOL];
+      if (!waitForWebSocket || !env2.incoming) return new Response(null, { status: 500 });
       const connectionSymbol = generateConnectionSymbol();
-      env[CONNECTION_SYMBOL_KEY] = connectionSymbol;
+      env2[CONNECTION_SYMBOL_KEY] = connectionSymbol;
       (async () => {
         let ws;
         try {
-          ws = await waitForWebSocket(env.incoming, connectionSymbol);
+          ws = await waitForWebSocket(env2.incoming, connectionSymbol);
         } catch {
           return;
         }
@@ -30345,11 +30345,11 @@ var init_protocol = __esm({
        *
        * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
        */
-      async connect(transport) {
+      async connect(transport2) {
         if (this._transport) {
           throw new Error("Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.");
         }
-        this._transport = transport;
+        this._transport = transport2;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
           _onclose?.();
@@ -31503,11 +31503,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants3) {
+      optimizeNames(names, constants2) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants3);
+          this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -31524,10 +31524,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants3) {
+      optimizeNames(names, constants2) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants3);
+        this.rhs = optimizeExpr(this.rhs, names, constants2);
         return this;
       }
       get names() {
@@ -31588,8 +31588,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants3) {
-        this.code = optimizeExpr(this.code, names, constants3);
+      optimizeNames(names, constants2) {
+        this.code = optimizeExpr(this.code, names, constants2);
         return this;
       }
       get names() {
@@ -31618,12 +31618,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants3) {
+      optimizeNames(names, constants2) {
         const { nodes } = this;
         let i = nodes.length;
         while (i--) {
           const n = nodes[i];
-          if (n.optimizeNames(names, constants3))
+          if (n.optimizeNames(names, constants2))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i, 1);
@@ -31676,12 +31676,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants3) {
+      optimizeNames(names, constants2) {
         var _a3;
-        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants3);
-        if (!(super.optimizeNames(names, constants3) || this.else))
+        this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
+        if (!(super.optimizeNames(names, constants2) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants3);
+        this.condition = optimizeExpr(this.condition, names, constants2);
         return this;
       }
       get names() {
@@ -31704,10 +31704,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants3) {
-        if (!super.optimizeNames(names, constants3))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants3);
+        this.iteration = optimizeExpr(this.iteration, names, constants2);
         return this;
       }
       get names() {
@@ -31743,10 +31743,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants3) {
-        if (!super.optimizeNames(names, constants3))
+      optimizeNames(names, constants2) {
+        if (!super.optimizeNames(names, constants2))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants3);
+        this.iterable = optimizeExpr(this.iterable, names, constants2);
         return this;
       }
       get names() {
@@ -31788,11 +31788,11 @@ var require_codegen = __commonJS({
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants3) {
+      optimizeNames(names, constants2) {
         var _a3, _b;
-        super.optimizeNames(names, constants3);
-        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants3);
-        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants3);
+        super.optimizeNames(names, constants2);
+        (_a3 = this.catch) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
+        (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants2);
         return this;
       }
       get names() {
@@ -32093,7 +32093,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from2) {
       return from2 instanceof code_1._CodeOrName ? addNames(names, from2.names) : names;
     }
-    function optimizeExpr(expr, names, constants3) {
+    function optimizeExpr(expr, names, constants2) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -32108,14 +32108,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants3[n.str];
+        const c = constants2[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants3[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
       }
     }
     function subtractNames(names, from2) {
@@ -33966,20 +33966,20 @@ var require_compile = __commonJS({
     var util_1 = require_util();
     var validate_1 = require_validate();
     var SchemaEnv = class {
-      constructor(env) {
+      constructor(env2) {
         var _a3;
         this.refs = {};
         this.dynamicAnchors = {};
         let schema;
-        if (typeof env.schema == "object")
-          schema = env.schema;
-        this.schema = env.schema;
-        this.schemaId = env.schemaId;
-        this.root = env.root || this;
-        this.baseId = (_a3 = env.baseId) !== null && _a3 !== void 0 ? _a3 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env.schemaId || "$id"]);
-        this.schemaPath = env.schemaPath;
-        this.localRefs = env.localRefs;
-        this.meta = env.meta;
+        if (typeof env2.schema == "object")
+          schema = env2.schema;
+        this.schema = env2.schema;
+        this.schemaId = env2.schemaId;
+        this.root = env2.root || this;
+        this.baseId = (_a3 = env2.baseId) !== null && _a3 !== void 0 ? _a3 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env2.schemaId || "$id"]);
+        this.schemaPath = env2.schemaPath;
+        this.localRefs = env2.localRefs;
+        this.meta = env2.meta;
         this.$async = schema === null || schema === void 0 ? void 0 : schema.$async;
         this.refs = {};
       }
@@ -34163,15 +34163,15 @@ var require_compile = __commonJS({
           baseId = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, schId);
         }
       }
-      let env;
+      let env2;
       if (typeof schema != "boolean" && schema.$ref && !(0, util_1.schemaHasRulesButRef)(schema, this.RULES)) {
         const $ref = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, schema.$ref);
-        env = resolveSchema.call(this, root, $ref);
+        env2 = resolveSchema.call(this, root, $ref);
       }
       const { schemaId } = this.opts;
-      env = env || new SchemaEnv({ schema, schemaId, root, baseId });
-      if (env.schema !== env.root.schema)
-        return env;
+      env2 = env2 || new SchemaEnv({ schema, schemaId, root, baseId });
+      if (env2.schema !== env2.root.schema)
+        return env2;
       return void 0;
     }
   }
@@ -36025,8 +36025,8 @@ var require_ref = __commonJS({
       schemaType: "string",
       code(cxt) {
         const { gen, schema: $ref, it } = cxt;
-        const { baseId, schemaEnv: env, validateName, opts, self } = it;
-        const { root } = env;
+        const { baseId, schemaEnv: env2, validateName, opts, self } = it;
+        const { root } = env2;
         if (($ref === "#" || $ref === "#/") && baseId === root.baseId)
           return callRootRef();
         const schOrEnv = compile_1.resolveRef.call(self, root, baseId, $ref);
@@ -36036,8 +36036,8 @@ var require_ref = __commonJS({
           return callValidate(schOrEnv);
         return inlineRefSchema(schOrEnv);
         function callRootRef() {
-          if (env === root)
-            return callRef(cxt, validateName, env, env.$async);
+          if (env2 === root)
+            return callRef(cxt, validateName, env2, env2.$async);
           const rootName = gen.scopeValue("root", { ref: root });
           return callRef(cxt, (0, codegen_1._)`${rootName}.validate`, root, root.$async);
         }
@@ -36067,14 +36067,14 @@ var require_ref = __commonJS({
     exports.getValidate = getValidate;
     function callRef(cxt, v, sch, $async) {
       const { gen, it } = cxt;
-      const { allErrors, schemaEnv: env, opts } = it;
+      const { allErrors, schemaEnv: env2, opts } = it;
       const passCxt = opts.passContext ? names_1.default.this : codegen_1.nil;
       if ($async)
         callAsyncRef();
       else
         callSyncRef();
       function callAsyncRef() {
-        if (!env.$async)
+        if (!env2.$async)
           throw new Error("async schema referenced by sync schema");
         const valid = gen.let("valid");
         gen.try(() => {
@@ -39332,8 +39332,8 @@ var init_mcp = __esm({
        *
        * The `server` object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
        */
-      async connect(transport) {
-        return await this.server.connect(transport);
+      async connect(transport2) {
+        return await this.server.connect(transport2);
       }
       /**
        * Closes the connection.
@@ -40026,123 +40026,6 @@ var init_mcp = __esm({
       completion: {
         values: [],
         hasMore: false
-      }
-    };
-  }
-});
-
-// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
-function deserializeMessage(line) {
-  return JSONRPCMessageSchema.parse(JSON.parse(line));
-}
-function serializeMessage(message) {
-  return JSON.stringify(message) + "\n";
-}
-var STDIO_DEFAULT_MAX_BUFFER_SIZE, ReadBuffer;
-var init_stdio = __esm({
-  "node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js"() {
-    init_types();
-    STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
-    ReadBuffer = class {
-      constructor(options) {
-        this._maxBufferSize = options?.maxBufferSize ?? STDIO_DEFAULT_MAX_BUFFER_SIZE;
-      }
-      append(chunk) {
-        const newSize = (this._buffer?.length ?? 0) + chunk.length;
-        if (newSize > this._maxBufferSize) {
-          this.clear();
-          throw new Error(`ReadBuffer exceeded maximum size of ${this._maxBufferSize} bytes`);
-        }
-        this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
-      }
-      readMessage() {
-        if (!this._buffer) {
-          return null;
-        }
-        const index = this._buffer.indexOf("\n");
-        if (index === -1) {
-          return null;
-        }
-        const line = this._buffer.toString("utf8", 0, index).replace(/\r$/, "");
-        this._buffer = this._buffer.subarray(index + 1);
-        return deserializeMessage(line);
-      }
-      clear() {
-        this._buffer = void 0;
-      }
-    };
-  }
-});
-
-// node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
-import process2 from "node:process";
-var StdioServerTransport;
-var init_stdio2 = __esm({
-  "node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js"() {
-    init_stdio();
-    StdioServerTransport = class {
-      constructor(_stdin = process2.stdin, _stdout = process2.stdout, options) {
-        this._stdin = _stdin;
-        this._stdout = _stdout;
-        this._started = false;
-        this._ondata = (chunk) => {
-          try {
-            this._readBuffer.append(chunk);
-            this.processReadBuffer();
-          } catch (error62) {
-            this.onerror?.(error62);
-            this.close().catch(() => {
-            });
-          }
-        };
-        this._onerror = (error62) => {
-          this.onerror?.(error62);
-        };
-        this._readBuffer = new ReadBuffer({ maxBufferSize: options?.maxBufferSize });
-      }
-      /**
-       * Starts listening for messages on stdin.
-       */
-      async start() {
-        if (this._started) {
-          throw new Error("StdioServerTransport already started! If using Server class, note that connect() calls start() automatically.");
-        }
-        this._started = true;
-        this._stdin.on("data", this._ondata);
-        this._stdin.on("error", this._onerror);
-      }
-      processReadBuffer() {
-        while (true) {
-          try {
-            const message = this._readBuffer.readMessage();
-            if (message === null) {
-              break;
-            }
-            this.onmessage?.(message);
-          } catch (error62) {
-            this.onerror?.(error62);
-          }
-        }
-      }
-      async close() {
-        this._stdin.off("data", this._ondata);
-        this._stdin.off("error", this._onerror);
-        const remainingDataListeners = this._stdin.listenerCount("data");
-        if (remainingDataListeners === 0) {
-          this._stdin.pause();
-        }
-        this._readBuffer.clear();
-        this.onclose?.();
-      }
-      send(message) {
-        return new Promise((resolve2) => {
-          const json3 = serializeMessage(message);
-          if (this._stdout.write(json3)) {
-            resolve2();
-          } else {
-            this._stdout.once("drain", resolve2);
-          }
-        });
       }
     };
   }
@@ -42930,6 +42813,20 @@ var init_sql = __esm({
     init_columnNames();
     SqlError = class extends Error {
     };
+  }
+});
+
+// mcp/env.ts
+function env(name) {
+  const override = overrides[name];
+  if (override !== void 0) return override;
+  return typeof process !== "undefined" ? process.env?.[name] : void 0;
+}
+var overrides;
+var init_env = __esm({
+  "mcp/env.ts"() {
+    "use strict";
+    overrides = {};
   }
 });
 
@@ -51527,6 +51424,3085 @@ ${reason}`);
   }
 });
 
+// src/collab/comments.ts
+function readComments(ydoc) {
+  return normalizeComments([...ydoc.getMap(COMMENTS)].map(([id2, value]) => value && typeof value === "object" ? { ...value, id: id2 } : null));
+}
+var COMMENTS;
+var init_comments2 = __esm({
+  "src/collab/comments.ts"() {
+    "use strict";
+    init_comments();
+    COMMENTS = "comments";
+  }
+});
+
+// src/collab/ydoc.ts
+function setFields(map3, fields) {
+  for (const [key, value] of Object.entries(fields)) {
+    if (Array.isArray(value)) {
+      map3.set(key, value);
+    } else {
+      map3.set(key, value);
+    }
+  }
+}
+function readString(map3, key, fallback) {
+  const v = map3.get(key);
+  return typeof v === "string" ? v : fallback;
+}
+function readNumber(map3, key, fallback = 0) {
+  const v = map3.get(key);
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+function readOptionalNumber(map3, key) {
+  const v = map3.get(key);
+  return typeof v === "number" && Number.isFinite(v) ? v : void 0;
+}
+function crowNames(value) {
+  if (!value || typeof value !== "object") return void 0;
+  const names = {};
+  for (const [key, name] of Object.entries(value)) {
+    if (typeof name === "string" && name.trim()) names[key] = name;
+  }
+  return Object.keys(names).length ? names : void 0;
+}
+function readStringArray(map3, key) {
+  const v = map3.get(key);
+  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+}
+function upsertGroup(ydoc, group) {
+  const map3 = ydoc.getMap(GROUPS);
+  if (group.memberIds.length < 2) {
+    map3.delete(group.id);
+    return;
+  }
+  const existing = map3.get(group.id);
+  if (existing) {
+    setFields(existing, { id: group.id, name: group.name, memberIds: group.memberIds });
+    return;
+  }
+  const next = new YMap();
+  setFields(next, { id: group.id, name: group.name, memberIds: group.memberIds });
+  map3.set(group.id, next);
+}
+function upsertEntity(ydoc, entity) {
+  const map3 = ydoc.getMap(ENTITIES);
+  const existing = map3.get(entity.id);
+  if (existing) {
+    setFields(existing, { ...entity });
+    if (entity.crowX === void 0) existing.delete("crowX");
+    if (entity.crowY === void 0) existing.delete("crowY");
+    return;
+  }
+  const next = new YMap();
+  setFields(next, { ...entity });
+  map3.set(entity.id, next);
+}
+function upsertAttribute(ydoc, attribute) {
+  const map3 = ydoc.getMap(ATTRIBUTES);
+  const existing = map3.get(attribute.id);
+  const { dataType: rawType, ...fields } = attribute;
+  const dataType = normalizeDataType(rawType);
+  if (existing) {
+    setFields(existing, fields);
+    if (dataType) existing.set("dataType", dataType);
+    else existing.delete("dataType");
+    return;
+  }
+  const next = new YMap();
+  setFields(next, fields);
+  if (dataType) next.set("dataType", dataType);
+  map3.set(attribute.id, next);
+}
+function upsertRelationship(ydoc, relationship) {
+  const map3 = ydoc.getMap(RELATIONSHIPS);
+  const existing = map3.get(relationship.id);
+  if (existing) {
+    setFields(existing, { ...relationship });
+    if (relationship.route === void 0) existing.delete("route");
+    if (relationship.bendX === void 0 || relationship.bendY === void 0) {
+      existing.delete("bendX");
+      existing.delete("bendY");
+    }
+    if (relationship.routePoints === void 0) existing.delete("routePoints");
+    return;
+  }
+  const next = new YMap();
+  setFields(next, { ...relationship });
+  map3.set(relationship.id, next);
+}
+function upsertIsa(ydoc, isa) {
+  const map3 = ydoc.getMap(ISAS);
+  const existing = map3.get(isa.id);
+  if (existing) {
+    setFields(existing, { ...isa });
+    return;
+  }
+  const next = new YMap();
+  setFields(next, { ...isa });
+  map3.set(isa.id, next);
+}
+function upsertLeg(ydoc, leg) {
+  const map3 = ydoc.getMap(LEGS);
+  const existing = map3.get(leg.id);
+  const fields = {
+    id: leg.id,
+    fromId: leg.fromId,
+    toId: leg.toId,
+    cardinality: leg.cardinality,
+    min: leg.participation.min,
+    max: leg.participation.max
+  };
+  if (existing) {
+    for (const [key, value] of Object.entries(fields)) {
+      if (existing.get(key) !== value) existing.set(key, value);
+    }
+    if (leg.columnId) {
+      if (existing.get("columnId") !== leg.columnId) existing.set("columnId", leg.columnId);
+    } else existing.delete("columnId");
+    const names = leg.columnNames && Object.keys(leg.columnNames).length ? leg.columnNames : void 0;
+    if (names) {
+      if (JSON.stringify(existing.get("columnNames")) !== JSON.stringify(names)) existing.set("columnNames", names);
+    } else existing.delete("columnNames");
+    return;
+  }
+  const next = new YMap();
+  setFields(next, fields);
+  if (leg.columnId) next.set("columnId", leg.columnId);
+  if (leg.columnNames && Object.keys(leg.columnNames).length) next.set("columnNames", leg.columnNames);
+  map3.set(leg.id, next);
+}
+function setMeta(ydoc, patch) {
+  const meta3 = ydoc.getMap(META);
+  ydoc.transact(() => {
+    for (const [key, value] of Object.entries(patch)) {
+      if (value !== void 0) meta3.set(key, value);
+    }
+  });
+}
+function crowPlacement(map3) {
+  let best;
+  for (const [key, value] of map3.entries()) {
+    if (!key.startsWith(CROW_PREFIX) || !value || typeof value !== "object") continue;
+    const entry = value;
+    if (typeof entry.x !== "number" || typeof entry.y !== "number" || typeof entry.at !== "number") continue;
+    const placement = { x: entry.x, y: entry.y, at: entry.at, move: entry.move === true };
+    if (!best || placement.move && !best.move || placement.move === best.move && placement.at > best.at) best = placement;
+  }
+  return best ? { x: best.x, y: best.y } : void 0;
+}
+function snapshotFromYdoc(ydoc) {
+  const doc = emptyDocument();
+  const meta3 = ydoc.getMap(META);
+  doc.name = readString(meta3, "name", doc.name);
+  doc.view = readString(meta3, "view", "chen") === "crowfoot" ? "crowfoot" : "chen";
+  doc.comments = readComments(ydoc);
+  ydoc.getMap(ENTITIES).forEach((value, key) => {
+    const m = value;
+    const placed = crowPlacement(m);
+    const crowX = placed?.x ?? readOptionalNumber(m, "crowX");
+    const crowY = placed?.y ?? readOptionalNumber(m, "crowY");
+    doc.entities.push({
+      id: key,
+      name: readString(m, "name", "Entity"),
+      x: readNumber(m, "x"),
+      y: readNumber(m, "y"),
+      // Absent stays absent: it means "this browser has not placed the table
+      // yet", which is different from a placement at the origin.
+      ...crowX !== void 0 && crowY !== void 0 ? { crowX, crowY } : {},
+      kind: ENTITY_KINDS.find((kind) => kind === m.get("kind")) ?? "strong"
+    });
+  });
+  ydoc.getMap(ATTRIBUTES).forEach((value, key) => {
+    const m = value;
+    const kind = readString(m, "kind", "simple");
+    const kinds = ["simple", "key", "unique", "multivalued", "derived", "composite"];
+    const dataType = normalizeDataType(m.get("dataType"));
+    doc.attributes.push({
+      id: key,
+      name: readString(m, "name", "attribute"),
+      x: readNumber(m, "x"),
+      y: readNumber(m, "y"),
+      kind: kinds.find((k) => k === kind) ?? "simple",
+      ownerId: typeof m.get("ownerId") === "string" ? m.get("ownerId") : null,
+      ...dataType ? { dataType } : {}
+    });
+  });
+  ydoc.getMap(RELATIONSHIPS).forEach((value, key) => {
+    const m = value;
+    const bendX = readOptionalNumber(m, "bendX");
+    const bendY = readOptionalNumber(m, "bendY");
+    doc.relationships.push({
+      id: key,
+      name: readString(m, "name", "relationship"),
+      x: readNumber(m, "x"),
+      y: readNumber(m, "y"),
+      kind: readString(m, "kind", "strong") === "weak" ? "weak" : "strong",
+      /*
+       * Absent stays absent: it means automatic, and materialising `'auto'` on
+       * every relationship would make a document that never chose a route differ
+       * from the one it was saved from. A peer can send any string here, so the
+       * value is checked rather than trusted.
+       */
+      ...ROUTE_SIDES.includes(m.get("route")) ? { route: m.get("route") } : {},
+      /*
+       * A dragged corner, or absent for "the router decides". Both halves have to
+       * be finite and present: a peer can send anything, and a corner at
+       * Infinity would put the line somewhere nobody can scroll to.
+       */
+      ...bendX !== void 0 && bendY !== void 0 ? { bendX, bendY } : {},
+      ...normalizeRoutePoints(m.get("routePoints")) ? { routePoints: normalizeRoutePoints(m.get("routePoints")) } : {}
+    });
+  });
+  ydoc.getMap(ISAS).forEach((value, key) => {
+    const m = value;
+    const parentId = m.get("parentId");
+    doc.isas.push({
+      id: key,
+      x: readNumber(m, "x"),
+      y: readNumber(m, "y"),
+      parentId: typeof parentId === "string" ? parentId : null,
+      childIds: readStringArray(m, "childIds")
+    });
+  });
+  ydoc.getMap(LEGS).forEach((value, key) => {
+    const m = value;
+    const fromId = m.get("fromId");
+    const toId = m.get("toId");
+    if (typeof fromId !== "string" || typeof toId !== "string") return;
+    const card = readString(m, "cardinality", "1");
+    const maxRaw = m.get("max");
+    doc.legs.push({
+      id: key,
+      fromId,
+      toId,
+      cardinality: card === "N" || card === "M" ? card : "1",
+      participation: {
+        min: Math.max(0, Math.floor(readNumber(m, "min", 0))),
+        max: maxRaw === "N" ? "N" : Math.max(1, Math.floor(readNumber(m, "max", 1)))
+      },
+      ...typeof m.get("columnId") === "string" && m.get("columnId") ? { columnId: m.get("columnId") } : {},
+      ...crowNames(m.get("columnNames")) ? { columnNames: crowNames(m.get("columnNames")) } : {}
+    });
+  });
+  ydoc.getMap(GROUPS).forEach((value, key) => {
+    const m = value;
+    const memberIds = readStringArray(m, "memberIds");
+    if (memberIds.length < 2) return;
+    doc.groups.push({ id: key, name: readString(m, "name", "Group"), memberIds });
+  });
+  const ids = /* @__PURE__ */ new Set([
+    ...doc.entities.map((e) => e.id),
+    ...doc.relationships.map((r) => r.id),
+    ...doc.isas.map((i) => i.id)
+  ]);
+  doc.legs = doc.legs.filter((l) => ids.has(l.fromId) && ids.has(l.toId));
+  doc.attributes = normalizeAttributeOwners(doc);
+  const nodeIds = new Set([...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas].map((n) => n.id));
+  doc.groups = doc.groups.map((g) => ({ ...g, memberIds: g.memberIds.filter((id2) => nodeIds.has(id2)) })).filter((g) => g.memberIds.length > 1);
+  const byId = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  doc.entities.sort(byId);
+  doc.attributes.sort(byId);
+  doc.relationships.sort(byId);
+  doc.isas.sort(byId);
+  doc.legs.sort(byId);
+  doc.groups.sort(byId);
+  return doc;
+}
+var META, ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS, LEGS, GROUPS, CROW_PREFIX;
+var init_ydoc = __esm({
+  "src/collab/ydoc.ts"() {
+    "use strict";
+    init_yjs();
+    init_types3();
+    init_types3();
+    init_dataTypes();
+    init_attributes();
+    init_connectorRouting();
+    init_placement();
+    init_crowfoot();
+    init_comments();
+    init_comments2();
+    META = "meta";
+    ENTITIES = "entities";
+    ATTRIBUTES = "attributes";
+    RELATIONSHIPS = "relationships";
+    ISAS = "isas";
+    LEGS = "legs";
+    GROUPS = "groups";
+    CROW_PREFIX = "crow_";
+  }
+});
+
+// mcp/live.ts
+function roomFromLink(input2) {
+  const raw = input2.trim().replace(/^['"]|['"]$/g, "");
+  if (!raw) return {};
+  if (raw.startsWith("#")) {
+    const parsed = parseShareHash(raw);
+    return {
+      ...parsed.room ? { room: parsed.room } : {},
+      ...parsed.doc ? { doc: parsed.doc } : {}
+    };
+  }
+  if (/^https?:\/\//i.test(raw) || raw.includes("#room=")) {
+    let url2;
+    try {
+      url2 = new URL(raw);
+    } catch {
+      return {};
+    }
+    const parsed = parseShareHash(url2.hash);
+    return {
+      ...parsed.room ? { room: parsed.room } : {},
+      baseUrl: `${url2.origin}${url2.pathname}${url2.search}`,
+      origin: url2.origin,
+      ...parsed.doc ? { doc: parsed.doc } : {}
+    };
+  }
+  if (ROOM_PATTERN.test(raw)) return { room: raw };
+  return {};
+}
+function pause(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
+}
+function travelEase(t) {
+  const value = Math.min(1, Math.max(0, t));
+  return value * value * value * (10 - 15 * value + 6 * value * value);
+}
+function travelDurationMs(from2, to) {
+  const distance = Math.hypot(to.x - from2.x, to.y - from2.y);
+  return Math.round(Math.min(MOVE_MAX_MS, Math.max(MOVE_MIN_MS, distance * MOVE_MS_PER_PX)));
+}
+function travelBow(from2, to) {
+  const length2 = Math.hypot(to.x - from2.x, to.y - from2.y);
+  if (length2 <= MOVE_BOW_FROM_PX) return 0;
+  const nominal = Math.min(MOVE_BOW_MAX_PX, length2 * MOVE_BOW_RATIO);
+  let hash2 = 2166136261;
+  for (const value of [Math.round(from2.x), Math.round(from2.y), Math.round(to.x), Math.round(to.y)]) {
+    hash2 = Math.imul(hash2 ^ value & 255, 16777619) >>> 0;
+    hash2 = Math.imul(hash2 ^ value >> 8 & 255, 16777619) >>> 0;
+    hash2 = Math.imul(hash2 ^ value >> 16 & 255, 16777619) >>> 0;
+    hash2 = Math.imul(hash2 ^ value >> 24 & 255, 16777619) >>> 0;
+  }
+  const spread = hash2 % 1e3 / 1e3 * 2 - 1;
+  return nominal * (1 + spread * MOVE_BOW_SPREAD) * (hash2 % 2 ? 1 : -1);
+}
+function settleOffset(t, length2) {
+  if (t <= SETTLE_FROM_T || t >= 1) return 0;
+  const part = (t - SETTLE_FROM_T) / (1 - SETTLE_FROM_T);
+  return length2 * SETTLE_RATIO * Math.sin(Math.PI * part);
+}
+function travelControl(from2, to, bow, incoming = null) {
+  const dx = to.x - from2.x;
+  const dy = to.y - from2.y;
+  const length2 = Math.hypot(dx, dy) || 1;
+  const plain = {
+    x: (from2.x + to.x) / 2 - dy / length2 * bow,
+    y: (from2.y + to.y) / 2 + dx / length2 * bow
+  };
+  const speed = incoming ? Math.hypot(incoming.x, incoming.y) : 0;
+  if (!incoming || !(speed > CARRY_MIN_PX_PER_MS)) return plain;
+  const carry = length2 * CARRY_RATIO;
+  return {
+    x: plain.x + incoming.x / speed * carry,
+    y: plain.y + incoming.y / speed * carry
+  };
+}
+function travelPoint(from2, to, t, incoming = null) {
+  const eased = travelEase(t);
+  const dx = to.x - from2.x;
+  const dy = to.y - from2.y;
+  const length2 = Math.hypot(dx, dy);
+  if (length2 < 1e-6) return { x: to.x, y: to.y };
+  const control = travelControl(from2, to, travelBow(from2, to), incoming);
+  const rest = 1 - eased;
+  const settle2 = settleOffset(t, length2);
+  return {
+    x: rest * rest * from2.x + 2 * rest * eased * control.x + eased * eased * to.x + dx / length2 * settle2,
+    y: rest * rest * from2.y + 2 * rest * eased * control.y + eased * eased * to.y + dy / length2 * settle2
+  };
+}
+function legEase(p, restStart, restEnd) {
+  const value = Math.min(1, Math.max(0, p));
+  if (restStart && restEnd) return travelEase(value);
+  if (restStart) return value * value;
+  if (restEnd) return 1 - (1 - value) * (1 - value);
+  return value + ROUTE_EASE_BLEND * (travelEase(value) - value);
+}
+function routePoint(knots, u) {
+  if (knots.length === 0) return null;
+  const last2 = knots.length - 1;
+  if (last2 === 0) return { x: knots[0].x, y: knots[0].y };
+  const value = Math.min(last2, Math.max(0, u));
+  const i = Math.min(last2 - 1, Math.floor(value));
+  const t = value - i;
+  const p0 = knots[i - 1] ?? knots[i];
+  const p1 = knots[i];
+  const p2 = knots[i + 1];
+  const p3 = knots[i + 2] ?? knots[i + 1];
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const blend = (a, b, c, d) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
+  return {
+    x: blend(p0.x, p1.x, p2.x, p3.x),
+    y: blend(p0.y, p1.y, p2.y, p3.y)
+  };
+}
+function routeDurationsMs(knots) {
+  const durations = [];
+  for (let i = 1; i < knots.length; i += 1) {
+    durations.push(travelDurationMs(knots[i - 1], knots[i]));
+  }
+  return durations;
+}
+function useSocketFactory(factory) {
+  makeSocket = factory;
+}
+function writeCollections(ydoc, doc) {
+  for (const entity of doc.entities) upsertEntity(ydoc, entity);
+  for (const attribute of doc.attributes) upsertAttribute(ydoc, attribute);
+  for (const relationship of doc.relationships) upsertRelationship(ydoc, relationship);
+  for (const isa of doc.isas) upsertIsa(ydoc, isa);
+  for (const leg of doc.legs) upsertLeg(ydoc, leg);
+  for (const group of doc.groups) upsertGroup(ydoc, group);
+  const comments = ydoc.getMap(COMMENTS);
+  for (const comment of doc.comments) comments.set(comment.id, comment);
+}
+function liveSteps(doc) {
+  const steps = [];
+  const seen = /* @__PURE__ */ new Set();
+  const visitAttributes = (ownerId) => {
+    for (const attribute of doc.attributes) {
+      if (attribute.ownerId !== ownerId || seen.has(attribute.id)) continue;
+      seen.add(attribute.id);
+      steps.push({ id: attribute.id, kind: "attribute" });
+      visitAttributes(attribute.id);
+    }
+  };
+  for (const entity of doc.entities) {
+    if (seen.has(entity.id)) continue;
+    seen.add(entity.id);
+    steps.push({ id: entity.id, kind: "entity" });
+    visitAttributes(entity.id);
+  }
+  for (const relationship of doc.relationships) {
+    if (seen.has(relationship.id)) continue;
+    seen.add(relationship.id);
+    steps.push({ id: relationship.id, kind: "relationship" });
+    visitAttributes(relationship.id);
+  }
+  for (const isa of doc.isas) {
+    if (seen.has(isa.id)) continue;
+    seen.add(isa.id);
+    steps.push({ id: isa.id, kind: "isa" });
+    visitAttributes(isa.id);
+  }
+  for (const attribute of doc.attributes) {
+    if (seen.has(attribute.id)) continue;
+    seen.add(attribute.id);
+    steps.push({ id: attribute.id, kind: "attribute" });
+  }
+  return steps;
+}
+function presenceAt(doc, focusId, view) {
+  const cursor = focusId ? focusPoint({ ...doc, view }, focusId) : null;
+  return { view, cursor, selectedIds: focusId && cursor ? [focusId] : [] };
+}
+function focusPoint(doc, id2) {
+  if (doc.view === "crowfoot") {
+    const owner = ownerEntity(doc, id2);
+    if (owner) {
+      return owner.crowX !== void 0 && owner.crowY !== void 0 ? { x: owner.crowX + CROW_WIDTH / 2, y: owner.crowY + CROW_HEADER_HEIGHT / 2 } : { x: owner.x, y: owner.y };
+    }
+  }
+  const entity = doc.entities.find((candidate) => candidate.id === id2);
+  if (entity) return centerOf2(entity, "entity");
+  const attribute = doc.attributes.find((candidate) => candidate.id === id2);
+  if (attribute) return centerOf2(attribute, "attribute");
+  const relationship = doc.relationships.find((candidate) => candidate.id === id2);
+  if (relationship) return centerOf2(relationship, "relationship");
+  const isa = doc.isas.find((candidate) => candidate.id === id2);
+  return isa ? centerOf2(isa, "isa") : null;
+}
+function centerOf2(shape, kind) {
+  const size2 = NODE_SIZE[kind];
+  return { x: shape.x + size2.w / 2, y: shape.y + size2.h / 2 };
+}
+function ownerEntity(doc, id2) {
+  let current = id2;
+  const seen = /* @__PURE__ */ new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const entity = doc.entities.find((candidate) => candidate.id === current);
+    if (entity) return entity;
+    const attribute = doc.attributes.find((candidate) => candidate.id === current);
+    if (attribute) {
+      current = attribute.ownerId;
+      continue;
+    }
+    const relationship = doc.relationships.find((candidate) => candidate.id === current);
+    if (relationship) {
+      const leg = doc.legs.find((candidate) => candidate.fromId === relationship.id || candidate.toId === relationship.id);
+      current = leg ? leg.fromId === relationship.id ? leg.toId : leg.fromId : null;
+      continue;
+    }
+    const isa = doc.isas.find((candidate) => candidate.id === current);
+    current = isa?.parentId ?? null;
+  }
+  return void 0;
+}
+function writeDocumentDiff(ydoc, before, after) {
+  const diff = {
+    entities: changedIds(before.entities, after.entities),
+    attributes: changedIds(before.attributes, after.attributes),
+    relationships: changedIds(before.relationships, after.relationships),
+    isas: changedIds(before.isas, after.isas),
+    legs: changedIds(before.legs, after.legs),
+    groups: changedIds(before.groups, after.groups),
+    comments: changedIds(before.comments, after.comments)
+  };
+  const changedNodeIds = [];
+  ydoc.transact(() => {
+    for (const entity of diff.entities.changed) {
+      upsertEntity(ydoc, entity);
+      changedNodeIds.push(entity.id);
+    }
+    for (const id2 of diff.entities.removed) ydoc.getMap(ENTITIES).delete(id2);
+    for (const attribute of diff.attributes.changed) {
+      upsertAttribute(ydoc, attribute);
+      changedNodeIds.push(attribute.id);
+    }
+    for (const id2 of diff.attributes.removed) ydoc.getMap(ATTRIBUTES).delete(id2);
+    for (const relationship of diff.relationships.changed) {
+      upsertRelationship(ydoc, relationship);
+      changedNodeIds.push(relationship.id);
+    }
+    for (const id2 of diff.relationships.removed) ydoc.getMap(RELATIONSHIPS).delete(id2);
+    for (const isa of diff.isas.changed) {
+      upsertIsa(ydoc, isa);
+      changedNodeIds.push(isa.id);
+    }
+    for (const id2 of diff.isas.removed) ydoc.getMap(ISAS).delete(id2);
+    for (const leg of diff.legs.changed) upsertLeg(ydoc, leg);
+    for (const id2 of diff.legs.removed) ydoc.getMap(LEGS).delete(id2);
+    for (const group of diff.groups.changed) upsertGroup(ydoc, group);
+    for (const id2 of diff.groups.removed) ydoc.getMap(GROUPS).delete(id2);
+    const comments = ydoc.getMap(COMMENTS);
+    for (const comment of diff.comments.changed) comments.set(comment.id, comment);
+    for (const id2 of diff.comments.removed) comments.delete(id2);
+    if (before.name !== after.name || before.view !== after.view) {
+      setMeta(ydoc, { name: after.name, view: after.view });
+    }
+  });
+  return changedNodeIds;
+}
+function changedIds(before, after) {
+  const versions = new Map(before.map((item) => [item.id, JSON.stringify(item)]));
+  const present = new Set(after.map((item) => item.id));
+  return {
+    changed: after.filter((item) => versions.get(item.id) !== JSON.stringify(item)),
+    removed: before.filter((item) => !present.has(item.id)).map((item) => item.id)
+  };
+}
+function lassoDurationMs(total) {
+  return Math.round(Math.min(LASSO_MAX_MS, Math.max(LASSO_MIN_MS, total * LASSO_MS_PER_PX)));
+}
+function viewOrigin(doc, id2, view) {
+  const entity = doc.entities.find((candidate) => candidate.id === id2);
+  if (entity) {
+    return view === "crowfoot" ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y } : { x: entity.x, y: entity.y };
+  }
+  if (view === "crowfoot") return null;
+  const node2 = doc.attributes.find((candidate) => candidate.id === id2) ?? doc.relationships.find((candidate) => candidate.id === id2) ?? doc.isas.find((candidate) => candidate.id === id2);
+  return node2 ? { x: node2.x, y: node2.y } : null;
+}
+function ownedIds(doc, rootId) {
+  const seen = /* @__PURE__ */ new Set([rootId]);
+  const found = [];
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const next = [];
+    for (const owner of frontier) {
+      for (const attribute of doc.attributes) {
+        if (attribute.ownerId !== owner || seen.has(attribute.id)) continue;
+        seen.add(attribute.id);
+        found.push(attribute.id);
+        next.push(attribute.id);
+      }
+    }
+    frontier = next;
+  }
+  return found;
+}
+function dragShapeIds(doc, focusId, view) {
+  if (view !== "crowfoot") return [focusId, ...ownedIds(doc, focusId)];
+  const owner = ownerEntity(doc, focusId);
+  return owner ? [owner.id] : [focusId];
+}
+function shapeBox(doc, id2, view) {
+  if (view === "crowfoot") {
+    const owner = ownerEntity(doc, id2);
+    if (!owner) return null;
+    const table = deriveTables(doc).find((candidate) => candidate.entityId === owner.id);
+    return table ? { x: table.x, y: table.y, w: table.width, h: tableHeight(table) } : { x: owner.crowX ?? owner.x, y: owner.crowY ?? owner.y, w: CROW_WIDTH, h: CROW_HEADER_HEIGHT };
+  }
+  const kind = nodeKind(doc, id2);
+  const node2 = kind ? viewOrigin(doc, id2, view) : null;
+  if (!kind || !node2) return null;
+  return { x: node2.x, y: node2.y, w: NODE_SIZE[kind].w, h: NODE_SIZE[kind].h };
+}
+function lassoLoop(boxes, pad) {
+  if (boxes.length === 0) return null;
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const box of boxes) {
+    left = Math.min(left, box.x);
+    top = Math.min(top, box.y);
+    right = Math.max(right, box.x + box.w);
+    bottom = Math.max(bottom, box.y + box.h);
+  }
+  const corners = [
+    { x: left - pad, y: top - pad },
+    { x: right + pad, y: top - pad },
+    { x: right + pad, y: bottom + pad },
+    { x: left - pad, y: bottom + pad },
+    { x: left - pad, y: top - pad }
+  ];
+  const lengths = [];
+  for (let index = 1; index < corners.length; index += 1) {
+    const from2 = corners[index - 1];
+    const to = corners[index];
+    lengths.push(Math.hypot(to.x - from2.x, to.y - from2.y));
+  }
+  const total = lengths.reduce((sum, length2) => sum + length2, 0);
+  return total > 0 ? { corners, lengths, total } : null;
+}
+function loopPoint(loop, distance) {
+  const walked = Math.max(0, distance);
+  if (walked >= loop.total) return { ...loop.corners[0] };
+  let remaining = walked;
+  for (let index = 0; index < loop.lengths.length; index += 1) {
+    const length2 = loop.lengths[index];
+    if (remaining <= length2) {
+      const from2 = loop.corners[index];
+      const to = loop.corners[index + 1];
+      const t = length2 > 0 ? remaining / length2 : 0;
+      return { x: from2.x + (to.x - from2.x) * t, y: from2.y + (to.y - from2.y) * t };
+    }
+    remaining -= length2;
+  }
+  return { ...loop.corners[0] };
+}
+function lassoTrail(loop, distance) {
+  const walked = Math.min(loop.total, Math.max(0, distance));
+  const points = [{ ...loop.corners[0] }];
+  for (let step = LASSO_STEP_PX; step < walked; step += LASSO_STEP_PX) points.push(loopPoint(loop, step));
+  points.push(loopPoint(loop, walked));
+  return points;
+}
+var FALLBACK_RELAY, FALLBACK_ORIGIN, AI_USER_ID, AI_COLOR, ROOM_PATTERN, MOVE_FRAME_MS, MOVE_MIN_MS, MOVE_MAX_MS, MOVE_MS_PER_PX, MOVE_BOW_FROM_PX, MOVE_BOW_RATIO, MOVE_BOW_MAX_PX, MOVE_BOW_SPREAD, SETTLE_RATIO, SETTLE_FROM_T, CARRY_MIN_PX_PER_MS, CARRY_RATIO, ROUTE_EASE_BLEND, FAREWELL_MS, HOVER_MS, PRESS_MS, TYPING_MS, THINK_MS, ENTRANCE_OFFSET, makeSocket, LiveRoom, LASSO_PAD_PX, LASSO_STEP_PX, LASSO_MIN_MS, LASSO_MAX_MS, LASSO_MS_PER_PX;
+var init_live = __esm({
+  "mcp/live.ts"() {
+    "use strict";
+    init_yjs();
+    init_awareness();
+    init_y_websocket();
+    init_crowfoot();
+    init_snapshot();
+    init_comments2();
+    init_ydoc();
+    init_types3();
+    init_env();
+    FALLBACK_RELAY = "wss://erd-sync.cerberus-tusk-proxy.workers.dev";
+    FALLBACK_ORIGIN = "https://kuy124.github.io";
+    AI_USER_ID = "erd-mcp";
+    AI_COLOR = "#6B3FA0";
+    ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+    MOVE_FRAME_MS = 16;
+    MOVE_MIN_MS = 320;
+    MOVE_MAX_MS = 1250;
+    MOVE_MS_PER_PX = 0.95;
+    MOVE_BOW_FROM_PX = 40;
+    MOVE_BOW_RATIO = 0.085;
+    MOVE_BOW_MAX_PX = 48;
+    MOVE_BOW_SPREAD = 0.35;
+    SETTLE_RATIO = 0.04;
+    SETTLE_FROM_T = 0.75;
+    CARRY_MIN_PX_PER_MS = 0.2;
+    CARRY_RATIO = 0.18;
+    ROUTE_EASE_BLEND = 0.65;
+    FAREWELL_MS = 700;
+    HOVER_MS = 90;
+    PRESS_MS = 380;
+    TYPING_MS = 900;
+    THINK_MS = 900;
+    ENTRANCE_OFFSET = 320;
+    makeSocket = null;
+    LiveRoom = class _LiveRoom {
+      room;
+      ydoc;
+      relayUrl;
+      relayOrigin;
+      provider;
+      awareness;
+      typingTimer;
+      hoverTimer;
+      pressTimer;
+      thinkTimer;
+      /** The gesture published right now; every awareness frame carries it. */
+      intent = null;
+      /** The shape the pointer is hovering or pressing, if any. */
+      hoverTarget = null;
+      focusId = null;
+      closed = false;
+      seededRoom = false;
+      cursor = null;
+      cursorView = "chen";
+      cursorSelection = [];
+      moveTimer;
+      travel = null;
+      typingOnArrival = false;
+      /** Resolves whoever awaits the landing click: a glide, a drop, a lasso. */
+      arrival = null;
+      /** Selection takes effect on the press, the way a click does. */
+      pendingSelection = null;
+      /** Shapes in the air while a drag is being performed. */
+      drag = null;
+      pendingDrag = null;
+      lassoState = null;
+      route = null;
+      routeTimer;
+      constructor(room, ydoc, provider, awareness, relayUrl, relayOrigin) {
+        this.room = room;
+        this.ydoc = ydoc;
+        this.provider = provider;
+        this.awareness = awareness;
+        this.relayUrl = relayUrl;
+        this.relayOrigin = relayOrigin;
+      }
+      /**
+       * Connects before handing the room back, so a caller never writes into a
+       * socket that has not finished its first sync and then silently loses it.
+       */
+      static async join(options) {
+        const room = options.room.trim();
+        if (!ROOM_PATTERN.test(room)) {
+          throw new Error("A room id is 8 to 128 letters, digits, hyphens, or underscores. Paste a share link or a room id.");
+        }
+        const relayUrl = (options.relayUrl ?? env("ERD_MCP_RELAY_URL") ?? FALLBACK_RELAY).trim();
+        const relayOrigin = (options.relayOrigin ?? env("ERD_MCP_RELAY_ORIGIN") ?? FALLBACK_ORIGIN).trim();
+        const ydoc = new Doc2();
+        const awareness = new Awareness(ydoc);
+        const provider = new WebsocketProvider(relayUrl, room, ydoc, {
+          connect: false,
+          awareness,
+          ...makeSocket ? { WebSocketPolyfill: makeSocket(relayOrigin) } : {},
+          disableBc: true,
+          maxBackoffTime: 1e4
+        });
+        const live = new _LiveRoom(room, ydoc, provider, awareness, relayUrl, relayOrigin);
+        if (options.startCursor) live.cursor = { x: options.startCursor.x, y: options.startCursor.y };
+        live.publishPresence({ cursor: live.cursor, selectedIds: [], view: "chen", typing: false });
+        try {
+          await live.waitForSync(options.timeoutMs ?? 12e3);
+        } catch {
+          live.close();
+          throw new Error(
+            `Could not join room "${room}" through ${relayUrl}. Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`
+          );
+        }
+        if (options.seed && live.isEmpty()) {
+          live.writeAll(options.seed);
+          live.seededRoom = true;
+        }
+        await pause(150);
+        return live;
+      }
+      /** Whether this join wrote the seed content into a room that had none. */
+      get seeded() {
+        return this.seededRoom;
+      }
+      /** People currently in the room, excluding this process. */
+      get watching() {
+        return Math.max(0, this.awareness.getStates().size - 1);
+      }
+      get peers() {
+        const peers = [];
+        this.awareness.getStates().forEach((state, clientId) => {
+          if (clientId === this.awareness.clientID) return;
+          const raw = state;
+          peers.push({
+            name: typeof raw.name === "string" && raw.name ? raw.name : `Peer ${clientId}`,
+            color: typeof raw.color === "string" ? raw.color : "#5B6167"
+          });
+        });
+        return peers;
+      }
+      snapshot() {
+        return snapshotFromYdoc(this.ydoc);
+      }
+      isEmpty() {
+        return [ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS, LEGS, GROUPS, COMMENTS].every((name) => this.ydoc.getMap(name).size === 0);
+      }
+      /**
+       * Shows the AI working at a shape.
+       *
+       * The app reads presence from awareness, so moving the cursor and selection
+       * is enough to make the change look authored rather than teleported. A hop to
+       * a different shape is played out as an eased, slightly arched path instead of
+       * a single jump, because that is what a pointer being moved looks like.
+       *
+       * The last shape is kept: a commit with no focus (a re-arrange, a room-level
+       * change) used to publish a null cursor, so the arrow vanished mid-session
+       * even though the AI was still connected.
+       */
+      flash(doc, focusId, typing = false) {
+        this.aimAt(doc, focusId);
+        this.moveTo(presenceAt(doc, this.focusId, this.cursorView).cursor, typing);
+      }
+      /**
+       * Glides to a shape and resolves once the pointer has landed on it.
+       *
+       * Streaming a diagram uses this so the shape is only written after the
+       * cursor arrives: the watcher sees the pointer travel, click, and the shape
+       * appear under it, instead of shapes popping in while the cursor lags behind.
+       */
+      async glideTo(doc, focusId, typing = false) {
+        if (this.route) return;
+        this.aimAt(doc, focusId);
+        const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
+        if (!target) {
+          this.moveTo(null, false);
+          return;
+        }
+        await new Promise((resolve2) => {
+          this.arrival = resolve2;
+          this.moveTo(target, typing);
+        });
+      }
+      /** Points future frames at one shape without starting a hop. */
+      aimAt(doc, focusId) {
+        if (focusId) this.focusId = focusId;
+        const point = presenceAt(doc, this.focusId, this.watchedView(doc.view));
+        this.cursorView = point.view;
+        this.pendingSelection = point.selectedIds;
+      }
+      /**
+       * Glides into the room from outside the diagram, then rests on a shape.
+       *
+       * A pointer that is already sitting on its first shape when the room loads
+       * reads as part of the page, not as somebody arriving. The entrance is an
+       * ordinary hop, so a watcher sees the AI come in and stop.
+       */
+      enter(doc, focusId) {
+        if (this.route) return;
+        this.aimAt(doc, focusId);
+        const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
+        if (!target) return;
+        const from2 = this.cursor ?? { x: target.x - ENTRANCE_OFFSET, y: target.y };
+        this.cursor = { x: from2.x, y: from2.y };
+        if (Math.hypot(target.x - from2.x, target.y - from2.y) < 0.75) {
+          this.publishHover();
+          return;
+        }
+        this.startTravel(from2, target, "hover");
+      }
+      /**
+       * Leaves the thinking ring over the last shape for a beat.
+       *
+       * Reading a diagram — validating it, generating SQL — is work with no visible
+       * edit, and an AI that sits perfectly still reads as disconnected. The ring
+       * says the answer is being worked out where the pointer already is.
+       */
+      think() {
+        if (this.route) return;
+        this.clearHover();
+        this.clearPress();
+        this.clearTyping();
+        this.hoverTarget = null;
+        this.intent = this.focusId ? { kind: "think", targetId: this.focusId } : { kind: "think" };
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: false
+        });
+        this.clearThink();
+        this.thinkTimer = setTimeout(() => {
+          this.thinkTimer = void 0;
+          if (this.intent?.kind !== "think") return;
+          this.intent = null;
+          this.publishPresence({});
+        }, THINK_MS);
+      }
+      /**
+       * Carries a shape from where it is to where it ends up, as one gesture.
+       *
+       * The caller builds the edited document and hands in both versions, awaits
+       * this, and only then writes the change — so the shape stays under the
+       * pointer for the whole travel and is dropped when it lands.
+       */
+      async dragTo(before, after, focusId) {
+        if (this.route) return false;
+        this.aimAt(before, focusId);
+        const focus = this.focusId;
+        if (!focus) return false;
+        const view = this.cursorView;
+        const grab = presenceAt(before, focus, view).cursor;
+        const drop = presenceAt(after, focus, view).cursor;
+        if (!grab || !drop) return false;
+        const ids = dragShapeIds(before, focus, view);
+        const start = {};
+        for (const id2 of ids) {
+          const origin = viewOrigin(before, id2, view);
+          if (origin) start[id2] = origin;
+        }
+        await new Promise((resolve2) => {
+          this.pendingDrag = { ids, start, grab, drop, resolve: resolve2 };
+          this.moveTo(grab, false);
+        });
+        return this.drag !== null;
+      }
+      /** Ends a gesture: lets go of a carried shape or a finished lasso. */
+      release(_doc, focusId) {
+        this.land();
+        this.stopMotion();
+        this.stopLasso();
+        this.pendingDrag?.resolve();
+        this.clearGesture();
+        this.cursorSelection = focusId ? [focusId] : [];
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: false
+        });
+      }
+      /**
+       * Draws a loop around several shapes before an edit that takes them all.
+       *
+       * The loop is a padded rectangle around the group, walked at a steady pace
+       * and closed where it began, so a watcher sees exactly what the next write
+       * will remove.
+       */
+      lasso(doc, ids) {
+        if (this.route || this.lassoState) return Promise.resolve();
+        const view = this.watchedView(doc.view);
+        this.cursorView = view;
+        const boxes = [];
+        for (const id2 of ids) {
+          const box = shapeBox(doc, id2, view);
+          if (box) boxes.push(box);
+        }
+        const loop = lassoLoop(boxes, LASSO_PAD_PX);
+        if (!loop) return Promise.resolve();
+        this.clearGesture();
+        const start = { ...loop.corners[0] };
+        return this.walkLasso(loop, ids, start, view);
+      }
+      /**
+       * Walks the loop, after travelling to the corner it begins on.
+       *
+       * Appearing on the first corner reads as the pointer teleporting into the
+       * gesture. Arriving there first — with the same eased hop every other move
+       * uses — keeps the whole sweep in one continuous motion, the way a hand
+       * drawing a ring around a group would.
+       */
+      async walkLasso(loop, ids, start, view) {
+        if (this.cursor && !this.route) {
+          await new Promise((resolve2) => {
+            this.arrival = resolve2;
+            this.moveTo(start, false, "lasso");
+          });
+          if (this.closed || this.route) return;
+        }
+        this.cursor = start;
+        this.intent = { kind: "lasso", lasso: [start] };
+        this.publishPresence({ cursor: start, selectedIds: [], view, typing: false, pressing: false });
+        return new Promise((resolve2) => {
+          this.lassoState = {
+            ...loop,
+            ids: [...ids],
+            started: Date.now(),
+            duration: lassoDurationMs(loop.total),
+            timer: void 0,
+            resolve: resolve2
+          };
+          this.lassoState.timer = setInterval(() => this.advanceLasso(), MOVE_FRAME_MS);
+        });
+      }
+      /** Publishes the next stretch of the lasso trail, and closes it when due. */
+      advanceLasso() {
+        const state = this.lassoState;
+        if (!state) return;
+        const progress = Math.min(1, (Date.now() - state.started) / state.duration);
+        const done = progress >= 1;
+        const points = lassoTrail(state, done ? state.total : travelEase(progress) * state.total);
+        const here = points[points.length - 1];
+        this.cursor = { x: here.x, y: here.y };
+        this.intent = { kind: "lasso", lasso: points };
+        if (!done) {
+          this.publishPresence({
+            cursor: this.cursor,
+            selectedIds: [],
+            view: this.cursorView,
+            typing: false,
+            pressing: false
+          });
+          return;
+        }
+        this.cursorSelection = [...state.ids];
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: true
+        });
+        if (state.timer) clearInterval(state.timer);
+        this.lassoState = null;
+        state.resolve();
+      }
+      /**
+       * Starts, retargets, or finishes a pointer hop.
+       *
+       * Landing is not the end of the gesture: the pointer settles, hovers, and
+       * clicks. That sequence belongs to beginClick, so a hop is only the travel.
+       * Retargeting mid-hop keeps the in-flight position, so a burst of edits — a
+       * rename and a move in one call — reads as one continuous pointer rather than
+       * a series of separate animations.
+       */
+      moveTo(target, typing, mode = "click") {
+        if (this.route) return;
+        if (!target) {
+          this.stopMotion();
+          this.clearGesture();
+          this.cursor = null;
+          this.publishPresence({
+            cursor: null,
+            selectedIds: [],
+            view: this.cursorView,
+            typing: false,
+            pressing: false
+          });
+          this.land();
+          return;
+        }
+        if (!this.cursor) {
+          this.cursor = { x: target.x, y: target.y };
+          if (mode === "hover") this.publishHover();
+          else if (mode === "lasso") this.land();
+          else this.beginClick(typing);
+          return;
+        }
+        const distance = Math.hypot(target.x - this.cursor.x, target.y - this.cursor.y);
+        if (distance < 0.75) {
+          this.cursor = { x: target.x, y: target.y };
+          if (mode === "hover") this.publishHover();
+          else if (mode === "lasso") this.land();
+          else this.beginClick(typing);
+          return;
+        }
+        const incoming = this.hopVelocity();
+        this.startTravel(this.cursor, target, mode, typing, incoming);
+      }
+      /** Starts the frame loop that carries the pointer along one hop. */
+      startTravel(from2, to, mode, typing = false, incoming = null) {
+        this.clearTyping();
+        this.clearHover();
+        this.clearThink();
+        if (mode !== "drag") this.clearPress();
+        this.typingOnArrival = typing;
+        this.travel = {
+          from: { x: from2.x, y: from2.y },
+          to: { x: to.x, y: to.y },
+          started: Date.now(),
+          duration: travelDurationMs(from2, to),
+          velocity: incoming,
+          mode
+        };
+        this.intent = mode === "drag" && this.focusId ? { kind: "drag", targetId: this.focusId } : null;
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: mode === "drag"
+        });
+        if (this.moveTimer) return;
+        this.moveTimer = setInterval(() => this.advanceMotion(), MOVE_FRAME_MS);
+      }
+      /** Publishes the next frame of the current hop, and lands it when due. */
+      advanceMotion() {
+        const travel = this.travel;
+        if (!travel) {
+          this.stopMotion();
+          return;
+        }
+        const progress = Math.min(1, (Date.now() - travel.started) / travel.duration);
+        this.cursor = progress >= 1 ? { x: travel.to.x, y: travel.to.y } : travelPoint(travel.from, travel.to, progress, travel.velocity);
+        if (progress >= 1) {
+          this.travel = null;
+          this.stopMotion();
+          if (travel.mode === "hover") {
+            this.publishHover();
+          } else if (travel.mode === "drag") {
+            this.publishPresence({
+              cursor: this.cursor,
+              selectedIds: this.cursorSelection,
+              view: this.cursorView,
+              typing: false,
+              pressing: true
+            });
+            this.land();
+          } else if (travel.mode === "lasso") {
+            this.publishPresence({
+              cursor: this.cursor,
+              selectedIds: [],
+              view: this.cursorView,
+              typing: false,
+              pressing: false
+            });
+            this.land();
+          } else {
+            const typing = this.typingOnArrival;
+            this.typingOnArrival = false;
+            this.beginClick(typing);
+          }
+          return;
+        }
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: travel.mode === "drag"
+        });
+      }
+      /** The speed the pointer is travelling at now, in px per ms. */
+      hopVelocity() {
+        const travel = this.travel;
+        if (!travel) return null;
+        const progress = (Date.now() - travel.started) / travel.duration;
+        if (progress <= 0 || progress >= 1) return null;
+        const step = 0.02;
+        const before = travelPoint(travel.from, travel.to, progress - step, travel.velocity);
+        const after = travelPoint(travel.from, travel.to, progress + step, travel.velocity);
+        const span = travel.duration * step * 2;
+        return { x: (after.x - before.x) / span, y: (after.y - before.y) / span };
+      }
+      /**
+       * Travels a whole stream of shapes as one continuous stroke.
+       *
+       * Every shape is a knot of a Catmull-Rom route, so the pointer passes through
+       * each one without ever coming to rest between two: it checks — slows to a
+       * third of cruising speed, clicks, and carries on. Writing on the crossing is
+       * what keeps the shape appearing under the cursor rather than ahead of it, and
+       * one hop's travel for fifty shapes is what makes it read as a hand at work
+       * rather than a transition replaying.
+       */
+      travelRoute(doc, steps) {
+        this.stopLasso();
+        this.clearGesture();
+        const view = this.watchedView(doc.view);
+        this.cursorView = view;
+        const knots = this.cursor ? [{ ...this.cursor }] : [];
+        for (const step of steps) {
+          const point = presenceAt(doc, step.id, view).cursor;
+          if (point) knots.push(point);
+        }
+        const expected = steps.length + (this.cursor ? 1 : 0);
+        if (knots.length < 2 || knots.length !== expected) {
+          return this.travelEach(doc, steps);
+        }
+        const reaches = [0];
+        for (const duration3 of routeDurationsMs(knots)) reaches.push(reaches[reaches.length - 1] + duration3);
+        return new Promise((resolve2) => {
+          this.route = { doc, steps, knots, reaches, started: Date.now(), written: 0, arming: false, resolve: resolve2 };
+          this.advanceRoute();
+          this.routeTimer = setInterval(() => this.advanceRoute(), MOVE_FRAME_MS);
+        });
+      }
+      /** The fallback: one glide and one write per shape, in stream order. */
+      async travelEach(doc, steps) {
+        for (const step of steps) {
+          await this.glideTo(doc, step.id);
+          this.writeStep(doc, step);
+        }
+      }
+      /** Publishes the next frame of the route, clicking every knot it crosses. */
+      advanceRoute() {
+        const route = this.route;
+        if (!route) {
+          this.stopRoute();
+          return;
+        }
+        const elapsed = Date.now() - route.started;
+        const last2 = route.knots.length - 1;
+        let leg = 0;
+        while (leg < last2 - 1 && elapsed >= route.reaches[leg + 1]) leg += 1;
+        const start = route.reaches[leg];
+        const end = route.reaches[leg + 1];
+        const progress = end > start ? Math.min(1, (elapsed - start) / (end - start)) : 1;
+        const point = routePoint(route.knots, leg + legEase(progress, leg === 0, leg === last2 - 1));
+        if (point) this.cursor = point;
+        let crossed = 0;
+        while (crossed < last2 && elapsed >= route.reaches[crossed + 1]) crossed += 1;
+        if (crossed === last2 && route.written === last2) {
+          this.cursor = { x: route.knots[last2].x, y: route.knots[last2].y };
+          this.stopRoute();
+          this.publishHover();
+          return;
+        }
+        if (route.written >= crossed) {
+          this.publishRoute(false);
+          return;
+        }
+        if (route.arming) {
+          route.arming = false;
+          const step = route.steps[route.written];
+          route.written += 1;
+          this.focusId = step.id;
+          this.cursorSelection = [step.id];
+          this.writeStep(route.doc, step);
+          this.publishRoute(true);
+          return;
+        }
+        route.arming = true;
+        this.publishRoute(false);
+      }
+      publishRoute(pressing) {
+        this.intent = pressing && this.focusId ? { kind: "press", targetId: this.focusId } : null;
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursor ? this.cursorSelection : [],
+          view: this.cursorView,
+          typing: false,
+          pressing
+        });
+      }
+      /** Publishes the pointer resting on a shape, before its click. */
+      publishHover() {
+        this.clearHover();
+        this.clearPress();
+        this.clearThink();
+        this.clearTyping();
+        this.hoverTarget = this.focusId;
+        this.intent = this.focusId ? { kind: "hover", targetId: this.focusId } : null;
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursorSelection,
+          view: this.cursorView,
+          typing: false,
+          pressing: false
+        });
+      }
+      /**
+       * Lands a hop: hover, then click.
+       *
+       * A write on the click already in flight is that click, not a second one: the
+       * pointer has not been lifted, so replaying hover and press would be a rerun
+       * of a gesture the watcher is already looking at.
+       */
+      beginClick(typing) {
+        if (this.hoverTarget === this.focusId && this.pressTimer !== void 0) {
+          if (this.pendingDrag) {
+            this.press(typing);
+            return;
+          }
+          this.pendingSelection = null;
+          if (typing) {
+            this.beginTyping();
+            this.publishPresence({ typing: true });
+          }
+          this.land();
+          return;
+        }
+        this.publishHover();
+        this.clearHover();
+        this.hoverTimer = setTimeout(() => {
+          this.hoverTimer = void 0;
+          this.press(typing);
+        }, HOVER_MS);
+      }
+      /**
+       * Presses: selects, publishes the click, and turns a queued drag loose.
+       *
+       * The press is the frame the caller's write is allowed to happen on, which is
+       * why it is the point a glide resolves — the shape changes under the pointer.
+       */
+      press(typing) {
+        this.clearPress();
+        this.clearThink();
+        if (this.pendingDrag) {
+          this.beginDrag();
+          return;
+        }
+        if (this.pendingSelection) {
+          this.cursorSelection = this.pendingSelection;
+          this.pendingSelection = null;
+        }
+        this.hoverTarget = this.focusId;
+        this.intent = this.focusId ? { kind: "press", targetId: this.focusId } : null;
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: this.cursor ? this.cursorSelection : [],
+          view: this.cursorView,
+          typing,
+          pressing: this.cursor !== null
+        });
+        if (typing) this.beginTyping();
+        if (this.cursor) {
+          this.pressTimer = setTimeout(() => {
+            this.pressTimer = void 0;
+            this.finishPress();
+          }, PRESS_MS);
+        }
+        this.land();
+      }
+      /** Lets the click go, leaving the pointer hovering where it wrote. */
+      finishPress() {
+        this.intent = null;
+        this.hoverTarget = null;
+        this.publishPresence({ pressing: false });
+      }
+      /** Turns a queued drag's press into a carry. */
+      beginDrag() {
+        const pending = this.pendingDrag;
+        if (!pending) return;
+        this.pendingDrag = null;
+        this.pendingSelection = null;
+        this.drag = { ids: [...pending.ids], start: { ...pending.start }, grab: { ...pending.grab } };
+        this.cursorSelection = this.focusId ? [this.focusId] : [];
+        this.arrival = pending.resolve;
+        this.startTravel(pending.grab, pending.drop, "drag");
+      }
+      /** Holds the typing indicator up for TYPING_MS, then lets it go. */
+      beginTyping() {
+        this.clearTyping();
+        this.typingTimer = setTimeout(() => {
+          this.typingTimer = void 0;
+          this.publishPresence({ typing: false });
+        }, TYPING_MS);
+      }
+      /** The shapes in the air, in the shape the app's peer-drag preview reads. */
+      draggingPayload() {
+        const drag = this.drag;
+        const cursor = this.cursor;
+        if (!drag || !cursor) return null;
+        return {
+          ids: [...drag.ids],
+          start: { ...drag.start },
+          dx: cursor.x - drag.grab.x,
+          dy: cursor.y - drag.grab.y
+        };
+      }
+      stopMotion() {
+        if (this.moveTimer) clearInterval(this.moveTimer);
+        this.moveTimer = void 0;
+        this.travel = null;
+        this.stopRoute();
+      }
+      /** Ends the route loop, resolving whoever is awaiting the stream. */
+      stopRoute() {
+        if (this.routeTimer) clearInterval(this.routeTimer);
+        this.routeTimer = void 0;
+        const route = this.route;
+        if (!route) return;
+        this.route = null;
+        route.resolve();
+      }
+      /** Resolves whoever is awaiting the current glide, so a close cannot hang it. */
+      land() {
+        const resolve2 = this.arrival;
+        this.arrival = null;
+        resolve2?.();
+      }
+      clearTyping() {
+        if (this.typingTimer) clearTimeout(this.typingTimer);
+        this.typingTimer = void 0;
+      }
+      clearHover() {
+        if (this.hoverTimer) clearTimeout(this.hoverTimer);
+        this.hoverTimer = void 0;
+      }
+      clearPress() {
+        if (this.pressTimer) clearTimeout(this.pressTimer);
+        this.pressTimer = void 0;
+      }
+      clearThink() {
+        if (this.thinkTimer) clearTimeout(this.thinkTimer);
+        this.thinkTimer = void 0;
+      }
+      /** Drops every gesture in flight: timers, held shapes, and the named intent. */
+      clearGesture() {
+        this.clearHover();
+        this.clearPress();
+        this.clearThink();
+        this.clearTyping();
+        this.drag = null;
+        this.pendingDrag = null;
+        this.pendingSelection = null;
+        this.intent = null;
+        this.hoverTarget = null;
+      }
+      /** Ends the lasso loop, resolving whoever is awaiting it. */
+      stopLasso() {
+        const state = this.lassoState;
+        if (!state) return;
+        if (state.timer) clearInterval(state.timer);
+        this.lassoState = null;
+        state.resolve();
+      }
+      /**
+       * Replaces the room's content, optionally shape by shape for a watcher.
+       *
+       * Every step is a glide, a click, and then the shape: the pointer moves to
+       * the spot, lands, and the shape appears under it. Writing on arrival (rather
+       * than on a shared timer) is what makes the stream read as someone drawing
+       * instead of shapes popping in while the cursor lags a shape behind.
+       */
+      async replace(source, stream) {
+        const doc = normalizeDocument(source);
+        if (!stream || this.watching === 0) {
+          this.ydoc.transact(() => {
+            this.clearMaps();
+            setMeta(this.ydoc, { name: doc.name, view: doc.view });
+            writeCollections(this.ydoc, doc);
+          });
+          this.flash(doc, null);
+          return;
+        }
+        this.ydoc.transact(() => {
+          this.clearMaps();
+          setMeta(this.ydoc, { name: doc.name, view: doc.view });
+        });
+        await this.travelRoute(doc, liveSteps(doc));
+        this.ydoc.transact(() => {
+          for (const group of doc.groups) upsertGroup(this.ydoc, group);
+          const comments = this.ydoc.getMap(COMMENTS);
+          for (const comment of doc.comments) comments.set(comment.id, comment);
+        });
+      }
+      /** Writes one streamed shape, with the lines that make it meaningful. */
+      writeStep(doc, step) {
+        this.ydoc.transact(() => {
+          if (step.kind === "entity") {
+            const entity = doc.entities.find((candidate) => candidate.id === step.id);
+            if (entity) upsertEntity(this.ydoc, entity);
+            return;
+          }
+          if (step.kind === "attribute") {
+            const attribute = doc.attributes.find((candidate) => candidate.id === step.id);
+            if (attribute) upsertAttribute(this.ydoc, attribute);
+            return;
+          }
+          const relationships = step.kind === "relationship" ? doc.relationships.filter((candidate) => candidate.id === step.id) : [];
+          for (const relationship of relationships) upsertRelationship(this.ydoc, relationship);
+          const isas = step.kind === "isa" ? doc.isas.filter((candidate) => candidate.id === step.id) : [];
+          for (const isa of isas) upsertIsa(this.ydoc, isa);
+          for (const leg of doc.legs) {
+            if (leg.fromId === step.id || leg.toId === step.id) upsertLeg(this.ydoc, leg);
+          }
+        });
+      }
+      /** Where the pointer is right now, for a caller that means to come back. */
+      get pointer() {
+        return this.cursor ? { x: this.cursor.x, y: this.cursor.y } : null;
+      }
+      /**
+       * Finishes in front of the watchers, then disconnects.
+       *
+       * Dropping the socket mid-sentence reads as a network failure. Gliding back to
+       * the last shape and holding the typing indicator for a beat makes it a
+       * departure, and the room's own leaving notice then lands on an exit.
+       */
+      async leave(doc) {
+        if (this.watching > 0 && this.focusId) {
+          await this.glideTo(doc, this.focusId, true);
+          await pause(FAREWELL_MS);
+        }
+        this.close();
+      }
+      close() {
+        if (this.closed) return;
+        this.closed = true;
+        this.stopMotion();
+        this.stopLasso();
+        this.pendingDrag?.resolve();
+        this.clearGesture();
+        this.land();
+        try {
+          this.awareness.setLocalState(null);
+        } catch {
+        }
+        this.provider.destroy();
+        this.awareness.destroy();
+        this.ydoc.destroy();
+      }
+      writeAll(source) {
+        const doc = normalizeDocument(source);
+        this.ydoc.transact(() => {
+          setMeta(this.ydoc, { name: doc.name, view: doc.view });
+          writeCollections(this.ydoc, doc);
+        });
+      }
+      publishPresence(patch) {
+        const base = {
+          userId: AI_USER_ID,
+          name: (env("ERD_MCP_AI_NAME") ?? "AI assistant").trim() || "AI assistant",
+          color: (env("ERD_MCP_AI_COLOR") ?? AI_COLOR).trim() || AI_COLOR,
+          cursor: null,
+          selectedIds: [],
+          view: "chen",
+          following: null,
+          pressing: false,
+          typing: false,
+          dragging: null,
+          ...this.awareness.getLocalState() ?? {}
+        };
+        this.awareness.setLocalState({
+          ...base,
+          ...patch,
+          intent: this.intent,
+          dragging: this.draggingPayload()
+        });
+      }
+      /**
+       * The notation somebody in the room is actually reading.
+       *
+       * Cursors are drawn only in the notation the reader chose, so an AI that
+       * always published its document's view disappeared for anyone working in the
+       * other one. Following a watcher keeps the arrow on their screen.
+       */
+      watchedView(fallback) {
+        let view = null;
+        this.awareness.getStates().forEach((state, clientId) => {
+          if (view || clientId === this.awareness.clientID) return;
+          const candidate = state.view;
+          if (candidate === "chen" || candidate === "crowfoot") view = candidate;
+        });
+        return view ?? fallback;
+      }
+      waitForSync(timeoutMs) {
+        return new Promise((resolve2, reject) => {
+          let settled = false;
+          let timer;
+          const finish = (error62) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            this.provider.off("sync", onSync);
+            if (error62) reject(error62);
+            else resolve2();
+          };
+          const onSync = (synced) => {
+            if (synced) finish();
+          };
+          timer = setTimeout(() => finish(new Error("Timed out waiting for the relay.")), timeoutMs);
+          this.provider.on("sync", onSync);
+          this.provider.connect();
+        });
+      }
+      clearMaps() {
+        for (const name of [ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS, LEGS, GROUPS, COMMENTS, META]) {
+          this.ydoc.getMap(name).clear();
+        }
+      }
+    };
+    LASSO_PAD_PX = 18;
+    LASSO_STEP_PX = 16;
+    LASSO_MIN_MS = 420;
+    LASSO_MAX_MS = 1100;
+    LASSO_MS_PER_PX = 0.55;
+  }
+});
+
+// mcp/diagram.ts
+function useWorkspace(next) {
+  workspace = next;
+}
+function requireWorkspace() {
+  if (!workspace) {
+    throw new Error("The diagram service has no workspace. Start it through the MCP entry point.");
+  }
+  return workspace;
+}
+function workspaceLabel() {
+  return workspace?.label ?? "(none)";
+}
+function liveInfo(live) {
+  return live ? { room: live.room, relay: live.relayUrl, watching: live.watching, peers: live.peers.map((peer) => peer.name) } : null;
+}
+function refreshSession(current) {
+  if (current.live) current.doc = current.live.snapshot();
+}
+function peekSession() {
+  if (!session) return null;
+  refreshSession(session);
+  return { doc: session.doc, filePath: session.filePath, dirty: session.dirty, live: liveInfo(session.live) };
+}
+function requireSession() {
+  if (!session) {
+    throw new Error("No diagram is open. Call create_diagram or open_diagram first.");
+  }
+  refreshSession(session);
+  return session;
+}
+function resolveDiagramPath(input2) {
+  return requireWorkspace().resolve(input2);
+}
+function serialize(doc) {
+  return JSON.stringify(doc, null, 2) + "\n";
+}
+async function readDocument(key) {
+  const store = requireWorkspace();
+  const shown = store.display(key);
+  let text;
+  try {
+    text = await store.read(key);
+  } catch {
+    throw new Error(`Could not read ${shown}.`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${shown} is not valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.entities)) {
+    throw new Error(`${shown} does not contain a diagram. Export a JSON file from ERD Maker.`);
+  }
+  return normalizeDocument(parsed);
+}
+async function writeDocument(doc, key) {
+  await requireWorkspace().write(key, serialize(doc));
+}
+function errorMessage(error62) {
+  return error62 instanceof Error ? error62.message : String(error62);
+}
+function requireName(value, label) {
+  const name = value.trim();
+  if (!name) throw new Error(`A ${label.toLowerCase()} needs a name.`);
+  return name;
+}
+function entityKind(value) {
+  if (value === void 0) return "strong";
+  if (!ENTITY_KINDS.includes(value)) throw new Error(`Entity kind must be one of ${ENTITY_KINDS.join(", ")}.`);
+  return value;
+}
+function attributeKind(value, hasParts) {
+  if (value === void 0) return hasParts ? "composite" : "simple";
+  const kind = ATTRIBUTE_KINDS.find((candidate) => candidate === value);
+  if (!kind) throw new Error(`Attribute kind must be one of ${ATTRIBUTE_KINDS.join(", ")}.`);
+  if (hasParts && kind !== "composite") {
+    throw new Error('An attribute with parts must have kind "composite".');
+  }
+  return kind;
+}
+function relationshipKind(value, from2, to) {
+  if (value !== void 0) {
+    if (value !== "strong" && value !== "weak") throw new Error('Relationship kind must be "strong" or "weak".');
+    return value;
+  }
+  return from2.kind === "weak" || to.kind === "weak" ? "weak" : "strong";
+}
+function parseCardinality(value) {
+  const key = (value ?? "1:N").trim().toUpperCase();
+  const cards = CARDINALITIES[key];
+  if (!cards) throw new Error(`Cardinality "${value}" must be one of 1:1, 1:N, N:1, N:M, M:N.`);
+  return cards;
+}
+function participationOf(spec, card) {
+  const participation = spec ?? { min: 0, max: card === "1" ? 1 : "N" };
+  if (!validParticipation(participation.min, participation.max)) {
+    throw new Error("Participation needs a whole-number minimum of 0 or more, and a maximum at least as large (or N).");
+  }
+  return { min: participation.min, max: participation.max };
+}
+function newId(prefix, base, used) {
+  const root = `${prefix}_${toSqlName(base)}`;
+  let id2 = root;
+  for (let suffix = 2; used.has(id2); suffix += 1) id2 = `${root}_${suffix}`;
+  used.add(id2);
+  return id2;
+}
+function collectIds(doc) {
+  return new Set(
+    [...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas, ...doc.legs].map((node2) => node2.id)
+  );
+}
+function dataTypeOf(value, name) {
+  if (value === void 0 || value.trim() === "") return void 0;
+  const type = normalizeDataType(value);
+  if (!type) {
+    throw new Error(`Unknown data type "${value}" for ${name}. Use a type such as INT, VARCHAR(120), NUMERIC(10,2), DATE, TIMESTAMP, UUID, BOOLEAN, JSONB, or ENUM('a','b').`);
+  }
+  return type;
+}
+function addAttributeSpecs(doc, ownerId, ownerSlug, specs, used, onCreated) {
+  for (const spec of specs) {
+    const name = requireName(spec.name, "Attribute");
+    const parts = spec.attributes ?? [];
+    const attribute = {
+      id: newId("attr", `${ownerSlug}_${name}`, used),
+      name,
+      x: 0,
+      y: 0,
+      kind: attributeKind(spec.kind, parts.length > 0),
+      ownerId
+    };
+    const dataType = dataTypeOf(spec.dataType, name);
+    if (dataType) attribute.dataType = dataType;
+    doc.attributes.push(attribute);
+    onCreated?.(attribute);
+    if (parts.length) addAttributeSpecs(doc, attribute.id, `${ownerSlug}_${name}`, parts, used, onCreated);
+  }
+}
+function entityFromMap(byName, ref) {
+  const entity = byName.get(ref.trim().toLowerCase());
+  if (!entity) {
+    const names = [...byName.values()].map((candidate) => candidate.name).join(", ");
+    throw new Error(`No entity named "${ref}" in this diagram. Available entities: ${names}.`);
+  }
+  return entity;
+}
+function addRelationshipSpec(doc, spec, byName, used) {
+  const name = requireName(spec.name, "Relationship");
+  const from2 = entityFromMap(byName, spec.from);
+  const to = entityFromMap(byName, spec.to);
+  const [fromCard, toCard] = parseCardinality(spec.cardinality);
+  const relationship = {
+    id: newId("rel", name, used),
+    name,
+    x: 0,
+    y: 0,
+    kind: relationshipKind(spec.kind, from2, to)
+  };
+  doc.relationships.push(relationship);
+  addAttributeSpecs(doc, relationship.id, name, spec.attributes ?? [], used);
+  const leg = (entity, card, part, suffix) => ({
+    id: newId("leg", `${name}_${suffix}`, used),
+    fromId: relationship.id,
+    toId: entity.id,
+    cardinality: card,
+    participation: participationOf(part, card)
+  });
+  doc.legs.push(leg(from2, fromCard, spec.fromParticipation, from2.name));
+  doc.legs.push(leg(to, toCard, spec.toParticipation, to.name));
+  return relationship;
+}
+function specPoint(spec, label) {
+  if (spec.x === void 0 && spec.y === void 0) return null;
+  if (spec.x === void 0 || spec.y === void 0 || !Number.isFinite(spec.x) || !Number.isFinite(spec.y)) {
+    throw new Error(`${label} needs both x and y, or neither. Omit both to take the first free slot.`);
+  }
+  return { x: Math.round(spec.x), y: Math.round(spec.y) };
+}
+function buildDocument(spec) {
+  if (!Array.isArray(spec.entities) || spec.entities.length === 0) {
+    throw new Error("A diagram needs at least one entity.");
+  }
+  const name = requireName(spec.name, "Diagram");
+  const doc = emptyDocument(name);
+  doc.view = spec.view === "crowfoot" ? "crowfoot" : "chen";
+  const used = /* @__PURE__ */ new Set();
+  const byName = /* @__PURE__ */ new Map();
+  const fixed = /* @__PURE__ */ new Set();
+  for (const entitySpec of spec.entities) {
+    const entityName = requireName(entitySpec.name, "Entity");
+    const key = entityName.toLowerCase();
+    if (byName.has(key)) throw new Error(`Duplicate entity name "${entityName}". Use one entity per table.`);
+    const point = specPoint(entitySpec, `Entity "${entityName}"`);
+    const entity = {
+      id: newId("ent", entityName, used),
+      name: entityName,
+      x: point?.x ?? 0,
+      y: point?.y ?? 0,
+      // In the crow's-foot view the caller's point is the table's top-left, and
+      // it seeds the Chen position too so neither view starts in a pile.
+      ...point && doc.view === "crowfoot" ? { crowX: point.x, crowY: point.y } : {},
+      kind: entityKind(entitySpec.kind)
+    };
+    if (point) fixed.add(entity.id);
+    doc.entities.push(entity);
+    byName.set(key, entity);
+  }
+  for (const entitySpec of spec.entities) {
+    const entity = entityFromMap(byName, entitySpec.name);
+    addAttributeSpecs(doc, entity.id, entity.name, entitySpec.attributes ?? [], used);
+  }
+  for (const relationship of spec.relationships ?? []) {
+    addRelationshipSpec(doc, relationship, byName, used);
+  }
+  for (const isaSpec of spec.isas ?? []) {
+    const parent = entityFromMap(byName, isaSpec.parent);
+    if (!Array.isArray(isaSpec.children) || isaSpec.children.length === 0) {
+      throw new Error(`Specialization on ${parent.name} needs at least one child.`);
+    }
+    const children = isaSpec.children.map((child) => entityFromMap(byName, child));
+    doc.isas.push({
+      id: newId("isa", parent.name, used),
+      x: 0,
+      y: 0,
+      parentId: parent.id,
+      childIds: children.map((child) => child.id)
+    });
+  }
+  return { doc: normalizeDocument(doc), fixed };
+}
+function arrangeView(doc, view) {
+  return view === "crowfoot" ? { ...applyLayout({ ...doc, view: "crowfoot" }), view: "crowfoot" } : { ...applyLayout({ ...doc, view: "chen" }), view: "chen" };
+}
+function arrangeNewDocument(doc, view) {
+  const chen = arrangeView(doc, "chen");
+  return view === "crowfoot" ? arrangeView(chen, "crowfoot") : chen;
+}
+function placeNewDocument(built, view) {
+  placeChen(built.doc, view === "chen" ? built.fixed : /* @__PURE__ */ new Set());
+  placeCrow(built.doc, view === "crowfoot" ? built.fixed : /* @__PURE__ */ new Set());
+  return normalizeDocument(built.doc);
+}
+function placeChen(doc, fixed) {
+  const placed = new Set(fixed);
+  const placedDoc = () => ({
+    ...doc,
+    view: "chen",
+    entities: doc.entities.filter((node2) => placed.has(node2.id)),
+    attributes: doc.attributes.filter((node2) => placed.has(node2.id)),
+    relationships: doc.relationships.filter((node2) => placed.has(node2.id)),
+    isas: doc.isas.filter((node2) => placed.has(node2.id)),
+    legs: doc.legs.filter((leg) => placed.has(leg.fromId) && placed.has(leg.toId))
+  });
+  for (const entity of doc.entities) {
+    if (placed.has(entity.id)) continue;
+    const slot = findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.entity);
+    entity.x = slot.x;
+    entity.y = slot.y;
+    placed.add(entity.id);
+  }
+  for (const isa of doc.isas) {
+    const slot = findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.isa);
+    isa.x = slot.x;
+    isa.y = slot.y;
+    placed.add(isa.id);
+  }
+  for (const relationship of doc.relationships) {
+    const ends = doc.legs.filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id);
+    const from2 = ends[0] ? doc.entities.find((entity) => entity.id === ends[0].toId) : void 0;
+    const to = ends[1] ? doc.entities.find((entity) => entity.id === ends[1].toId) : void 0;
+    const spot = from2 && to ? findRelationshipSlot(placedDoc(), from2.id, to.id) : findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.relationship);
+    relationship.x = spot.x;
+    relationship.y = spot.y;
+    placed.add(relationship.id);
+  }
+  for (const attribute of doc.attributes) {
+    const slot = findAttributeSlot(placedDoc(), attribute.ownerId) ?? findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.attribute);
+    attribute.x = slot.x;
+    attribute.y = slot.y;
+    placed.add(attribute.id);
+  }
+}
+function placeCrow(doc, fixed) {
+  const heights = new Map(deriveTables(doc).map((table) => [table.entityId, tableHeight(table)]));
+  const occupied = [];
+  for (const entity of doc.entities) {
+    const size2 = { w: CROW_WIDTH, h: heights.get(entity.id) ?? CROW_HEADER_HEIGHT + CROW_ROW_HEIGHT };
+    if (fixed.has(entity.id)) {
+      const x = entity.crowX ?? entity.x;
+      const y = entity.crowY ?? entity.y;
+      entity.crowX = x;
+      entity.crowY = y;
+      occupied.push({ x, y, ...size2 });
+      continue;
+    }
+    const slot = findFreeSlot(occupied, void 0, size2);
+    entity.crowX = slot.x;
+    entity.crowY = slot.y;
+    occupied.push({ ...slot, ...size2 });
+  }
+}
+function nodeName(doc, id2) {
+  return doc.entities.find((node2) => node2.id === id2)?.name ?? doc.attributes.find((node2) => node2.id === id2)?.name ?? doc.relationships.find((node2) => node2.id === id2)?.name ?? (doc.isas.some((node2) => node2.id === id2) ? "specialization" : null) ?? (doc.legs.some((node2) => node2.id === id2) ? "line" : null);
+}
+function issuesOf(doc) {
+  return getDiagramIssues(doc).map((issue2) => ({ ...issue2, nodeName: nodeName(doc, issue2.nodeId) }));
+}
+function summarizeDocument(doc, filePath = null) {
+  const tables = deriveTables(doc);
+  return {
+    name: doc.name,
+    view: doc.view,
+    filePath,
+    counts: {
+      entities: doc.entities.length,
+      attributes: doc.attributes.length,
+      relationships: doc.relationships.length,
+      specializations: doc.isas.length
+    },
+    entities: doc.entities.map((entity) => {
+      const table = tables.find((candidate) => candidate.entityId === entity.id);
+      return {
+        id: entity.id,
+        name: entity.name,
+        kind: entity.kind,
+        position: doc.view === "crowfoot" ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y } : { x: entity.x, y: entity.y },
+        attributes: leafAttributesOf(doc, entity.id).map((attribute) => ({
+          id: attribute.id,
+          name: attribute.name,
+          kind: attribute.kind,
+          type: attributeType(attribute)
+        })),
+        columns: (table?.rows ?? []).map((row) => ({
+          name: row.name,
+          type: row.type,
+          pk: row.pk,
+          fk: row.fk,
+          ...row.unique ? { unique: true } : {},
+          ...row.references ? { references: row.references.label } : {}
+        }))
+      };
+    }),
+    relationships: doc.relationships.map((relationship) => ({
+      id: relationship.id,
+      name: relationship.name,
+      kind: relationship.kind,
+      ends: doc.legs.filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id).flatMap((leg) => {
+        const entityId = leg.fromId === relationship.id ? leg.toId : leg.fromId;
+        const entity = doc.entities.find((candidate) => candidate.id === entityId);
+        if (!entity) return [];
+        return [{
+          entityId: entity.id,
+          entityName: entity.name,
+          cardinality: leg.cardinality,
+          participation: leg.participation,
+          ...leg.columnId ? { columnId: leg.columnId } : {}
+        }];
+      }),
+      attributes: leafAttributesOf(doc, relationship.id).map((attribute) => ({
+        id: attribute.id,
+        name: attribute.name,
+        kind: attribute.kind,
+        type: attributeType(attribute)
+      }))
+    })),
+    specializations: doc.isas.map((isa) => ({
+      id: isa.id,
+      parent: doc.entities.find((entity) => entity.id === isa.parentId)?.name ?? null,
+      children: isa.childIds.map((id2) => doc.entities.find((entity) => entity.id === id2)?.name ?? id2)
+    })),
+    issues: issuesOf(doc),
+    sqlReadiness: describeSqlReadiness(doc)
+  };
+}
+function summaryOutline(summary) {
+  const lines = [`${summary.name} (${summary.view})`];
+  lines.push(`Entities (${summary.counts.entities}):`);
+  for (const entity of summary.entities) {
+    const attributes = entity.attributes.map((attribute) => `${attribute.name} ${attribute.kind}${attribute.type ? `:${attribute.type}` : ""}`).join(", ");
+    const x = Math.round(entity.position.x);
+    const y = Math.round(entity.position.y);
+    lines.push(`- ${entity.name} [${entity.kind}] ${entity.id} at (${x}, ${y})${attributes ? `: ${attributes}` : ""}`);
+  }
+  if (summary.relationships.length) {
+    lines.push(`Relationships (${summary.counts.relationships}):`);
+    for (const relationship of summary.relationships) {
+      const ends = relationship.ends.map((end) => `${end.entityName} ${end.cardinality} (${end.participation.min}..${end.participation.max})`).join(" - ");
+      lines.push(`- ${relationship.name} [${relationship.kind}] ${relationship.id}: ${ends}`);
+    }
+  }
+  if (summary.specializations.length) {
+    lines.push(`Specializations (${summary.counts.specializations}):`);
+    for (const isa of summary.specializations) {
+      lines.push(`- ${isa.parent ?? "(no parent)"} -> ${isa.children.join(", ")}`);
+    }
+  }
+  if (summary.issues.length) {
+    lines.push(`Warnings (${summary.issues.length}):`);
+    for (const issue2 of summary.issues) lines.push(`- ${issue2.code}: ${issue2.message}`);
+  } else {
+    lines.push("Warnings: none.");
+  }
+  return lines.join("\n");
+}
+function shareInfo(doc, options = {}) {
+  const current = session;
+  const live = current?.live ?? null;
+  const baseUrl = options.baseUrl ?? current?.liveBaseUrl ?? env("ERD_MCP_APP_URL") ?? "http://localhost:5173/";
+  const room = options.room?.trim() || live?.room || newRoomId();
+  const includeSnapshot = options.includeSnapshot ?? true;
+  const url2 = buildShareUrl(baseUrl, doc, room, includeSnapshot);
+  const hashIndex = url2.indexOf("#");
+  return {
+    room,
+    url: url2,
+    hash: hashIndex === -1 ? "" : url2.slice(hashIndex),
+    ...live ? { live: liveInfo(live) } : {}
+  };
+}
+async function saveNew(doc, requested, overwrite) {
+  const store = requireWorkspace();
+  const path = requested ? resolveDiagramPath(requested) : await store.defaultKey(doc.name);
+  if (requested && await store.exists(path) && !overwrite) {
+    throw new Error(`${store.display(path)} already exists. Pass overwrite: true or choose another path.`);
+  }
+  await writeDocument(doc, path);
+  return path;
+}
+async function persistAfterMutation() {
+  const current = requireSession();
+  if (!current.filePath) return {};
+  try {
+    await writeDocument(current.doc, current.filePath);
+    current.dirty = false;
+    return { savedTo: requireWorkspace().display(current.filePath) };
+  } catch (error62) {
+    return { saveError: errorMessage(error62) };
+  }
+}
+async function commit(current, doc, focusId) {
+  const next = normalizeDocument(doc);
+  if (!current.live) {
+    current.doc = next;
+    current.dirty = true;
+    return;
+  }
+  const live = current.live;
+  const watched = focusId !== null && Boolean(focusId) && live.watching > 0;
+  if (watched) await live.glideTo(next, focusId ?? null, false);
+  const changed = writeDocumentDiff(live.ydoc, current.doc, next);
+  live.flash(next, focusId ?? changed[0] ?? null, focusId !== null && focusId !== void 0);
+  current.doc = live.snapshot();
+  current.dirty = true;
+}
+async function commitDrag(current, doc, focusId) {
+  const next = normalizeDocument(doc);
+  if (!current.live) {
+    current.doc = next;
+    current.dirty = true;
+    return;
+  }
+  const live = current.live;
+  const carried = live.watching > 0 ? await live.dragTo(current.doc, next, focusId) : false;
+  writeDocumentDiff(live.ydoc, current.doc, next);
+  if (carried) live.release(next, focusId);
+  current.doc = live.snapshot();
+  current.dirty = true;
+}
+async function commitLasso(current, doc, ids) {
+  if (ids.length < 2) {
+    await commit(current, doc, ids[0] ?? null);
+    return;
+  }
+  const next = normalizeDocument(doc);
+  if (!current.live) {
+    current.doc = next;
+    current.dirty = true;
+    return;
+  }
+  const live = current.live;
+  const watched = live.watching > 0;
+  if (watched) await live.lasso(current.doc, ids);
+  writeDocumentDiff(live.ydoc, current.doc, next);
+  if (watched) live.release(next, null);
+  current.doc = live.snapshot();
+  current.dirty = true;
+}
+function thinkIn(current) {
+  if (current.live && current.live.watching > 0) current.live.think();
+}
+function activePosition(doc, id2) {
+  const entity = doc.entities.find((candidate) => candidate.id === id2);
+  if (entity) {
+    return doc.view === "crowfoot" ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y } : { x: entity.x, y: entity.y };
+  }
+  if (doc.view === "crowfoot") return void 0;
+  const node2 = [...doc.attributes, ...doc.relationships, ...doc.isas].find((candidate) => candidate.id === id2);
+  return node2 ? { x: node2.x, y: node2.y } : void 0;
+}
+function mutation(doc, message, nodeId) {
+  const current = requireSession();
+  const position = nodeId ? activePosition(doc, nodeId) : void 0;
+  return {
+    message,
+    ...nodeId ? { nodeId } : {},
+    ...position ? { position } : {},
+    filePath: current.filePath,
+    ...current.live ? { live: liveInfo(current.live) } : {},
+    issues: issuesOf(doc)
+  };
+}
+async function createDiagram(spec) {
+  const previous = session;
+  const built = buildDocument(spec);
+  const authored = built.fixed.size > 0;
+  let doc = spec.layout === true || spec.layout !== false && !authored ? arrangeNewDocument(built.doc, built.doc.view) : placeNewDocument(built, built.doc.view);
+  const filePath = spec.save === false ? null : await saveNew(doc, spec.path, spec.overwrite ?? false);
+  if (previous?.live) {
+    await previous.live.replace(doc, previous.live.watching > 0);
+    doc = previous.live.snapshot();
+    if (filePath) await writeDocument(doc, filePath);
+    session = { doc, filePath, dirty: false, live: previous.live, liveBaseUrl: previous.liveBaseUrl };
+  } else {
+    session = { doc, filePath, dirty: false, live: null };
+  }
+  const summary = summarizeDocument(doc, filePath);
+  return { filePath, summary, outline: summaryOutline(summary), share: shareInfo(doc) };
+}
+async function openDiagram(path, view) {
+  const filePath = resolveDiagramPath(path);
+  const doc = await readDocument(filePath);
+  if (view) doc.view = view;
+  session?.live?.close();
+  session = { doc, filePath, dirty: false, live: null };
+  const summary = summarizeDocument(doc, filePath);
+  return { filePath, summary, outline: summaryOutline(summary) };
+}
+async function openRoom(options = {}) {
+  const linkText = (options.link ?? "").trim();
+  const link = roomFromLink(linkText);
+  if (linkText && !link.room && !link.baseUrl) {
+    throw new Error("That is not a room id or share link. Paste a link like https://kuy124.github.io/erd-maker/#room=... or an 8+ character room id.");
+  }
+  const current = session;
+  const room = link.room ?? (link.baseUrl ? newRoomId() : current?.live?.room ?? newRoomId());
+  if (current?.live?.room === room) {
+    const summary2 = summarizeDocument(current.doc, current.filePath);
+    return {
+      room,
+      url: shareInfo(current.doc).url,
+      relay: current.live.relayUrl,
+      watching: current.live.watching,
+      peers: current.live.peers.map((peer) => peer.name),
+      seeded: false,
+      summary: summary2,
+      outline: summaryOutline(summary2)
+    };
+  }
+  const seed = link.doc ?? (options.seed === false ? void 0 : current?.doc);
+  const next = await LiveRoom.join({
+    room,
+    ...seed ? { seed } : {},
+    ...lastPointer ? { startCursor: lastPointer } : {}
+  });
+  current?.live?.close();
+  const fileBelongs = Boolean(current?.filePath && next.seeded && seed === current.doc);
+  session = {
+    doc: next.snapshot(),
+    filePath: fileBelongs ? current.filePath : null,
+    dirty: false,
+    live: next,
+    liveBaseUrl: options.baseUrl ?? link.baseUrl ?? current?.liveBaseUrl
+  };
+  const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id ?? null;
+  next.enter(session.doc, focus);
+  const summary = summarizeDocument(session.doc, session.filePath);
+  return {
+    room,
+    url: shareInfo(session.doc, { baseUrl: session.liveBaseUrl }).url,
+    relay: next.relayUrl,
+    watching: next.watching,
+    peers: next.peers.map((peer) => peer.name),
+    seeded: next.seeded,
+    summary,
+    outline: summaryOutline(summary)
+  };
+}
+async function leaveRoom() {
+  const current = session;
+  const live = current?.live;
+  if (!current || !live) {
+    return { room: null, message: "This diagram is not in a live room, so there is nothing to leave." };
+  }
+  const room = live.room;
+  lastPointer = live.pointer;
+  await live.leave(current.doc);
+  session = { ...current, live: null };
+  return {
+    room,
+    message: `Left room ${room}. The diagram stays open here, so edits keep working \u2014 they just no longer stream to watchers.`
+  };
+}
+async function saveDiagram(path, overwrite = false) {
+  const current = requireSession();
+  const target = path ? resolveDiagramPath(path) : current.filePath;
+  if (!target) throw new Error("This diagram has no file yet. Pass a path to save it.");
+  if (path && target !== current.filePath && !overwrite && await requireWorkspace().exists(target)) {
+    throw new Error(`${requireWorkspace().display(target)} already exists. Pass overwrite: true to replace it.`);
+  }
+  await writeDocument(current.doc, target);
+  current.filePath = target;
+  current.dirty = false;
+  return target;
+}
+function getDiagram() {
+  const current = requireSession();
+  return { filePath: current.filePath, dirty: current.dirty, live: liveInfo(current.live), document: current.doc };
+}
+function serverStatus() {
+  const current = peekSession();
+  return {
+    workspace: workspaceLabel(),
+    alive: true,
+    open: current ? {
+      name: current.doc.name,
+      view: current.doc.view,
+      filePath: current.filePath,
+      dirty: current.dirty,
+      shapes: {
+        entities: current.doc.entities.length,
+        attributes: current.doc.attributes.length,
+        relationships: current.doc.relationships.length,
+        isas: current.doc.isas.length
+      },
+      live: current.live
+    } : null
+  };
+}
+function summarizeSession() {
+  const current = requireSession();
+  const summary = summarizeDocument(current.doc, current.filePath);
+  return { filePath: current.filePath, live: liveInfo(current.live), summary, outline: summaryOutline(summary) };
+}
+function validateSession() {
+  const current = requireSession();
+  thinkIn(current);
+  const issues = issuesOf(current.doc);
+  return { valid: issues.length === 0, issues, sqlReadiness: describeSqlReadiness(current.doc) };
+}
+function sqlForSession(dialect = "standard", dropFirst = false) {
+  const current = requireSession();
+  thinkIn(current);
+  try {
+    return { dialect, sql: generateSql(current.doc, { dialect, dropFirst }) };
+  } catch (error62) {
+    throw new Error(`${errorMessage(error62)} ${describeSqlReadiness(current.doc)}`.trim());
+  }
+}
+async function arrangeSession(view) {
+  const current = requireSession();
+  const doc = structuredClone(current.doc);
+  if (view) doc.view = view;
+  await commit(current, arrangeView(doc, doc.view), null);
+  const outcome = await persistAfterMutation();
+  return {
+    ...mutation(current.doc, `Arranged ${current.doc.view} view.`),
+    ...outcome,
+    summary: summarizeDocument(current.doc, current.filePath)
+  };
+}
+function candidates(doc) {
+  return [
+    ...doc.entities.map((entity) => ({ id: entity.id, name: entity.name, kind: "entity" })),
+    ...doc.attributes.map((attribute) => ({ id: attribute.id, name: attribute.name, kind: "attribute" })),
+    ...doc.relationships.map((relationship) => ({ id: relationship.id, name: relationship.name, kind: "relationship" })),
+    ...doc.isas.map((isa) => ({ id: isa.id, name: "specialization", kind: "specialization" }))
+  ];
+}
+function resolveNode(doc, ref) {
+  const all2 = candidates(doc);
+  const byId = all2.find((node2) => node2.id === ref);
+  if (byId) return byId;
+  const lower = ref.trim().toLowerCase();
+  const byName = all2.filter((node2) => node2.name.toLowerCase() === lower);
+  if (byName.length === 1) return byName[0];
+  if (byName.length > 1) {
+    throw new Error(`"${ref}" matches more than one shape (${byName.map((node2) => node2.id).join(", ")}). Use the id.`);
+  }
+  throw new Error(`No entity, attribute, or relationship named "${ref}". Call summarize_diagram for ids and names.`);
+}
+function resolveEntity(doc, ref) {
+  const byId = doc.entities.find((entity) => entity.id === ref);
+  if (byId) return byId;
+  const lower = ref.trim().toLowerCase();
+  const byName = doc.entities.filter((entity) => entity.name.toLowerCase() === lower);
+  if (byName.length === 1) return byName[0];
+  if (byName.length > 1) {
+    throw new Error(`"${ref}" matches more than one entity (${byName.map((entity) => entity.id).join(", ")}). Use the id.`);
+  }
+  throw new Error(`No entity named "${ref}". Call summarize_diagram for entity names and ids.`);
+}
+function placeAttribute(doc, id2) {
+  const attribute = doc.attributes.find((candidate) => candidate.id === id2);
+  if (!attribute) return;
+  const without = { ...doc, attributes: doc.attributes.filter((candidate) => candidate.id !== id2), view: "chen" };
+  const slot = findAttributeSlot(without, attribute.ownerId);
+  if (slot) {
+    attribute.x = slot.x;
+    attribute.y = slot.y;
+  }
+}
+async function addEntity(input2) {
+  const current = requireSession();
+  const name = requireName(input2.name, "Entity");
+  if (current.doc.entities.some((entity2) => entity2.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(`An entity named "${name}" already exists.`);
+  }
+  const doc = structuredClone(current.doc);
+  const used = collectIds(doc);
+  const entity = {
+    id: newId("ent", name, used),
+    name,
+    x: 0,
+    y: 0,
+    kind: entityKind(input2.kind)
+  };
+  if (doc.view === "crowfoot") {
+    const chen = findFreeSlot(occupiedBoxes({ ...doc, view: "chen" }), void 0, NODE_SIZE.entity);
+    entity.x = chen.x;
+    entity.y = chen.y;
+  } else {
+    const spot2 = specPoint(input2, `Entity "${name}"`) ?? findFreeSlot(occupiedBoxes(doc), void 0, NODE_SIZE.entity);
+    entity.x = spot2.x;
+    entity.y = spot2.y;
+  }
+  doc.entities.push(entity);
+  addAttributeSpecs(
+    doc,
+    entity.id,
+    entity.name,
+    input2.attributes ?? [],
+    used,
+    (attribute) => placeAttribute(doc, attribute.id)
+  );
+  let spot = { x: entity.x, y: entity.y };
+  if (doc.view === "crowfoot") {
+    const table = deriveTables(doc).find((candidate) => candidate.entityId === entity.id);
+    const occupied = occupiedBoxes({ ...doc, entities: doc.entities.filter((node2) => node2.id !== entity.id) });
+    spot = specPoint(input2, `Entity "${name}"`) ?? findFreeSlot(occupied, void 0, { w: CROW_WIDTH, h: tableHeight(table) });
+    entity.crowX = spot.x;
+    entity.crowY = spot.y;
+  }
+  await commit(current, doc, entity.id);
+  const outcome = await persistAfterMutation();
+  return {
+    ...mutation(current.doc, `Added entity ${name} at (${spot.x}, ${spot.y}).`, entity.id),
+    ...outcome
+  };
+}
+async function addAttribute(input2) {
+  const current = requireSession();
+  const owner = resolveNode(current.doc, input2.owner);
+  if (owner.kind === "attribute") {
+    const attribute = current.doc.attributes.find((candidate) => candidate.id === owner.id);
+    if (attribute?.kind !== "composite") {
+      throw new Error(`"${owner.name}" is not a composite attribute, so it cannot own parts.`);
+    }
+  }
+  const name = requireName(input2.name, "Attribute");
+  const parts = input2.attributes ?? [];
+  const doc = structuredClone(current.doc);
+  const used = collectIds(doc);
+  const ownerSlug = owner.kind === "specialization" ? "specialization" : owner.name;
+  let added;
+  addAttributeSpecs(doc, owner.id, ownerSlug, [{
+    name,
+    ...input2.kind ? { kind: input2.kind } : {},
+    ...input2.dataType ? { dataType: input2.dataType } : {},
+    ...parts.length ? { attributes: parts } : {}
+  }], used, (attribute) => {
+    added ??= attribute.id;
+    placeAttribute(doc, attribute.id);
+  });
+  await commit(current, doc, added ?? null);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added attribute ${name} to ${owner.name}.`, added), ...outcome };
+}
+async function addRelationship(input2) {
+  const current = requireSession();
+  const name = requireName(input2.name, "Relationship");
+  const doc = structuredClone(current.doc);
+  const from2 = resolveEntity(doc, input2.from);
+  const to = resolveEntity(doc, input2.to);
+  const [fromCard, toCard] = parseCardinality(input2.cardinality);
+  const relationship = {
+    id: newId("rel", name, collectIds(doc)),
+    name,
+    ...findRelationshipSlot(doc, from2.id, to.id),
+    kind: relationshipKind(input2.kind, from2, to)
+  };
+  const used = collectIds({ ...doc, relationships: [...doc.relationships, relationship] });
+  doc.relationships.push(relationship);
+  addAttributeSpecs(
+    doc,
+    relationship.id,
+    name,
+    input2.attributes ?? [],
+    used,
+    (attribute) => placeAttribute(doc, attribute.id)
+  );
+  const leg = (entity, card, part, suffix) => ({
+    id: newId("leg", `${name}_${suffix}`, used),
+    fromId: relationship.id,
+    toId: entity.id,
+    cardinality: card,
+    participation: participationOf(part, card)
+  });
+  doc.legs.push(leg(from2, fromCard, input2.fromParticipation, from2.name));
+  doc.legs.push(leg(to, toCard, input2.toParticipation, to.name));
+  await commit(current, doc, relationship.id);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added relationship ${name} between ${from2.name} and ${to.name}.`, relationship.id), ...outcome };
+}
+async function addIsa(input2) {
+  const current = requireSession();
+  thinkIn(current);
+  const doc = structuredClone(current.doc);
+  const parent = resolveEntity(doc, input2.parent);
+  const children = input2.children.map((child) => resolveEntity(doc, child));
+  if (children.some((child) => child.id === parent.id)) throw new Error("A specialization cannot contain its own base.");
+  if (new Set(children.map((child) => child.name)).size !== children.length) throw new Error("Choose different children for the specialization.");
+  const name = requireName(input2.name ?? "Specialization", "Specialization");
+  const existing = doc.isas.find((isa) => isa.parentId === parent.id);
+  let target;
+  if (existing) {
+    for (const child of children) if (!existing.childIds.includes(child.id)) existing.childIds.push(child.id);
+    target = existing;
+  } else {
+    const used = collectIds(doc);
+    const isa = {
+      id: newId("isa", name, used),
+      x: parent.x,
+      y: parent.y - NODE_SIZE.isa.h - 16,
+      parentId: parent.id,
+      childIds: children.map((child) => child.id)
+    };
+    doc.isas.push(isa);
+    target = isa;
+  }
+  await commit(current, doc, target.id);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added specialization ${name}: ${parent.name} by ${children.map((child) => child.name).join(", ")}.`, target.id), ...outcome };
+}
+async function updateNode(ref, patch) {
+  const current = requireSession();
+  const node2 = resolveNode(current.doc, ref);
+  const name = patch.name === void 0 ? void 0 : requireName(patch.name, "Shape");
+  let move = null;
+  if (patch.x !== void 0 || patch.y !== void 0) {
+    if (node2.kind !== "entity") throw new Error("Only entities can be moved with x and y.");
+    if (patch.x === void 0 || patch.y === void 0 || !Number.isFinite(patch.x) || !Number.isFinite(patch.y)) {
+      throw new Error("Moving an entity needs a number for both x and y.");
+    }
+    move = { x: Math.round(patch.x), y: Math.round(patch.y) };
+  }
+  const doc = structuredClone(current.doc);
+  if (node2.kind === "entity") {
+    const entity = doc.entities.find((candidate) => candidate.id === node2.id);
+    if (name !== void 0) entity.name = name;
+    if (patch.kind !== void 0) entity.kind = entityKind(patch.kind);
+    if (patch.dataType !== void 0) throw new Error("Only attributes have a data type.");
+    if (move) {
+      if (doc.view === "crowfoot") {
+        entity.crowX = move.x;
+        entity.crowY = move.y;
+      } else {
+        const dx = move.x - entity.x;
+        const dy = move.y - entity.y;
+        entity.x = move.x;
+        entity.y = move.y;
+        const owned = descendantAttributeIds(doc, entity.id);
+        for (const attribute of doc.attributes) {
+          if (!owned.has(attribute.id)) continue;
+          attribute.x += dx;
+          attribute.y += dy;
+        }
+      }
+    }
+  } else if (node2.kind === "relationship") {
+    const relationship = doc.relationships.find((candidate) => candidate.id === node2.id);
+    if (name !== void 0) relationship.name = name;
+    if (patch.kind !== void 0) {
+      if (patch.kind !== "strong" && patch.kind !== "weak") throw new Error('Relationship kind must be "strong" or "weak".');
+      relationship.kind = patch.kind;
+    }
+    if (patch.dataType !== void 0) throw new Error("Only attributes have a data type.");
+  } else if (node2.kind === "attribute") {
+    const attribute = doc.attributes.find((candidate) => candidate.id === node2.id);
+    if (name !== void 0) attribute.name = name;
+    if (patch.kind !== void 0) {
+      const kind = attributeKind(patch.kind, false);
+      const hasChildren = doc.attributes.some((candidate) => candidate.ownerId === attribute.id);
+      if (hasChildren && kind !== "composite") {
+        throw new Error(`"${attribute.name}" has parts, so its kind must stay composite.`);
+      }
+      attribute.kind = kind;
+    }
+    if (patch.dataType !== void 0) {
+      const type = dataTypeOf(patch.dataType, attribute.name);
+      if (type) attribute.dataType = type;
+    }
+  } else {
+    if (name !== void 0 || patch.kind !== void 0 || patch.dataType !== void 0) {
+      throw new Error("Specializations have no editable name or type; change their parent or children instead.");
+    }
+  }
+  if (move && name === void 0 && patch.kind === void 0) {
+    await commitDrag(current, doc, node2.id);
+  } else {
+    await commit(current, doc, node2.id);
+  }
+  const outcome = await persistAfterMutation();
+  const displayName = name ?? node2.name;
+  const message = move && name === void 0 && patch.kind === void 0 ? `Moved entity ${displayName} to (${move.x}, ${move.y}).` : `Updated ${node2.kind} ${displayName}.`;
+  return { ...mutation(current.doc, message, node2.id), ...outcome };
+}
+async function removeDiagramNode(ref) {
+  const current = requireSession();
+  const node2 = resolveNode(current.doc, ref);
+  const beforeAttributes = current.doc.attributes.length;
+  const doomed = [node2.id, ...descendantAttributeIds(current.doc, node2.id)];
+  const doc = removeNode(current.doc, node2.id);
+  await commitLasso(current, doc, doomed);
+  const removedAttributes = beforeAttributes - current.doc.attributes.length;
+  const outcome = await persistAfterMutation();
+  return {
+    ...mutation(
+      current.doc,
+      `Removed ${node2.kind} ${node2.name}${removedAttributes ? ` and ${removedAttributes} attribute${removedAttributes === 1 ? "" : "s"}` : ""}.`
+    ),
+    ...outcome
+  };
+}
+async function updateDiagram(patch) {
+  const current = requireSession();
+  const doc = structuredClone(current.doc);
+  if (patch.name !== void 0) doc.name = requireName(patch.name, "Diagram");
+  if (patch.view !== void 0) {
+    if (patch.view !== "chen" && patch.view !== "crowfoot") throw new Error('View must be "chen" or "crowfoot".');
+    doc.view = patch.view;
+  }
+  await commit(current, doc, null);
+  const outcome = await persistAfterMutation();
+  return {
+    ...mutation(current.doc, "Updated the diagram."),
+    ...outcome,
+    summary: summarizeDocument(current.doc, current.filePath)
+  };
+}
+function shareSession(options = {}) {
+  return shareInfo(requireSession().doc, options);
+}
+async function listDiagramFiles() {
+  const store = requireWorkspace();
+  const entries = await store.list();
+  return entries.map((entry) => {
+    let name = null;
+    if (entry.text !== null) {
+      try {
+        const parsed = JSON.parse(entry.text);
+        name = typeof parsed.name === "string" ? parsed.name : null;
+      } catch {
+      }
+    }
+    return {
+      path: store.display(entry.key),
+      name,
+      modified: entry.modified,
+      size: entry.size
+    };
+  });
+}
+var workspace, session, lastPointer, ATTRIBUTE_KINDS, CARDINALITIES;
+var init_diagram = __esm({
+  "mcp/diagram.ts"() {
+    "use strict";
+    init_dataTypes();
+    init_attributes();
+    init_columnNames();
+    init_crowfoot();
+    init_issues();
+    init_layout();
+    init_placement();
+    init_snapshot();
+    init_sql();
+    init_env();
+    init_types3();
+    init_live();
+    workspace = null;
+    session = null;
+    lastPointer = null;
+    ATTRIBUTE_KINDS = ["simple", "key", "unique", "multivalued", "derived", "composite"];
+    CARDINALITIES = {
+      "1:1": ["1", "1"],
+      "1:N": ["1", "N"],
+      "N:1": ["N", "1"],
+      "N:M": ["N", "M"],
+      "M:N": ["M", "N"]
+    };
+  }
+});
+
+// mcp/tools.ts
+function createServer2() {
+  const server = new McpServer(
+    { name: "erd-maker", version: "1.0.0" },
+    {
+      instructions: [
+        "# ERD Maker",
+        "Read, author, and export entity-relationship diagrams. They are JSON files under " + workspaceLabel() + ".",
+        "",
+        "## The 90% path",
+        "create_diagram { name, text } \u2014 pass the whole model as indented lines and you are done:",
+        "",
+        "  Customer",
+        "    customer_id: INT key",
+        "    email: TEXT unique",
+        "  Order",
+        "    order_id: INT key",
+        "  Customer 1:N Order as places",
+        "  Party isa Customer, Supplier",
+        "",
+        "An unindented line is an entity; indented lines are its attributes (`name`, `name: TYPE`, plus an optional",
+        "kind word: key, unique, multivalued, derived, composite). A line with 1:1/1:N/N:1/N:M is a relationship.",
+        "`Parent isa Child, Child` is a specialization. Then call validate_diagram, fix what it reports, and",
+        "generate_sql. That is the whole job for most requests.",
+        "",
+        "## Rules that are easy to get wrong",
+        '- "1:N" from A to B means one A relates to many Bs. The label at each end describes the entity at that end.',
+        "- A key attribute is the primary key and must be unique. Composite attributes own their parts.",
+        "- Positions are optional. Give no coordinates and the app arranges the diagram; give x/y on an entity to pin",
+        "  it. Only entities take coordinates \u2014 attribute columns, diamonds, and lines are placed for you. Leave room:",
+        "  ~500px apart across and ~360px down in Chen, ~360px across in crow's-foot. summarize_diagram reports",
+        "  positions; arrange_diagram re-lays the whole thing out.",
+        "- Refer to a shape by id or by unique name. summarize_diagram returns both.",
+        "- For participation constraints or attributes on a relationship, use the structured form",
+        "  (entities/relationships/isas) instead of text.",
+        "",
+        "## One diagram at a time",
+        "create_diagram or open_diagram makes a diagram current; add/update/remove tools edit it; every edit is written",
+        "back to its file. list_diagrams shows what is saved. Use the add/update/remove tools for follow-ups, not for",
+        "building a first draft.",
+        "",
+        "## Live rooms (optional, only when the person wants to watch)",
+        "open_room joins an ERD Maker room as a collaborator: later edits appear in the room's open tabs as they",
+        "happen, with the AI's name, cursor, and selection, and no refresh. Omit the link to start a room, or pass the",
+        "share link the person gave you to join theirs. A room that already has content wins; the open diagram only",
+        "seeds an empty room. create_share_link returns the live room while one is open, otherwise a snapshot URL.",
+        "leave_room signs out with a visible farewell \u2014 call it only when the person says they are done or asks you to",
+        "leave, not when your turn ends."
+      ].join("\n")
+    }
+  );
+  function json3(value) {
+    return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+  }
+  const viewSchema = external_exports.enum(["chen", "crowfoot"]);
+  const attributeKindSchema = external_exports.enum(["simple", "key", "unique", "multivalued", "derived", "composite"]);
+  const entityKindSchema = external_exports.enum(["strong", "weak"]);
+  const cardinalitySchema = external_exports.enum(["1:1", "1:N", "N:1", "N:M", "M:N"]);
+  const attributeSpecSchema = external_exports.lazy(() => external_exports.object({
+    name: external_exports.string().describe('Attribute name, e.g. "customer_id".'),
+    kind: attributeKindSchema.optional().describe("Defaults to simple, or composite when the attribute has parts."),
+    dataType: external_exports.string().optional().describe("SQL type such as INT, VARCHAR(120), NUMERIC(10,2), DATE, UUID, BOOLEAN, JSONB, or ENUM('new','paid')."),
+    attributes: external_exports.array(attributeSpecSchema).optional().describe("Parts of a composite attribute.")
+  }));
+  const entitySpecSchema = external_exports.object({
+    name: external_exports.string().describe('Entity name in the database, e.g. "Customer".'),
+    kind: entityKindSchema.optional().describe("strong (default) or weak. A weak entity derives its key from a parent through an identifying relationship."),
+    attributes: external_exports.array(attributeSpecSchema).optional().describe("Attributes placed on the entity at creation."),
+    x: external_exports.number().optional().describe("Left edge in the view being created, in pixels. Give both x and y to place the entity deliberately; omit both to take the first free slot."),
+    y: external_exports.number().optional().describe("Top edge in the view being created, in pixels.")
+  });
+  const participationSchema = external_exports.object({
+    min: external_exports.number().int().min(0).describe("0 means the entity may take part zero times."),
+    max: external_exports.union([external_exports.number().int().min(1), external_exports.literal("N")]).describe("Biggest number of times the entity may take part; N is unbounded.")
+  });
+  const relationshipSpecSchema = external_exports.object({
+    name: external_exports.string().describe('Verb phrase, e.g. "places".'),
+    kind: entityKindSchema.optional().describe("strong (default) or weak, for an identifying relationship."),
+    from: external_exports.string().describe("Entity name or id at the first end."),
+    to: external_exports.string().describe("Entity name or id at the second end."),
+    cardinality: cardinalitySchema.optional().describe("from:to, each side describing the entity at that end. Defaults to 1:N."),
+    fromParticipation: participationSchema.optional(),
+    toParticipation: participationSchema.optional(),
+    attributes: external_exports.array(attributeSpecSchema).optional().describe("Attributes of the association itself, e.g. enrolled_at.")
+  });
+  const isaSpecSchema = external_exports.object({
+    parent: external_exports.string().describe("Superclass entity name or id."),
+    children: external_exports.array(external_exports.string()).min(1).describe("Subclass entity names or ids.")
+  });
+  server.registerTool("server_status", {
+    title: "Server status",
+    description: "Report what this server is running: the workspace, whether a diagram is open (and its name, view, file, shape counts, and live room), with no side effects. The tools here only fail when the server is gone or no diagram is open, so call this first to tell a healthy empty session from one whose tools will error.",
+    inputSchema: {}
+  }, async () => json3(serverStatus()));
+  server.registerTool("create_diagram", {
+    title: "Create a diagram",
+    description: 'Build a whole ERD and open it as the current diagram. Two equivalent ways to say the model; use either, not both.\n\nFASTEST \u2014 pass `text`, a few indented lines:\n  Customer\n    customer_id: INT key\n    email: TEXT unique\n  Order\n    order_id: INT key\n  Customer 1:N Order as places\n  Party isa Customer, Supplier\n\nRules for `text`: an unindented line is an entity (add `weak`, or `@ x,y` to place it). Indented lines are its attributes, written `name`, `name: TYPE`, or either plus a kind word \u2014 key, unique, multivalued, derived, composite. Indent further to give a composite attribute its parts. A line with a cardinality in it (1:1, 1:N, N:1, N:M) is a relationship `From CARD To`, named with `as places` or defaulting to "From To". `Parent isa Child, Child` declares a specialization. `#` starts a comment. Errors name the line.\n\nSTRUCTURED \u2014 pass `entities`, `relationships`, `isas` instead, when you need participation constraints or composite parts on a relationship.\n\nEither way the diagram is validated and saved to diagrams/<slug>.json unless path or save:false says otherwise, and it streams into a live room shape by shape when one is open. Returns the file path, a text outline, validation issues, and a share link. Positions are optional: no coordinates at all means the app arranges the diagram; give every entity x and y to pin it.',
+    inputSchema: {
+      name: external_exports.string().describe('Diagram name, e.g. "Sales".'),
+      text: external_exports.string().optional().describe("The whole model as indented lines \u2014 see the description. Alternative to entities."),
+      view: viewSchema.optional().describe("Notation to show: chen (default) or crowfoot."),
+      entities: external_exports.array(entitySpecSchema).optional().describe("Structured form. Every entity with its attributes, keys, and positions."),
+      relationships: external_exports.array(relationshipSpecSchema).optional().describe("Structured form. Every relationship between two entities with its cardinality."),
+      isas: external_exports.array(isaSpecSchema).optional().describe("Structured form. Every specialization of a base by its subclasses."),
+      path: external_exports.string().optional().describe("Workspace-relative .json path. Omit to use diagrams/<name>.json."),
+      overwrite: external_exports.boolean().optional().describe("Replace the file at path if it already exists."),
+      layout: external_exports.boolean().optional().describe("Auto-arrange the whole diagram. Defaults to auto-arrange when no entity has coordinates; otherwise the x and y you give are kept and shapes without coordinates take the first free slot."),
+      save: external_exports.boolean().optional().describe("Set false to keep the diagram only in this session.")
+    }
+  }, async ({ text, entities, relationships, isas, ...rest }) => {
+    if (text && (entities || relationships || isas)) {
+      throw new Error("Pass either text or entities/relationships/isas, not both.");
+    }
+    const model = text ? parseCompactDiagram(text) : null;
+    const spec = {
+      ...rest,
+      entities: entities ?? model?.entities ?? [],
+      relationships: relationships ?? model?.relationships,
+      isas: isas ?? model?.isas
+    };
+    if (spec.entities.length === 0) {
+      throw new Error("A diagram needs at least one entity. Pass text or a non-empty entities array.");
+    }
+    return json3(await createDiagram(spec));
+  });
+  server.registerTool("open_diagram", {
+    title: "Open a diagram",
+    description: "Open a saved diagram file as the current diagram, replacing whatever was open before. Paths are workspace-relative (or absolute inside the workspace). Use list_diagrams to discover files.",
+    inputSchema: {
+      path: external_exports.string().describe("Workspace-relative path to a .json diagram file."),
+      view: viewSchema.optional().describe("Show this notation after opening.")
+    }
+  }, async ({ path, view }) => json3(await openDiagram(path, view)));
+  server.registerTool("open_room", {
+    title: "Open a live room",
+    description: `Join an ERD Maker room as a collaborator. Every later edit streams into the room's open tabs as it happens, shown with the AI's cursor and selection, and the person watching does not need to refresh. Pass the share link they sent you, a "#room=..." fragment, or a room id; omit link to start a new room. An empty room is seeded from the link's snapshot or the open diagram; a room that already has content wins. Returns the room id, a share link, who is watching, whether the room was seeded, and the diagram summary.`,
+    inputSchema: {
+      link: external_exports.string().optional().describe('Share link, "#room=..." fragment, or room id. Omit to start a new room.'),
+      baseUrl: external_exports.string().optional().describe("App URL for the returned link, e.g. https://kuy124.github.io/erd-maker/."),
+      seed: external_exports.boolean().optional().describe("Set false to leave an empty room empty instead of copying the open diagram into it.")
+    }
+  }, async (options) => json3(await openRoom(options)));
+  server.registerTool("leave_room", {
+    title: "Leave a live room",
+    description: "Sign out of the live room the assistant is editing, after gliding back to the last shape and pausing, so watchers see it finish rather than watch an avatar that stopped moving. The diagram stays open here: later edits keep working, they just no longer stream. Calling open_room again rejoins, and the pointer resumes where it left off. Call this when the person says they are done, or when they ask the assistant to leave. Does nothing if no room is open.",
+    inputSchema: {}
+  }, async () => json3(await leaveRoom()));
+  server.registerTool("save_diagram", {
+    title: "Save the diagram",
+    description: "Write the open diagram to disk. Without a path it saves to the file it was opened from. With a path it saves there instead; an existing file at a different path is replaced only when overwrite is true.",
+    inputSchema: {
+      path: external_exports.string().optional().describe("Workspace-relative .json path to save to."),
+      overwrite: external_exports.boolean().optional().describe("Replace the file at path if it already exists.")
+    }
+  }, async ({ path, overwrite }) => json3({ filePath: await saveDiagram(path, overwrite) }));
+  server.registerTool("get_diagram", {
+    title: "Get the diagram JSON",
+    description: "Return the complete JSON document of the open diagram, including every coordinate. Use summarize_diagram instead when you only need names, columns, and relationships.",
+    inputSchema: {}
+  }, async () => json3(getDiagram()));
+  server.registerTool("summarize_diagram", {
+    title: "Summarize the diagram",
+    description: "Describe the open diagram compactly: entities with their attributes and position in the current view, derived table columns and foreign keys, relationships with cardinality and participation, specializations, and validation issues. Returns both structured data and a readable text outline. Use position to see where each entity sits before moving one.",
+    inputSchema: {}
+  }, async () => json3(summarizeSession()));
+  server.registerTool("validate_diagram", {
+    title: "Validate the diagram",
+    description: "Report the problems ERD Maker warns about: unnamed shapes, missing keys, incomplete relationships, invalid participation, attributes with no owner, and connections that cannot produce a foreign key. Also says whether SQL can be generated.",
+    inputSchema: {}
+  }, async () => json3(validateSession()));
+  server.registerTool("generate_sql", {
+    title: "Generate SQL",
+    description: "Generate CREATE TABLE DDL from the open diagram, using the same tables and foreign keys the crow's-foot view shows. Many-to-many relationships become junction tables, and weak entities inherit their parent key.",
+    inputSchema: {
+      dialect: external_exports.enum(["standard", "postgres", "mysql", "sqlite"]).optional().describe("Affects surrogate key syntax. Defaults to standard."),
+      dropFirst: external_exports.boolean().optional().describe("Emit DROP TABLE IF EXISTS before each CREATE TABLE.")
+    }
+  }, async ({ dialect, dropFirst }) => json3(sqlForSession(dialect, dropFirst)));
+  server.registerTool("arrange_diagram", {
+    title: "Auto-arrange the diagram",
+    description: "Run ERD Maker's automatic layout on the open diagram. Optionally switch the view first. Manual connector routes are cleared. Positions for the other notation are left alone.",
+    inputSchema: {
+      view: viewSchema.optional().describe("Switch to this notation, then arrange it.")
+    }
+  }, async ({ view }) => json3(await arrangeSession(view)));
+  server.registerTool("add_entity", {
+    title: "Add an entity",
+    description: "Add one entity to the open diagram, optionally with its attributes. Placement defaults to the first free slot; give x and y to choose a position. The new entity's id is returned for later calls.",
+    inputSchema: {
+      name: external_exports.string(),
+      kind: entityKindSchema.optional(),
+      attributes: external_exports.array(attributeSpecSchema).optional(),
+      x: external_exports.number().optional(),
+      y: external_exports.number().optional()
+    }
+  }, async (input2) => json3(await addEntity(input2)));
+  server.registerTool("add_attribute", {
+    title: "Add an attribute",
+    description: "Attach one attribute to an entity, relationship, specialization, or composite attribute, referenced by id or name. Composite parts go in attributes. The attribute is placed beside its owner, following the column already there.",
+    inputSchema: {
+      owner: external_exports.string().describe("Owner id or name."),
+      name: external_exports.string(),
+      kind: attributeKindSchema.optional(),
+      dataType: external_exports.string().optional().describe("SQL type such as INT, VARCHAR(120), DATE, or ENUM('a','b')."),
+      attributes: external_exports.array(attributeSpecSchema).optional().describe("Parts, when this is a composite attribute.")
+    }
+  }, async (input2) => json3(await addAttribute(input2)));
+  server.registerTool("add_relationship", {
+    title: "Add a relationship",
+    description: 'Connect two existing entities with a relationship. Cardinality is written from:to and each side describes the entity at that end. "1:N" from Customer to Order means one customer places many orders. Give relationship attributes for associations that carry data, such as enrolled_at on a many-to-many.',
+    inputSchema: {
+      name: external_exports.string().describe('Verb phrase, e.g. "places".'),
+      kind: entityKindSchema.optional().describe("strong (default) or weak, for an identifying relationship."),
+      from: external_exports.string().describe("Entity name or id."),
+      to: external_exports.string().describe("Entity name or id."),
+      cardinality: cardinalitySchema.optional().describe('from:to. "1:N" means the entity on the from side connects at most once per to side. One of: 1:1, 1:N, N:1, N:M, M:N.'),
+      fromParticipation: participationSchema.optional().describe("How many times the entity at from must take part."),
+      toParticipation: participationSchema.optional().describe("How many times the entity at to must take part."),
+      attributes: external_exports.array(attributeSpecSchema).optional().describe("Attributes of the association itself, e.g. enrolled_at.")
+    }
+  }, async (input2) => json3(await addRelationship(input2)));
+  server.registerTool("add_isa", {
+    title: "Add a specialization",
+    description: "Add a specialization (an is-a) to the open diagram. The base entity becomes the parent; every child is a subclass that inherits its keys and values. If the parent already has a specialization, it is extended with the new children so a base keeps its subclasses in one shape. Refer to the shapes by id or unique name, and return the returned id in later calls with update_node or remove_node.",
+    inputSchema: {
+      parent: external_exports.string().describe("Id or unique name of the base entity."),
+      children: external_exports.array(external_exports.string()).min(1).describe("Ids or unique names of the subclasses."),
+      name: external_exports.string().optional().describe('Name assigned to the specialization, defaulting to "Specialization".')
+    }
+  }, async (input2) => json3(await addIsa(input2)));
+  server.registerTool("update_node", {
+    title: "Update a shape",
+    description: "Rename or retype a shape, or move an entity to a given point. An entity takes a name, kind, and x/y; a relationship takes a name or kind; an attribute takes a name, kind, or data type. x and y are the entity's top-left in the current view, and moving one carries its attributes with it in Chen notation. Data types are normalized to the app's canonical form. Refer to the shape by id or unique name.",
+    inputSchema: {
+      node: external_exports.string().describe("Shape id or unique name."),
+      name: external_exports.string().optional().describe("New shape name in the database."),
+      kind: external_exports.string().optional().describe("Entity: strong|weak. Relationship: strong|weak. Attribute: simple|key|unique|multivalued|derived|composite."),
+      dataType: external_exports.string().optional().describe("Attributes only."),
+      x: external_exports.number().optional().describe("Entities only. Left edge in the current view; give both x and y."),
+      y: external_exports.number().optional().describe("Entities only. Top edge in the current view; give both x and y.")
+    }
+  }, async ({ node: node2, ...patch }) => json3(await updateNode(node2, patch)));
+  server.registerTool("remove_node", {
+    title: "Remove a shape",
+    description: "Delete a shape from the open diagram. Attributes it owns are deleted with it, and lines touching it are removed. Refer to it by id or unique name.",
+    inputSchema: {
+      node: external_exports.string().describe("Shape id or unique name.")
+    }
+  }, async ({ node: node2 }) => json3(await removeDiagramNode(node2)));
+  server.registerTool("update_diagram", {
+    title: "Update the diagram",
+    description: "Rename the open diagram or switch the notation shown. Chen and crow's-foot coordinates are stored separately, so switching never destroys the other view's layout.",
+    inputSchema: {
+      name: external_exports.string().optional().describe("New diagram name."),
+      view: viewSchema.optional().describe("Notation to show: chen (default) or crowfoot.")
+    }
+  }, async (patch) => json3(await updateDiagram(patch)));
+  server.registerTool("create_share_link", {
+    title: "Create a share link",
+    description: "Build a URL that opens the open diagram in ERD Maker. The snapshot is embedded by default, so the link works without a server. In a live room the URL points at that room instead, so the AI's edits keep streaming to whoever opens it. baseUrl defaults to the live room's app URL, then http://localhost:5173/ (or ERD_MCP_APP_URL); room reuses an existing room id instead of generating one.",
+    inputSchema: {
+      baseUrl: external_exports.string().optional().describe("App origin, e.g. https://erd.example.com/."),
+      room: external_exports.string().optional().describe("Reuses this room, keeping the AI's edits live in it."),
+      includeSnapshot: external_exports.boolean().optional().describe("Defaults to true.")
+    }
+  }, async (options) => json3(shareSession(options)));
+  server.registerTool("list_diagrams", {
+    title: "List saved diagrams",
+    description: "List JSON diagram files in the diagrams folder, newest first, with each diagram's stored name when it can be read.",
+    inputSchema: {}
+  }, async () => json3({ diagrams: await listDiagramFiles() }));
+  server.registerResource("current-diagram", "erd://current", {
+    title: "Current diagram",
+    description: "The open diagram as the JSON document ERD Maker imports.",
+    mimeType: "application/json"
+  }, async (uri) => {
+    const current = peekSession();
+    if (!current) return { contents: [{ uri: uri.href, text: "No diagram is open. Call create_diagram or open_diagram first." }] };
+    return {
+      contents: [{
+        uri: uri.href,
+        mimeType: "application/json",
+        text: JSON.stringify({ filePath: current.filePath, dirty: current.dirty, live: current.live, document: current.doc }, null, 2)
+      }]
+    };
+  });
+  server.registerResource("current-summary", "erd://current/summary", {
+    title: "Current diagram summary",
+    description: "Entities, columns, relationships, and issues of the open diagram, plus a text outline.",
+    mimeType: "application/json"
+  }, async (uri) => {
+    if (!peekSession()) {
+      return { contents: [{ uri: uri.href, text: "No diagram is open. Call create_diagram or open_diagram first." }] };
+    }
+    return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(summarizeSession(), null, 2) }] };
+  });
+  server.registerResource("current-sql", "erd://current/sql", {
+    title: "Current diagram SQL",
+    description: "Standard-dialect DDL for the open diagram, or the reason it cannot be generated yet.",
+    mimeType: "text/plain"
+  }, async (uri) => {
+    if (!peekSession()) {
+      return { contents: [{ uri: uri.href, text: "No diagram is open. Call create_diagram or open_diagram first." }] };
+    }
+    try {
+      return { contents: [{ uri: uri.href, mimeType: "text/plain", text: sqlForSession().sql }] };
+    } catch (error62) {
+      return { contents: [{ uri: uri.href, mimeType: "text/plain", text: errorMessage(error62) }] };
+    }
+  });
+  server.registerPrompt("design-erd", {
+    title: "Design an ERD",
+    description: "Work through requirements and produce a validated diagram with SQL.",
+    argsSchema: {
+      requirements: external_exports.string().describe("What the database must support."),
+      view: viewSchema.optional()
+    }
+  }, ({ requirements, view }) => ({
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text: [
+          "Design an entity-relationship diagram for these requirements:",
+          "",
+          requirements,
+          "",
+          "Use the ERD Maker tools:",
+          '1. List entities and their attributes. Mark the identifier of each entity with kind "key" and give attributes a dataType.',
+          '2. Describe relationships with cardinality at each end. "1:N" from A to B means one A relates to many Bs. Use N:M when both sides can repeat; the junction table is generated for you.',
+          "3. Model a dependent entity as weak when its identity includes a parent's key.",
+          "4. Place the entities on a grid: give each one an x and y, related entities near each other, about 500px apart across and 360px down in Chen, so the attribute columns and relationship diamonds the app places for you have room. Do not rely on automatic arrangement.",
+          "5. If the person wants to watch, call open_room BEFORE create_diagram: pass their share link to join their room, or omit it to start a new one. Every edit then streams into their open tab without a refresh.",
+          "6. Call create_diagram once with the whole model \u2014 every entity with its attributes listed on it, every relationship, every specialization \u2014 then validate_diagram, and fix anything it reports.",
+          "7. Run generate_sql and include the DDL, along with the share link from create_diagram.",
+          "8. Leave the room open while the person keeps working. Call leave_room when they say they are done, or ask you to leave \u2014 your turn ending is not them being done.",
+          "9. Model specializations with add_isa: a parent entity and every subclass that inherits its keys and values, added after create_diagram.",
+          view ? `Show the diagram in the ${view} view after creating it.` : "",
+          "",
+          "Use the vocabulary of the requirements and do not invent attributes they do not imply."
+        ].filter(Boolean).join("\n")
+      }
+    }]
+  }));
+  return server;
+}
+var init_tools = __esm({
+  "mcp/tools.ts"() {
+    "use strict";
+    init_mcp();
+    init_zod();
+    init_compact();
+    init_diagram();
+  }
+});
+
+// mcp/workspace.ts
+function assertJsonPath(input2) {
+  const trimmed = input2.trim();
+  if (!trimmed) throw new WorkspacePathError("Pass a diagram path.");
+  if (!trimmed.toLowerCase().endsWith(".json")) {
+    throw new WorkspacePathError("Diagram files must use a .json extension.");
+  }
+  return trimmed;
+}
+function keyStem(name) {
+  const cleaned = name.trim().replace(/[\s-]+/g, "_").replace(/[^A-Za-z0-9_]/g, "").toLowerCase();
+  return cleaned || "unnamed";
+}
+var WorkspacePathError;
+var init_workspace = __esm({
+  "mcp/workspace.ts"() {
+    "use strict";
+    WorkspacePathError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "WorkspacePathError";
+      }
+    };
+  }
+});
+
+// mcp/fileWorkspace.ts
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+var FileWorkspace;
+var init_fileWorkspace = __esm({
+  "mcp/fileWorkspace.ts"() {
+    "use strict";
+    init_workspace();
+    FileWorkspace = class {
+      label;
+      root;
+      diagrams;
+      constructor(options) {
+        this.root = resolve(options.root);
+        this.diagrams = resolve(this.root, options.diagramsDir ?? "diagrams");
+        this.label = this.root;
+      }
+      resolve(input2) {
+        const trimmed = assertJsonPath(input2);
+        const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(this.root, trimmed);
+        const rel = relative(this.root, candidate);
+        if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+          throw new WorkspacePathError(`Diagram paths must stay inside ${this.root}.`);
+        }
+        return candidate;
+      }
+      display(key) {
+        const rel = relative(this.root, key);
+        return (rel || key).split(sep).join("/");
+      }
+      async exists(key) {
+        try {
+          const info = await stat(key);
+          return info.isFile();
+        } catch {
+          return false;
+        }
+      }
+      async read(key) {
+        return readFile(key, "utf8");
+      }
+      async write(key, text) {
+        await mkdir(dirname(key), { recursive: true });
+        await writeFile(key, text, "utf8");
+      }
+      async list() {
+        let names;
+        try {
+          const entries = await readdir(this.diagrams, { withFileTypes: true });
+          names = entries.filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".json")).map((entry) => entry.name);
+        } catch {
+          return [];
+        }
+        const found = [];
+        for (const name of names) {
+          const key = join(this.diagrams, name);
+          try {
+            const info = await stat(key);
+            let text = null;
+            try {
+              text = await readFile(key, "utf8");
+            } catch {
+            }
+            found.push({ key, modified: info.mtime.toISOString(), size: info.size, text });
+          } catch {
+          }
+        }
+        return found.sort((a, b) => b.modified.localeCompare(a.modified));
+      }
+      async defaultKey(name) {
+        await mkdir(this.diagrams, { recursive: true });
+        const stem = keyStem(name);
+        for (let index = 1; index < 1e4; index += 1) {
+          const candidate = join(this.diagrams, `${stem}${index === 1 ? "" : `-${index}`}.json`);
+          if (!await this.exists(candidate)) return candidate;
+        }
+        return join(this.diagrams, `${stem}-${Date.now().toString(36)}.json`);
+      }
+    };
+  }
+});
+
 // node_modules/ws/lib/constants.js
 var require_constants = __commonJS({
   "node_modules/ws/lib/constants.js"(exports, module) {
@@ -55226,3028 +58202,20 @@ var init_wrapper = __esm({
   }
 });
 
-// src/collab/comments.ts
-function readComments(ydoc) {
-  return normalizeComments([...ydoc.getMap(COMMENTS)].map(([id2, value]) => value && typeof value === "object" ? { ...value, id: id2 } : null));
-}
-var COMMENTS;
-var init_comments2 = __esm({
-  "src/collab/comments.ts"() {
+// mcp/nodeSocket.ts
+var nodeSocketFactory;
+var init_nodeSocket = __esm({
+  "mcp/nodeSocket.ts"() {
     "use strict";
-    init_comments();
-    COMMENTS = "comments";
-  }
-});
-
-// src/collab/ydoc.ts
-function setFields(map3, fields) {
-  for (const [key, value] of Object.entries(fields)) {
-    if (Array.isArray(value)) {
-      map3.set(key, value);
-    } else {
-      map3.set(key, value);
-    }
-  }
-}
-function readString(map3, key, fallback) {
-  const v = map3.get(key);
-  return typeof v === "string" ? v : fallback;
-}
-function readNumber(map3, key, fallback = 0) {
-  const v = map3.get(key);
-  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
-}
-function readOptionalNumber(map3, key) {
-  const v = map3.get(key);
-  return typeof v === "number" && Number.isFinite(v) ? v : void 0;
-}
-function crowNames(value) {
-  if (!value || typeof value !== "object") return void 0;
-  const names = {};
-  for (const [key, name] of Object.entries(value)) {
-    if (typeof name === "string" && name.trim()) names[key] = name;
-  }
-  return Object.keys(names).length ? names : void 0;
-}
-function readStringArray(map3, key) {
-  const v = map3.get(key);
-  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
-}
-function upsertGroup(ydoc, group) {
-  const map3 = ydoc.getMap(GROUPS);
-  if (group.memberIds.length < 2) {
-    map3.delete(group.id);
-    return;
-  }
-  const existing = map3.get(group.id);
-  if (existing) {
-    setFields(existing, { id: group.id, name: group.name, memberIds: group.memberIds });
-    return;
-  }
-  const next = new YMap();
-  setFields(next, { id: group.id, name: group.name, memberIds: group.memberIds });
-  map3.set(group.id, next);
-}
-function upsertEntity(ydoc, entity) {
-  const map3 = ydoc.getMap(ENTITIES);
-  const existing = map3.get(entity.id);
-  if (existing) {
-    setFields(existing, { ...entity });
-    if (entity.crowX === void 0) existing.delete("crowX");
-    if (entity.crowY === void 0) existing.delete("crowY");
-    return;
-  }
-  const next = new YMap();
-  setFields(next, { ...entity });
-  map3.set(entity.id, next);
-}
-function upsertAttribute(ydoc, attribute) {
-  const map3 = ydoc.getMap(ATTRIBUTES);
-  const existing = map3.get(attribute.id);
-  const { dataType: rawType, ...fields } = attribute;
-  const dataType = normalizeDataType(rawType);
-  if (existing) {
-    setFields(existing, fields);
-    if (dataType) existing.set("dataType", dataType);
-    else existing.delete("dataType");
-    return;
-  }
-  const next = new YMap();
-  setFields(next, fields);
-  if (dataType) next.set("dataType", dataType);
-  map3.set(attribute.id, next);
-}
-function upsertRelationship(ydoc, relationship) {
-  const map3 = ydoc.getMap(RELATIONSHIPS);
-  const existing = map3.get(relationship.id);
-  if (existing) {
-    setFields(existing, { ...relationship });
-    if (relationship.route === void 0) existing.delete("route");
-    if (relationship.bendX === void 0 || relationship.bendY === void 0) {
-      existing.delete("bendX");
-      existing.delete("bendY");
-    }
-    if (relationship.routePoints === void 0) existing.delete("routePoints");
-    return;
-  }
-  const next = new YMap();
-  setFields(next, { ...relationship });
-  map3.set(relationship.id, next);
-}
-function upsertIsa(ydoc, isa) {
-  const map3 = ydoc.getMap(ISAS);
-  const existing = map3.get(isa.id);
-  if (existing) {
-    setFields(existing, { ...isa });
-    return;
-  }
-  const next = new YMap();
-  setFields(next, { ...isa });
-  map3.set(isa.id, next);
-}
-function upsertLeg(ydoc, leg) {
-  const map3 = ydoc.getMap(LEGS);
-  const existing = map3.get(leg.id);
-  const fields = {
-    id: leg.id,
-    fromId: leg.fromId,
-    toId: leg.toId,
-    cardinality: leg.cardinality,
-    min: leg.participation.min,
-    max: leg.participation.max
-  };
-  if (existing) {
-    for (const [key, value] of Object.entries(fields)) {
-      if (existing.get(key) !== value) existing.set(key, value);
-    }
-    if (leg.columnId) {
-      if (existing.get("columnId") !== leg.columnId) existing.set("columnId", leg.columnId);
-    } else existing.delete("columnId");
-    const names = leg.columnNames && Object.keys(leg.columnNames).length ? leg.columnNames : void 0;
-    if (names) {
-      if (JSON.stringify(existing.get("columnNames")) !== JSON.stringify(names)) existing.set("columnNames", names);
-    } else existing.delete("columnNames");
-    return;
-  }
-  const next = new YMap();
-  setFields(next, fields);
-  if (leg.columnId) next.set("columnId", leg.columnId);
-  if (leg.columnNames && Object.keys(leg.columnNames).length) next.set("columnNames", leg.columnNames);
-  map3.set(leg.id, next);
-}
-function setMeta(ydoc, patch) {
-  const meta3 = ydoc.getMap(META);
-  ydoc.transact(() => {
-    for (const [key, value] of Object.entries(patch)) {
-      if (value !== void 0) meta3.set(key, value);
-    }
-  });
-}
-function crowPlacement(map3) {
-  let best;
-  for (const [key, value] of map3.entries()) {
-    if (!key.startsWith(CROW_PREFIX) || !value || typeof value !== "object") continue;
-    const entry = value;
-    if (typeof entry.x !== "number" || typeof entry.y !== "number" || typeof entry.at !== "number") continue;
-    const placement = { x: entry.x, y: entry.y, at: entry.at, move: entry.move === true };
-    if (!best || placement.move && !best.move || placement.move === best.move && placement.at > best.at) best = placement;
-  }
-  return best ? { x: best.x, y: best.y } : void 0;
-}
-function snapshotFromYdoc(ydoc) {
-  const doc = emptyDocument();
-  const meta3 = ydoc.getMap(META);
-  doc.name = readString(meta3, "name", doc.name);
-  doc.view = readString(meta3, "view", "chen") === "crowfoot" ? "crowfoot" : "chen";
-  doc.comments = readComments(ydoc);
-  ydoc.getMap(ENTITIES).forEach((value, key) => {
-    const m = value;
-    const placed = crowPlacement(m);
-    const crowX = placed?.x ?? readOptionalNumber(m, "crowX");
-    const crowY = placed?.y ?? readOptionalNumber(m, "crowY");
-    doc.entities.push({
-      id: key,
-      name: readString(m, "name", "Entity"),
-      x: readNumber(m, "x"),
-      y: readNumber(m, "y"),
-      // Absent stays absent: it means "this browser has not placed the table
-      // yet", which is different from a placement at the origin.
-      ...crowX !== void 0 && crowY !== void 0 ? { crowX, crowY } : {},
-      kind: ENTITY_KINDS.find((kind) => kind === m.get("kind")) ?? "strong"
-    });
-  });
-  ydoc.getMap(ATTRIBUTES).forEach((value, key) => {
-    const m = value;
-    const kind = readString(m, "kind", "simple");
-    const kinds = ["simple", "key", "unique", "multivalued", "derived", "composite"];
-    const dataType = normalizeDataType(m.get("dataType"));
-    doc.attributes.push({
-      id: key,
-      name: readString(m, "name", "attribute"),
-      x: readNumber(m, "x"),
-      y: readNumber(m, "y"),
-      kind: kinds.find((k) => k === kind) ?? "simple",
-      ownerId: typeof m.get("ownerId") === "string" ? m.get("ownerId") : null,
-      ...dataType ? { dataType } : {}
-    });
-  });
-  ydoc.getMap(RELATIONSHIPS).forEach((value, key) => {
-    const m = value;
-    const bendX = readOptionalNumber(m, "bendX");
-    const bendY = readOptionalNumber(m, "bendY");
-    doc.relationships.push({
-      id: key,
-      name: readString(m, "name", "relationship"),
-      x: readNumber(m, "x"),
-      y: readNumber(m, "y"),
-      kind: readString(m, "kind", "strong") === "weak" ? "weak" : "strong",
-      /*
-       * Absent stays absent: it means automatic, and materialising `'auto'` on
-       * every relationship would make a document that never chose a route differ
-       * from the one it was saved from. A peer can send any string here, so the
-       * value is checked rather than trusted.
-       */
-      ...ROUTE_SIDES.includes(m.get("route")) ? { route: m.get("route") } : {},
-      /*
-       * A dragged corner, or absent for "the router decides". Both halves have to
-       * be finite and present: a peer can send anything, and a corner at
-       * Infinity would put the line somewhere nobody can scroll to.
-       */
-      ...bendX !== void 0 && bendY !== void 0 ? { bendX, bendY } : {},
-      ...normalizeRoutePoints(m.get("routePoints")) ? { routePoints: normalizeRoutePoints(m.get("routePoints")) } : {}
-    });
-  });
-  ydoc.getMap(ISAS).forEach((value, key) => {
-    const m = value;
-    const parentId = m.get("parentId");
-    doc.isas.push({
-      id: key,
-      x: readNumber(m, "x"),
-      y: readNumber(m, "y"),
-      parentId: typeof parentId === "string" ? parentId : null,
-      childIds: readStringArray(m, "childIds")
-    });
-  });
-  ydoc.getMap(LEGS).forEach((value, key) => {
-    const m = value;
-    const fromId = m.get("fromId");
-    const toId = m.get("toId");
-    if (typeof fromId !== "string" || typeof toId !== "string") return;
-    const card = readString(m, "cardinality", "1");
-    const maxRaw = m.get("max");
-    doc.legs.push({
-      id: key,
-      fromId,
-      toId,
-      cardinality: card === "N" || card === "M" ? card : "1",
-      participation: {
-        min: Math.max(0, Math.floor(readNumber(m, "min", 0))),
-        max: maxRaw === "N" ? "N" : Math.max(1, Math.floor(readNumber(m, "max", 1)))
-      },
-      ...typeof m.get("columnId") === "string" && m.get("columnId") ? { columnId: m.get("columnId") } : {},
-      ...crowNames(m.get("columnNames")) ? { columnNames: crowNames(m.get("columnNames")) } : {}
-    });
-  });
-  ydoc.getMap(GROUPS).forEach((value, key) => {
-    const m = value;
-    const memberIds = readStringArray(m, "memberIds");
-    if (memberIds.length < 2) return;
-    doc.groups.push({ id: key, name: readString(m, "name", "Group"), memberIds });
-  });
-  const ids = /* @__PURE__ */ new Set([
-    ...doc.entities.map((e) => e.id),
-    ...doc.relationships.map((r) => r.id),
-    ...doc.isas.map((i) => i.id)
-  ]);
-  doc.legs = doc.legs.filter((l) => ids.has(l.fromId) && ids.has(l.toId));
-  doc.attributes = normalizeAttributeOwners(doc);
-  const nodeIds = new Set([...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas].map((n) => n.id));
-  doc.groups = doc.groups.map((g) => ({ ...g, memberIds: g.memberIds.filter((id2) => nodeIds.has(id2)) })).filter((g) => g.memberIds.length > 1);
-  const byId = (a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-  doc.entities.sort(byId);
-  doc.attributes.sort(byId);
-  doc.relationships.sort(byId);
-  doc.isas.sort(byId);
-  doc.legs.sort(byId);
-  doc.groups.sort(byId);
-  return doc;
-}
-var META, ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS, LEGS, GROUPS, CROW_PREFIX;
-var init_ydoc = __esm({
-  "src/collab/ydoc.ts"() {
-    "use strict";
-    init_yjs();
-    init_types3();
-    init_types3();
-    init_dataTypes();
-    init_attributes();
-    init_connectorRouting();
-    init_placement();
-    init_crowfoot();
-    init_comments();
-    init_comments2();
-    META = "meta";
-    ENTITIES = "entities";
-    ATTRIBUTES = "attributes";
-    RELATIONSHIPS = "relationships";
-    ISAS = "isas";
-    LEGS = "legs";
-    GROUPS = "groups";
-    CROW_PREFIX = "crow_";
-  }
-});
-
-// mcp/live.ts
-function roomFromLink(input2) {
-  const raw = input2.trim().replace(/^['"]|['"]$/g, "");
-  if (!raw) return {};
-  if (raw.startsWith("#")) {
-    const parsed = parseShareHash(raw);
-    return {
-      ...parsed.room ? { room: parsed.room } : {},
-      ...parsed.doc ? { doc: parsed.doc } : {}
-    };
-  }
-  if (/^https?:\/\//i.test(raw) || raw.includes("#room=")) {
-    let url2;
-    try {
-      url2 = new URL(raw);
-    } catch {
-      return {};
-    }
-    const parsed = parseShareHash(url2.hash);
-    return {
-      ...parsed.room ? { room: parsed.room } : {},
-      baseUrl: `${url2.origin}${url2.pathname}${url2.search}`,
-      origin: url2.origin,
-      ...parsed.doc ? { doc: parsed.doc } : {}
-    };
-  }
-  if (ROOM_PATTERN.test(raw)) return { room: raw };
-  return {};
-}
-function pause(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
-}
-function travelEase(t) {
-  const value = Math.min(1, Math.max(0, t));
-  return value * value * value * (10 - 15 * value + 6 * value * value);
-}
-function travelDurationMs(from2, to) {
-  const distance = Math.hypot(to.x - from2.x, to.y - from2.y);
-  return Math.round(Math.min(MOVE_MAX_MS, Math.max(MOVE_MIN_MS, distance * MOVE_MS_PER_PX)));
-}
-function travelBow(from2, to) {
-  const length2 = Math.hypot(to.x - from2.x, to.y - from2.y);
-  if (length2 <= MOVE_BOW_FROM_PX) return 0;
-  const nominal = Math.min(MOVE_BOW_MAX_PX, length2 * MOVE_BOW_RATIO);
-  let hash2 = 2166136261;
-  for (const value of [Math.round(from2.x), Math.round(from2.y), Math.round(to.x), Math.round(to.y)]) {
-    hash2 = Math.imul(hash2 ^ value & 255, 16777619) >>> 0;
-    hash2 = Math.imul(hash2 ^ value >> 8 & 255, 16777619) >>> 0;
-    hash2 = Math.imul(hash2 ^ value >> 16 & 255, 16777619) >>> 0;
-    hash2 = Math.imul(hash2 ^ value >> 24 & 255, 16777619) >>> 0;
-  }
-  const spread = hash2 % 1e3 / 1e3 * 2 - 1;
-  return nominal * (1 + spread * MOVE_BOW_SPREAD) * (hash2 % 2 ? 1 : -1);
-}
-function settleOffset(t, length2) {
-  if (t <= SETTLE_FROM_T || t >= 1) return 0;
-  const part = (t - SETTLE_FROM_T) / (1 - SETTLE_FROM_T);
-  return length2 * SETTLE_RATIO * Math.sin(Math.PI * part);
-}
-function travelControl(from2, to, bow, incoming = null) {
-  const dx = to.x - from2.x;
-  const dy = to.y - from2.y;
-  const length2 = Math.hypot(dx, dy) || 1;
-  const plain = {
-    x: (from2.x + to.x) / 2 - dy / length2 * bow,
-    y: (from2.y + to.y) / 2 + dx / length2 * bow
-  };
-  const speed = incoming ? Math.hypot(incoming.x, incoming.y) : 0;
-  if (!incoming || !(speed > CARRY_MIN_PX_PER_MS)) return plain;
-  const carry = length2 * CARRY_RATIO;
-  return {
-    x: plain.x + incoming.x / speed * carry,
-    y: plain.y + incoming.y / speed * carry
-  };
-}
-function travelPoint(from2, to, t, incoming = null) {
-  const eased = travelEase(t);
-  const dx = to.x - from2.x;
-  const dy = to.y - from2.y;
-  const length2 = Math.hypot(dx, dy);
-  if (length2 < 1e-6) return { x: to.x, y: to.y };
-  const control = travelControl(from2, to, travelBow(from2, to), incoming);
-  const rest = 1 - eased;
-  const settle2 = settleOffset(t, length2);
-  return {
-    x: rest * rest * from2.x + 2 * rest * eased * control.x + eased * eased * to.x + dx / length2 * settle2,
-    y: rest * rest * from2.y + 2 * rest * eased * control.y + eased * eased * to.y + dy / length2 * settle2
-  };
-}
-function legEase(p, restStart, restEnd) {
-  const value = Math.min(1, Math.max(0, p));
-  if (restStart && restEnd) return travelEase(value);
-  if (restStart) return value * value;
-  if (restEnd) return 1 - (1 - value) * (1 - value);
-  return value + ROUTE_EASE_BLEND * (travelEase(value) - value);
-}
-function routePoint(knots, u) {
-  if (knots.length === 0) return null;
-  const last2 = knots.length - 1;
-  if (last2 === 0) return { x: knots[0].x, y: knots[0].y };
-  const value = Math.min(last2, Math.max(0, u));
-  const i = Math.min(last2 - 1, Math.floor(value));
-  const t = value - i;
-  const p0 = knots[i - 1] ?? knots[i];
-  const p1 = knots[i];
-  const p2 = knots[i + 1];
-  const p3 = knots[i + 2] ?? knots[i + 1];
-  const t2 = t * t;
-  const t3 = t2 * t;
-  const blend = (a, b, c, d) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (3 * b - a - 3 * c + d) * t3);
-  return {
-    x: blend(p0.x, p1.x, p2.x, p3.x),
-    y: blend(p0.y, p1.y, p2.y, p3.y)
-  };
-}
-function routeDurationsMs(knots) {
-  const durations = [];
-  for (let i = 1; i < knots.length; i += 1) {
-    durations.push(travelDurationMs(knots[i - 1], knots[i]));
-  }
-  return durations;
-}
-function socketWithOrigin(origin) {
-  class OriginSocket extends wrapper_default {
-    constructor(address, protocols) {
-      super(address, protocols, { origin });
-    }
-  }
-  return OriginSocket;
-}
-function writeCollections(ydoc, doc) {
-  for (const entity of doc.entities) upsertEntity(ydoc, entity);
-  for (const attribute of doc.attributes) upsertAttribute(ydoc, attribute);
-  for (const relationship of doc.relationships) upsertRelationship(ydoc, relationship);
-  for (const isa of doc.isas) upsertIsa(ydoc, isa);
-  for (const leg of doc.legs) upsertLeg(ydoc, leg);
-  for (const group of doc.groups) upsertGroup(ydoc, group);
-  const comments = ydoc.getMap(COMMENTS);
-  for (const comment of doc.comments) comments.set(comment.id, comment);
-}
-function liveSteps(doc) {
-  const steps = [];
-  const seen = /* @__PURE__ */ new Set();
-  const visitAttributes = (ownerId) => {
-    for (const attribute of doc.attributes) {
-      if (attribute.ownerId !== ownerId || seen.has(attribute.id)) continue;
-      seen.add(attribute.id);
-      steps.push({ id: attribute.id, kind: "attribute" });
-      visitAttributes(attribute.id);
-    }
-  };
-  for (const entity of doc.entities) {
-    if (seen.has(entity.id)) continue;
-    seen.add(entity.id);
-    steps.push({ id: entity.id, kind: "entity" });
-    visitAttributes(entity.id);
-  }
-  for (const relationship of doc.relationships) {
-    if (seen.has(relationship.id)) continue;
-    seen.add(relationship.id);
-    steps.push({ id: relationship.id, kind: "relationship" });
-    visitAttributes(relationship.id);
-  }
-  for (const isa of doc.isas) {
-    if (seen.has(isa.id)) continue;
-    seen.add(isa.id);
-    steps.push({ id: isa.id, kind: "isa" });
-    visitAttributes(isa.id);
-  }
-  for (const attribute of doc.attributes) {
-    if (seen.has(attribute.id)) continue;
-    seen.add(attribute.id);
-    steps.push({ id: attribute.id, kind: "attribute" });
-  }
-  return steps;
-}
-function presenceAt(doc, focusId, view) {
-  const cursor = focusId ? focusPoint({ ...doc, view }, focusId) : null;
-  return { view, cursor, selectedIds: focusId && cursor ? [focusId] : [] };
-}
-function focusPoint(doc, id2) {
-  if (doc.view === "crowfoot") {
-    const owner = ownerEntity(doc, id2);
-    if (owner) {
-      return owner.crowX !== void 0 && owner.crowY !== void 0 ? { x: owner.crowX + CROW_WIDTH / 2, y: owner.crowY + CROW_HEADER_HEIGHT / 2 } : { x: owner.x, y: owner.y };
-    }
-  }
-  const entity = doc.entities.find((candidate) => candidate.id === id2);
-  if (entity) return centerOf2(entity, "entity");
-  const attribute = doc.attributes.find((candidate) => candidate.id === id2);
-  if (attribute) return centerOf2(attribute, "attribute");
-  const relationship = doc.relationships.find((candidate) => candidate.id === id2);
-  if (relationship) return centerOf2(relationship, "relationship");
-  const isa = doc.isas.find((candidate) => candidate.id === id2);
-  return isa ? centerOf2(isa, "isa") : null;
-}
-function centerOf2(shape, kind) {
-  const size2 = NODE_SIZE[kind];
-  return { x: shape.x + size2.w / 2, y: shape.y + size2.h / 2 };
-}
-function ownerEntity(doc, id2) {
-  let current = id2;
-  const seen = /* @__PURE__ */ new Set();
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    const entity = doc.entities.find((candidate) => candidate.id === current);
-    if (entity) return entity;
-    const attribute = doc.attributes.find((candidate) => candidate.id === current);
-    if (attribute) {
-      current = attribute.ownerId;
-      continue;
-    }
-    const relationship = doc.relationships.find((candidate) => candidate.id === current);
-    if (relationship) {
-      const leg = doc.legs.find((candidate) => candidate.fromId === relationship.id || candidate.toId === relationship.id);
-      current = leg ? leg.fromId === relationship.id ? leg.toId : leg.fromId : null;
-      continue;
-    }
-    const isa = doc.isas.find((candidate) => candidate.id === current);
-    current = isa?.parentId ?? null;
-  }
-  return void 0;
-}
-function writeDocumentDiff(ydoc, before, after) {
-  const diff = {
-    entities: changedIds(before.entities, after.entities),
-    attributes: changedIds(before.attributes, after.attributes),
-    relationships: changedIds(before.relationships, after.relationships),
-    isas: changedIds(before.isas, after.isas),
-    legs: changedIds(before.legs, after.legs),
-    groups: changedIds(before.groups, after.groups),
-    comments: changedIds(before.comments, after.comments)
-  };
-  const changedNodeIds = [];
-  ydoc.transact(() => {
-    for (const entity of diff.entities.changed) {
-      upsertEntity(ydoc, entity);
-      changedNodeIds.push(entity.id);
-    }
-    for (const id2 of diff.entities.removed) ydoc.getMap(ENTITIES).delete(id2);
-    for (const attribute of diff.attributes.changed) {
-      upsertAttribute(ydoc, attribute);
-      changedNodeIds.push(attribute.id);
-    }
-    for (const id2 of diff.attributes.removed) ydoc.getMap(ATTRIBUTES).delete(id2);
-    for (const relationship of diff.relationships.changed) {
-      upsertRelationship(ydoc, relationship);
-      changedNodeIds.push(relationship.id);
-    }
-    for (const id2 of diff.relationships.removed) ydoc.getMap(RELATIONSHIPS).delete(id2);
-    for (const isa of diff.isas.changed) {
-      upsertIsa(ydoc, isa);
-      changedNodeIds.push(isa.id);
-    }
-    for (const id2 of diff.isas.removed) ydoc.getMap(ISAS).delete(id2);
-    for (const leg of diff.legs.changed) upsertLeg(ydoc, leg);
-    for (const id2 of diff.legs.removed) ydoc.getMap(LEGS).delete(id2);
-    for (const group of diff.groups.changed) upsertGroup(ydoc, group);
-    for (const id2 of diff.groups.removed) ydoc.getMap(GROUPS).delete(id2);
-    const comments = ydoc.getMap(COMMENTS);
-    for (const comment of diff.comments.changed) comments.set(comment.id, comment);
-    for (const id2 of diff.comments.removed) comments.delete(id2);
-    if (before.name !== after.name || before.view !== after.view) {
-      setMeta(ydoc, { name: after.name, view: after.view });
-    }
-  });
-  return changedNodeIds;
-}
-function changedIds(before, after) {
-  const versions = new Map(before.map((item) => [item.id, JSON.stringify(item)]));
-  const present = new Set(after.map((item) => item.id));
-  return {
-    changed: after.filter((item) => versions.get(item.id) !== JSON.stringify(item)),
-    removed: before.filter((item) => !present.has(item.id)).map((item) => item.id)
-  };
-}
-function lassoDurationMs(total) {
-  return Math.round(Math.min(LASSO_MAX_MS, Math.max(LASSO_MIN_MS, total * LASSO_MS_PER_PX)));
-}
-function viewOrigin(doc, id2, view) {
-  const entity = doc.entities.find((candidate) => candidate.id === id2);
-  if (entity) {
-    return view === "crowfoot" ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y } : { x: entity.x, y: entity.y };
-  }
-  if (view === "crowfoot") return null;
-  const node2 = doc.attributes.find((candidate) => candidate.id === id2) ?? doc.relationships.find((candidate) => candidate.id === id2) ?? doc.isas.find((candidate) => candidate.id === id2);
-  return node2 ? { x: node2.x, y: node2.y } : null;
-}
-function ownedIds(doc, rootId) {
-  const seen = /* @__PURE__ */ new Set([rootId]);
-  const found = [];
-  let frontier = [rootId];
-  while (frontier.length > 0) {
-    const next = [];
-    for (const owner of frontier) {
-      for (const attribute of doc.attributes) {
-        if (attribute.ownerId !== owner || seen.has(attribute.id)) continue;
-        seen.add(attribute.id);
-        found.push(attribute.id);
-        next.push(attribute.id);
-      }
-    }
-    frontier = next;
-  }
-  return found;
-}
-function dragShapeIds(doc, focusId, view) {
-  if (view !== "crowfoot") return [focusId, ...ownedIds(doc, focusId)];
-  const owner = ownerEntity(doc, focusId);
-  return owner ? [owner.id] : [focusId];
-}
-function shapeBox(doc, id2, view) {
-  if (view === "crowfoot") {
-    const owner = ownerEntity(doc, id2);
-    if (!owner) return null;
-    const table = deriveTables(doc).find((candidate) => candidate.entityId === owner.id);
-    return table ? { x: table.x, y: table.y, w: table.width, h: tableHeight(table) } : { x: owner.crowX ?? owner.x, y: owner.crowY ?? owner.y, w: CROW_WIDTH, h: CROW_HEADER_HEIGHT };
-  }
-  const kind = nodeKind(doc, id2);
-  const node2 = kind ? viewOrigin(doc, id2, view) : null;
-  if (!kind || !node2) return null;
-  return { x: node2.x, y: node2.y, w: NODE_SIZE[kind].w, h: NODE_SIZE[kind].h };
-}
-function lassoLoop(boxes, pad) {
-  if (boxes.length === 0) return null;
-  let left = Infinity;
-  let top = Infinity;
-  let right = -Infinity;
-  let bottom = -Infinity;
-  for (const box of boxes) {
-    left = Math.min(left, box.x);
-    top = Math.min(top, box.y);
-    right = Math.max(right, box.x + box.w);
-    bottom = Math.max(bottom, box.y + box.h);
-  }
-  const corners = [
-    { x: left - pad, y: top - pad },
-    { x: right + pad, y: top - pad },
-    { x: right + pad, y: bottom + pad },
-    { x: left - pad, y: bottom + pad },
-    { x: left - pad, y: top - pad }
-  ];
-  const lengths = [];
-  for (let index = 1; index < corners.length; index += 1) {
-    const from2 = corners[index - 1];
-    const to = corners[index];
-    lengths.push(Math.hypot(to.x - from2.x, to.y - from2.y));
-  }
-  const total = lengths.reduce((sum, length2) => sum + length2, 0);
-  return total > 0 ? { corners, lengths, total } : null;
-}
-function loopPoint(loop, distance) {
-  const walked = Math.max(0, distance);
-  if (walked >= loop.total) return { ...loop.corners[0] };
-  let remaining = walked;
-  for (let index = 0; index < loop.lengths.length; index += 1) {
-    const length2 = loop.lengths[index];
-    if (remaining <= length2) {
-      const from2 = loop.corners[index];
-      const to = loop.corners[index + 1];
-      const t = length2 > 0 ? remaining / length2 : 0;
-      return { x: from2.x + (to.x - from2.x) * t, y: from2.y + (to.y - from2.y) * t };
-    }
-    remaining -= length2;
-  }
-  return { ...loop.corners[0] };
-}
-function lassoTrail(loop, distance) {
-  const walked = Math.min(loop.total, Math.max(0, distance));
-  const points = [{ ...loop.corners[0] }];
-  for (let step = LASSO_STEP_PX; step < walked; step += LASSO_STEP_PX) points.push(loopPoint(loop, step));
-  points.push(loopPoint(loop, walked));
-  return points;
-}
-var FALLBACK_RELAY, FALLBACK_ORIGIN, AI_USER_ID, AI_COLOR, ROOM_PATTERN, MOVE_FRAME_MS, MOVE_MIN_MS, MOVE_MAX_MS, MOVE_MS_PER_PX, MOVE_BOW_FROM_PX, MOVE_BOW_RATIO, MOVE_BOW_MAX_PX, MOVE_BOW_SPREAD, SETTLE_RATIO, SETTLE_FROM_T, CARRY_MIN_PX_PER_MS, CARRY_RATIO, ROUTE_EASE_BLEND, FAREWELL_MS, HOVER_MS, PRESS_MS, TYPING_MS, THINK_MS, ENTRANCE_OFFSET, LiveRoom, LASSO_PAD_PX, LASSO_STEP_PX, LASSO_MIN_MS, LASSO_MAX_MS, LASSO_MS_PER_PX;
-var init_live = __esm({
-  "mcp/live.ts"() {
-    "use strict";
-    init_yjs();
-    init_awareness();
-    init_y_websocket();
     init_wrapper();
-    init_crowfoot();
-    init_snapshot();
-    init_comments2();
-    init_ydoc();
-    init_types3();
-    FALLBACK_RELAY = "wss://erd-sync.cerberus-tusk-proxy.workers.dev";
-    FALLBACK_ORIGIN = "https://kuy124.github.io";
-    AI_USER_ID = "erd-mcp";
-    AI_COLOR = "#6B3FA0";
-    ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
-    MOVE_FRAME_MS = 16;
-    MOVE_MIN_MS = 320;
-    MOVE_MAX_MS = 1250;
-    MOVE_MS_PER_PX = 0.95;
-    MOVE_BOW_FROM_PX = 40;
-    MOVE_BOW_RATIO = 0.085;
-    MOVE_BOW_MAX_PX = 48;
-    MOVE_BOW_SPREAD = 0.35;
-    SETTLE_RATIO = 0.04;
-    SETTLE_FROM_T = 0.75;
-    CARRY_MIN_PX_PER_MS = 0.2;
-    CARRY_RATIO = 0.18;
-    ROUTE_EASE_BLEND = 0.65;
-    FAREWELL_MS = 700;
-    HOVER_MS = 90;
-    PRESS_MS = 380;
-    TYPING_MS = 900;
-    THINK_MS = 900;
-    ENTRANCE_OFFSET = 320;
-    LiveRoom = class _LiveRoom {
-      room;
-      ydoc;
-      relayUrl;
-      relayOrigin;
-      provider;
-      awareness;
-      typingTimer;
-      hoverTimer;
-      pressTimer;
-      thinkTimer;
-      /** The gesture published right now; every awareness frame carries it. */
-      intent = null;
-      /** The shape the pointer is hovering or pressing, if any. */
-      hoverTarget = null;
-      focusId = null;
-      closed = false;
-      seededRoom = false;
-      cursor = null;
-      cursorView = "chen";
-      cursorSelection = [];
-      moveTimer;
-      travel = null;
-      typingOnArrival = false;
-      /** Resolves whoever awaits the landing click: a glide, a drop, a lasso. */
-      arrival = null;
-      /** Selection takes effect on the press, the way a click does. */
-      pendingSelection = null;
-      /** Shapes in the air while a drag is being performed. */
-      drag = null;
-      pendingDrag = null;
-      lassoState = null;
-      route = null;
-      routeTimer;
-      constructor(room, ydoc, provider, awareness, relayUrl, relayOrigin) {
-        this.room = room;
-        this.ydoc = ydoc;
-        this.provider = provider;
-        this.awareness = awareness;
-        this.relayUrl = relayUrl;
-        this.relayOrigin = relayOrigin;
-      }
-      /**
-       * Connects before handing the room back, so a caller never writes into a
-       * socket that has not finished its first sync and then silently loses it.
-       */
-      static async join(options) {
-        const room = options.room.trim();
-        if (!ROOM_PATTERN.test(room)) {
-          throw new Error("A room id is 8 to 128 letters, digits, hyphens, or underscores. Paste a share link or a room id.");
-        }
-        const relayUrl = (options.relayUrl ?? process.env.ERD_MCP_RELAY_URL ?? FALLBACK_RELAY).trim();
-        const relayOrigin = (options.relayOrigin ?? process.env.ERD_MCP_RELAY_ORIGIN ?? FALLBACK_ORIGIN).trim();
-        const ydoc = new Doc2();
-        const awareness = new Awareness(ydoc);
-        const provider = new WebsocketProvider(relayUrl, room, ydoc, {
-          connect: false,
-          awareness,
-          WebSocketPolyfill: socketWithOrigin(relayOrigin),
-          disableBc: true,
-          maxBackoffTime: 1e4
-        });
-        const live = new _LiveRoom(room, ydoc, provider, awareness, relayUrl, relayOrigin);
-        if (options.startCursor) live.cursor = { x: options.startCursor.x, y: options.startCursor.y };
-        live.publishPresence({ cursor: live.cursor, selectedIds: [], view: "chen", typing: false });
-        try {
-          await live.waitForSync(options.timeoutMs ?? 12e3);
-        } catch {
-          live.close();
-          throw new Error(
-            `Could not join room "${room}" through ${relayUrl}. Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`
-          );
-        }
-        if (options.seed && live.isEmpty()) {
-          live.writeAll(options.seed);
-          live.seededRoom = true;
-        }
-        await pause(150);
-        return live;
-      }
-      /** Whether this join wrote the seed content into a room that had none. */
-      get seeded() {
-        return this.seededRoom;
-      }
-      /** People currently in the room, excluding this process. */
-      get watching() {
-        return Math.max(0, this.awareness.getStates().size - 1);
-      }
-      get peers() {
-        const peers = [];
-        this.awareness.getStates().forEach((state, clientId) => {
-          if (clientId === this.awareness.clientID) return;
-          const raw = state;
-          peers.push({
-            name: typeof raw.name === "string" && raw.name ? raw.name : `Peer ${clientId}`,
-            color: typeof raw.color === "string" ? raw.color : "#5B6167"
-          });
-        });
-        return peers;
-      }
-      snapshot() {
-        return snapshotFromYdoc(this.ydoc);
-      }
-      isEmpty() {
-        return [ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS, LEGS, GROUPS, COMMENTS].every((name) => this.ydoc.getMap(name).size === 0);
-      }
-      /**
-       * Shows the AI working at a shape.
-       *
-       * The app reads presence from awareness, so moving the cursor and selection
-       * is enough to make the change look authored rather than teleported. A hop to
-       * a different shape is played out as an eased, slightly arched path instead of
-       * a single jump, because that is what a pointer being moved looks like.
-       *
-       * The last shape is kept: a commit with no focus (a re-arrange, a room-level
-       * change) used to publish a null cursor, so the arrow vanished mid-session
-       * even though the AI was still connected.
-       */
-      flash(doc, focusId, typing = false) {
-        this.aimAt(doc, focusId);
-        this.moveTo(presenceAt(doc, this.focusId, this.cursorView).cursor, typing);
-      }
-      /**
-       * Glides to a shape and resolves once the pointer has landed on it.
-       *
-       * Streaming a diagram uses this so the shape is only written after the
-       * cursor arrives: the watcher sees the pointer travel, click, and the shape
-       * appear under it, instead of shapes popping in while the cursor lags behind.
-       */
-      async glideTo(doc, focusId, typing = false) {
-        if (this.route) return;
-        this.aimAt(doc, focusId);
-        const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
-        if (!target) {
-          this.moveTo(null, false);
-          return;
-        }
-        await new Promise((resolve2) => {
-          this.arrival = resolve2;
-          this.moveTo(target, typing);
-        });
-      }
-      /** Points future frames at one shape without starting a hop. */
-      aimAt(doc, focusId) {
-        if (focusId) this.focusId = focusId;
-        const point = presenceAt(doc, this.focusId, this.watchedView(doc.view));
-        this.cursorView = point.view;
-        this.pendingSelection = point.selectedIds;
-      }
-      /**
-       * Glides into the room from outside the diagram, then rests on a shape.
-       *
-       * A pointer that is already sitting on its first shape when the room loads
-       * reads as part of the page, not as somebody arriving. The entrance is an
-       * ordinary hop, so a watcher sees the AI come in and stop.
-       */
-      enter(doc, focusId) {
-        if (this.route) return;
-        this.aimAt(doc, focusId);
-        const target = presenceAt(doc, this.focusId, this.cursorView).cursor;
-        if (!target) return;
-        const from2 = this.cursor ?? { x: target.x - ENTRANCE_OFFSET, y: target.y };
-        this.cursor = { x: from2.x, y: from2.y };
-        if (Math.hypot(target.x - from2.x, target.y - from2.y) < 0.75) {
-          this.publishHover();
-          return;
-        }
-        this.startTravel(from2, target, "hover");
-      }
-      /**
-       * Leaves the thinking ring over the last shape for a beat.
-       *
-       * Reading a diagram — validating it, generating SQL — is work with no visible
-       * edit, and an AI that sits perfectly still reads as disconnected. The ring
-       * says the answer is being worked out where the pointer already is.
-       */
-      think() {
-        if (this.route) return;
-        this.clearHover();
-        this.clearPress();
-        this.clearTyping();
-        this.hoverTarget = null;
-        this.intent = this.focusId ? { kind: "think", targetId: this.focusId } : { kind: "think" };
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursorSelection,
-          view: this.cursorView,
-          typing: false,
-          pressing: false
-        });
-        this.clearThink();
-        this.thinkTimer = setTimeout(() => {
-          this.thinkTimer = void 0;
-          if (this.intent?.kind !== "think") return;
-          this.intent = null;
-          this.publishPresence({});
-        }, THINK_MS);
-      }
-      /**
-       * Carries a shape from where it is to where it ends up, as one gesture.
-       *
-       * The caller builds the edited document and hands in both versions, awaits
-       * this, and only then writes the change — so the shape stays under the
-       * pointer for the whole travel and is dropped when it lands.
-       */
-      async dragTo(before, after, focusId) {
-        if (this.route) return false;
-        this.aimAt(before, focusId);
-        const focus = this.focusId;
-        if (!focus) return false;
-        const view = this.cursorView;
-        const grab = presenceAt(before, focus, view).cursor;
-        const drop = presenceAt(after, focus, view).cursor;
-        if (!grab || !drop) return false;
-        const ids = dragShapeIds(before, focus, view);
-        const start = {};
-        for (const id2 of ids) {
-          const origin = viewOrigin(before, id2, view);
-          if (origin) start[id2] = origin;
-        }
-        await new Promise((resolve2) => {
-          this.pendingDrag = { ids, start, grab, drop, resolve: resolve2 };
-          this.moveTo(grab, false);
-        });
-        return this.drag !== null;
-      }
-      /** Ends a gesture: lets go of a carried shape or a finished lasso. */
-      release(_doc, focusId) {
-        this.land();
-        this.stopMotion();
-        this.stopLasso();
-        this.pendingDrag?.resolve();
-        this.clearGesture();
-        this.cursorSelection = focusId ? [focusId] : [];
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursorSelection,
-          view: this.cursorView,
-          typing: false,
-          pressing: false
-        });
-      }
-      /**
-       * Draws a loop around several shapes before an edit that takes them all.
-       *
-       * The loop is a padded rectangle around the group, walked at a steady pace
-       * and closed where it began, so a watcher sees exactly what the next write
-       * will remove.
-       */
-      lasso(doc, ids) {
-        if (this.route || this.lassoState) return Promise.resolve();
-        const view = this.watchedView(doc.view);
-        this.cursorView = view;
-        const boxes = [];
-        for (const id2 of ids) {
-          const box = shapeBox(doc, id2, view);
-          if (box) boxes.push(box);
-        }
-        const loop = lassoLoop(boxes, LASSO_PAD_PX);
-        if (!loop) return Promise.resolve();
-        this.clearGesture();
-        const start = { ...loop.corners[0] };
-        return this.walkLasso(loop, ids, start, view);
-      }
-      /**
-       * Walks the loop, after travelling to the corner it begins on.
-       *
-       * Appearing on the first corner reads as the pointer teleporting into the
-       * gesture. Arriving there first — with the same eased hop every other move
-       * uses — keeps the whole sweep in one continuous motion, the way a hand
-       * drawing a ring around a group would.
-       */
-      async walkLasso(loop, ids, start, view) {
-        if (this.cursor && !this.route) {
-          await new Promise((resolve2) => {
-            this.arrival = resolve2;
-            this.moveTo(start, false, "lasso");
-          });
-          if (this.closed || this.route) return;
-        }
-        this.cursor = start;
-        this.intent = { kind: "lasso", lasso: [start] };
-        this.publishPresence({ cursor: start, selectedIds: [], view, typing: false, pressing: false });
-        return new Promise((resolve2) => {
-          this.lassoState = {
-            ...loop,
-            ids: [...ids],
-            started: Date.now(),
-            duration: lassoDurationMs(loop.total),
-            timer: void 0,
-            resolve: resolve2
-          };
-          this.lassoState.timer = setInterval(() => this.advanceLasso(), MOVE_FRAME_MS);
-        });
-      }
-      /** Publishes the next stretch of the lasso trail, and closes it when due. */
-      advanceLasso() {
-        const state = this.lassoState;
-        if (!state) return;
-        const progress = Math.min(1, (Date.now() - state.started) / state.duration);
-        const done = progress >= 1;
-        const points = lassoTrail(state, done ? state.total : travelEase(progress) * state.total);
-        const here = points[points.length - 1];
-        this.cursor = { x: here.x, y: here.y };
-        this.intent = { kind: "lasso", lasso: points };
-        if (!done) {
-          this.publishPresence({
-            cursor: this.cursor,
-            selectedIds: [],
-            view: this.cursorView,
-            typing: false,
-            pressing: false
-          });
-          return;
-        }
-        this.cursorSelection = [...state.ids];
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursorSelection,
-          view: this.cursorView,
-          typing: false,
-          pressing: true
-        });
-        if (state.timer) clearInterval(state.timer);
-        this.lassoState = null;
-        state.resolve();
-      }
-      /**
-       * Starts, retargets, or finishes a pointer hop.
-       *
-       * Landing is not the end of the gesture: the pointer settles, hovers, and
-       * clicks. That sequence belongs to beginClick, so a hop is only the travel.
-       * Retargeting mid-hop keeps the in-flight position, so a burst of edits — a
-       * rename and a move in one call — reads as one continuous pointer rather than
-       * a series of separate animations.
-       */
-      moveTo(target, typing, mode = "click") {
-        if (this.route) return;
-        if (!target) {
-          this.stopMotion();
-          this.clearGesture();
-          this.cursor = null;
-          this.publishPresence({
-            cursor: null,
-            selectedIds: [],
-            view: this.cursorView,
-            typing: false,
-            pressing: false
-          });
-          this.land();
-          return;
-        }
-        if (!this.cursor) {
-          this.cursor = { x: target.x, y: target.y };
-          if (mode === "hover") this.publishHover();
-          else if (mode === "lasso") this.land();
-          else this.beginClick(typing);
-          return;
-        }
-        const distance = Math.hypot(target.x - this.cursor.x, target.y - this.cursor.y);
-        if (distance < 0.75) {
-          this.cursor = { x: target.x, y: target.y };
-          if (mode === "hover") this.publishHover();
-          else if (mode === "lasso") this.land();
-          else this.beginClick(typing);
-          return;
-        }
-        const incoming = this.hopVelocity();
-        this.startTravel(this.cursor, target, mode, typing, incoming);
-      }
-      /** Starts the frame loop that carries the pointer along one hop. */
-      startTravel(from2, to, mode, typing = false, incoming = null) {
-        this.clearTyping();
-        this.clearHover();
-        this.clearThink();
-        if (mode !== "drag") this.clearPress();
-        this.typingOnArrival = typing;
-        this.travel = {
-          from: { x: from2.x, y: from2.y },
-          to: { x: to.x, y: to.y },
-          started: Date.now(),
-          duration: travelDurationMs(from2, to),
-          velocity: incoming,
-          mode
-        };
-        this.intent = mode === "drag" && this.focusId ? { kind: "drag", targetId: this.focusId } : null;
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursorSelection,
-          view: this.cursorView,
-          typing: false,
-          pressing: mode === "drag"
-        });
-        if (this.moveTimer) return;
-        this.moveTimer = setInterval(() => this.advanceMotion(), MOVE_FRAME_MS);
-      }
-      /** Publishes the next frame of the current hop, and lands it when due. */
-      advanceMotion() {
-        const travel = this.travel;
-        if (!travel) {
-          this.stopMotion();
-          return;
-        }
-        const progress = Math.min(1, (Date.now() - travel.started) / travel.duration);
-        this.cursor = progress >= 1 ? { x: travel.to.x, y: travel.to.y } : travelPoint(travel.from, travel.to, progress, travel.velocity);
-        if (progress >= 1) {
-          this.travel = null;
-          this.stopMotion();
-          if (travel.mode === "hover") {
-            this.publishHover();
-          } else if (travel.mode === "drag") {
-            this.publishPresence({
-              cursor: this.cursor,
-              selectedIds: this.cursorSelection,
-              view: this.cursorView,
-              typing: false,
-              pressing: true
-            });
-            this.land();
-          } else if (travel.mode === "lasso") {
-            this.publishPresence({
-              cursor: this.cursor,
-              selectedIds: [],
-              view: this.cursorView,
-              typing: false,
-              pressing: false
-            });
-            this.land();
-          } else {
-            const typing = this.typingOnArrival;
-            this.typingOnArrival = false;
-            this.beginClick(typing);
-          }
-          return;
-        }
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursorSelection,
-          view: this.cursorView,
-          typing: false,
-          pressing: travel.mode === "drag"
-        });
-      }
-      /** The speed the pointer is travelling at now, in px per ms. */
-      hopVelocity() {
-        const travel = this.travel;
-        if (!travel) return null;
-        const progress = (Date.now() - travel.started) / travel.duration;
-        if (progress <= 0 || progress >= 1) return null;
-        const step = 0.02;
-        const before = travelPoint(travel.from, travel.to, progress - step, travel.velocity);
-        const after = travelPoint(travel.from, travel.to, progress + step, travel.velocity);
-        const span = travel.duration * step * 2;
-        return { x: (after.x - before.x) / span, y: (after.y - before.y) / span };
-      }
-      /**
-       * Travels a whole stream of shapes as one continuous stroke.
-       *
-       * Every shape is a knot of a Catmull-Rom route, so the pointer passes through
-       * each one without ever coming to rest between two: it checks — slows to a
-       * third of cruising speed, clicks, and carries on. Writing on the crossing is
-       * what keeps the shape appearing under the cursor rather than ahead of it, and
-       * one hop's travel for fifty shapes is what makes it read as a hand at work
-       * rather than a transition replaying.
-       */
-      travelRoute(doc, steps) {
-        this.stopLasso();
-        this.clearGesture();
-        const view = this.watchedView(doc.view);
-        this.cursorView = view;
-        const knots = this.cursor ? [{ ...this.cursor }] : [];
-        for (const step of steps) {
-          const point = presenceAt(doc, step.id, view).cursor;
-          if (point) knots.push(point);
-        }
-        const expected = steps.length + (this.cursor ? 1 : 0);
-        if (knots.length < 2 || knots.length !== expected) {
-          return this.travelEach(doc, steps);
-        }
-        const reaches = [0];
-        for (const duration3 of routeDurationsMs(knots)) reaches.push(reaches[reaches.length - 1] + duration3);
-        return new Promise((resolve2) => {
-          this.route = { doc, steps, knots, reaches, started: Date.now(), written: 0, arming: false, resolve: resolve2 };
-          this.advanceRoute();
-          this.routeTimer = setInterval(() => this.advanceRoute(), MOVE_FRAME_MS);
-        });
-      }
-      /** The fallback: one glide and one write per shape, in stream order. */
-      async travelEach(doc, steps) {
-        for (const step of steps) {
-          await this.glideTo(doc, step.id);
-          this.writeStep(doc, step);
+    nodeSocketFactory = (origin) => {
+      class OriginSocket extends wrapper_default {
+        constructor(address, protocols) {
+          super(address, protocols, { origin });
         }
       }
-      /** Publishes the next frame of the route, clicking every knot it crosses. */
-      advanceRoute() {
-        const route = this.route;
-        if (!route) {
-          this.stopRoute();
-          return;
-        }
-        const elapsed = Date.now() - route.started;
-        const last2 = route.knots.length - 1;
-        let leg = 0;
-        while (leg < last2 - 1 && elapsed >= route.reaches[leg + 1]) leg += 1;
-        const start = route.reaches[leg];
-        const end = route.reaches[leg + 1];
-        const progress = end > start ? Math.min(1, (elapsed - start) / (end - start)) : 1;
-        const point = routePoint(route.knots, leg + legEase(progress, leg === 0, leg === last2 - 1));
-        if (point) this.cursor = point;
-        let crossed = 0;
-        while (crossed < last2 && elapsed >= route.reaches[crossed + 1]) crossed += 1;
-        if (crossed === last2 && route.written === last2) {
-          this.cursor = { x: route.knots[last2].x, y: route.knots[last2].y };
-          this.stopRoute();
-          this.publishHover();
-          return;
-        }
-        if (route.written >= crossed) {
-          this.publishRoute(false);
-          return;
-        }
-        if (route.arming) {
-          route.arming = false;
-          const step = route.steps[route.written];
-          route.written += 1;
-          this.focusId = step.id;
-          this.cursorSelection = [step.id];
-          this.writeStep(route.doc, step);
-          this.publishRoute(true);
-          return;
-        }
-        route.arming = true;
-        this.publishRoute(false);
-      }
-      publishRoute(pressing) {
-        this.intent = pressing && this.focusId ? { kind: "press", targetId: this.focusId } : null;
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursor ? this.cursorSelection : [],
-          view: this.cursorView,
-          typing: false,
-          pressing
-        });
-      }
-      /** Publishes the pointer resting on a shape, before its click. */
-      publishHover() {
-        this.clearHover();
-        this.clearPress();
-        this.clearThink();
-        this.clearTyping();
-        this.hoverTarget = this.focusId;
-        this.intent = this.focusId ? { kind: "hover", targetId: this.focusId } : null;
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursorSelection,
-          view: this.cursorView,
-          typing: false,
-          pressing: false
-        });
-      }
-      /**
-       * Lands a hop: hover, then click.
-       *
-       * A write on the click already in flight is that click, not a second one: the
-       * pointer has not been lifted, so replaying hover and press would be a rerun
-       * of a gesture the watcher is already looking at.
-       */
-      beginClick(typing) {
-        if (this.hoverTarget === this.focusId && this.pressTimer !== void 0) {
-          if (this.pendingDrag) {
-            this.press(typing);
-            return;
-          }
-          this.pendingSelection = null;
-          if (typing) {
-            this.beginTyping();
-            this.publishPresence({ typing: true });
-          }
-          this.land();
-          return;
-        }
-        this.publishHover();
-        this.clearHover();
-        this.hoverTimer = setTimeout(() => {
-          this.hoverTimer = void 0;
-          this.press(typing);
-        }, HOVER_MS);
-      }
-      /**
-       * Presses: selects, publishes the click, and turns a queued drag loose.
-       *
-       * The press is the frame the caller's write is allowed to happen on, which is
-       * why it is the point a glide resolves — the shape changes under the pointer.
-       */
-      press(typing) {
-        this.clearPress();
-        this.clearThink();
-        if (this.pendingDrag) {
-          this.beginDrag();
-          return;
-        }
-        if (this.pendingSelection) {
-          this.cursorSelection = this.pendingSelection;
-          this.pendingSelection = null;
-        }
-        this.hoverTarget = this.focusId;
-        this.intent = this.focusId ? { kind: "press", targetId: this.focusId } : null;
-        this.publishPresence({
-          cursor: this.cursor,
-          selectedIds: this.cursor ? this.cursorSelection : [],
-          view: this.cursorView,
-          typing,
-          pressing: this.cursor !== null
-        });
-        if (typing) this.beginTyping();
-        if (this.cursor) {
-          this.pressTimer = setTimeout(() => {
-            this.pressTimer = void 0;
-            this.finishPress();
-          }, PRESS_MS);
-        }
-        this.land();
-      }
-      /** Lets the click go, leaving the pointer hovering where it wrote. */
-      finishPress() {
-        this.intent = null;
-        this.hoverTarget = null;
-        this.publishPresence({ pressing: false });
-      }
-      /** Turns a queued drag's press into a carry. */
-      beginDrag() {
-        const pending = this.pendingDrag;
-        if (!pending) return;
-        this.pendingDrag = null;
-        this.pendingSelection = null;
-        this.drag = { ids: [...pending.ids], start: { ...pending.start }, grab: { ...pending.grab } };
-        this.cursorSelection = this.focusId ? [this.focusId] : [];
-        this.arrival = pending.resolve;
-        this.startTravel(pending.grab, pending.drop, "drag");
-      }
-      /** Holds the typing indicator up for TYPING_MS, then lets it go. */
-      beginTyping() {
-        this.clearTyping();
-        this.typingTimer = setTimeout(() => {
-          this.typingTimer = void 0;
-          this.publishPresence({ typing: false });
-        }, TYPING_MS);
-      }
-      /** The shapes in the air, in the shape the app's peer-drag preview reads. */
-      draggingPayload() {
-        const drag = this.drag;
-        const cursor = this.cursor;
-        if (!drag || !cursor) return null;
-        return {
-          ids: [...drag.ids],
-          start: { ...drag.start },
-          dx: cursor.x - drag.grab.x,
-          dy: cursor.y - drag.grab.y
-        };
-      }
-      stopMotion() {
-        if (this.moveTimer) clearInterval(this.moveTimer);
-        this.moveTimer = void 0;
-        this.travel = null;
-        this.stopRoute();
-      }
-      /** Ends the route loop, resolving whoever is awaiting the stream. */
-      stopRoute() {
-        if (this.routeTimer) clearInterval(this.routeTimer);
-        this.routeTimer = void 0;
-        const route = this.route;
-        if (!route) return;
-        this.route = null;
-        route.resolve();
-      }
-      /** Resolves whoever is awaiting the current glide, so a close cannot hang it. */
-      land() {
-        const resolve2 = this.arrival;
-        this.arrival = null;
-        resolve2?.();
-      }
-      clearTyping() {
-        if (this.typingTimer) clearTimeout(this.typingTimer);
-        this.typingTimer = void 0;
-      }
-      clearHover() {
-        if (this.hoverTimer) clearTimeout(this.hoverTimer);
-        this.hoverTimer = void 0;
-      }
-      clearPress() {
-        if (this.pressTimer) clearTimeout(this.pressTimer);
-        this.pressTimer = void 0;
-      }
-      clearThink() {
-        if (this.thinkTimer) clearTimeout(this.thinkTimer);
-        this.thinkTimer = void 0;
-      }
-      /** Drops every gesture in flight: timers, held shapes, and the named intent. */
-      clearGesture() {
-        this.clearHover();
-        this.clearPress();
-        this.clearThink();
-        this.clearTyping();
-        this.drag = null;
-        this.pendingDrag = null;
-        this.pendingSelection = null;
-        this.intent = null;
-        this.hoverTarget = null;
-      }
-      /** Ends the lasso loop, resolving whoever is awaiting it. */
-      stopLasso() {
-        const state = this.lassoState;
-        if (!state) return;
-        if (state.timer) clearInterval(state.timer);
-        this.lassoState = null;
-        state.resolve();
-      }
-      /**
-       * Replaces the room's content, optionally shape by shape for a watcher.
-       *
-       * Every step is a glide, a click, and then the shape: the pointer moves to
-       * the spot, lands, and the shape appears under it. Writing on arrival (rather
-       * than on a shared timer) is what makes the stream read as someone drawing
-       * instead of shapes popping in while the cursor lags a shape behind.
-       */
-      async replace(source, stream) {
-        const doc = normalizeDocument(source);
-        if (!stream || this.watching === 0) {
-          this.ydoc.transact(() => {
-            this.clearMaps();
-            setMeta(this.ydoc, { name: doc.name, view: doc.view });
-            writeCollections(this.ydoc, doc);
-          });
-          this.flash(doc, null);
-          return;
-        }
-        this.ydoc.transact(() => {
-          this.clearMaps();
-          setMeta(this.ydoc, { name: doc.name, view: doc.view });
-        });
-        await this.travelRoute(doc, liveSteps(doc));
-        this.ydoc.transact(() => {
-          for (const group of doc.groups) upsertGroup(this.ydoc, group);
-          const comments = this.ydoc.getMap(COMMENTS);
-          for (const comment of doc.comments) comments.set(comment.id, comment);
-        });
-      }
-      /** Writes one streamed shape, with the lines that make it meaningful. */
-      writeStep(doc, step) {
-        this.ydoc.transact(() => {
-          if (step.kind === "entity") {
-            const entity = doc.entities.find((candidate) => candidate.id === step.id);
-            if (entity) upsertEntity(this.ydoc, entity);
-            return;
-          }
-          if (step.kind === "attribute") {
-            const attribute = doc.attributes.find((candidate) => candidate.id === step.id);
-            if (attribute) upsertAttribute(this.ydoc, attribute);
-            return;
-          }
-          const relationships = step.kind === "relationship" ? doc.relationships.filter((candidate) => candidate.id === step.id) : [];
-          for (const relationship of relationships) upsertRelationship(this.ydoc, relationship);
-          const isas = step.kind === "isa" ? doc.isas.filter((candidate) => candidate.id === step.id) : [];
-          for (const isa of isas) upsertIsa(this.ydoc, isa);
-          for (const leg of doc.legs) {
-            if (leg.fromId === step.id || leg.toId === step.id) upsertLeg(this.ydoc, leg);
-          }
-        });
-      }
-      /** Where the pointer is right now, for a caller that means to come back. */
-      get pointer() {
-        return this.cursor ? { x: this.cursor.x, y: this.cursor.y } : null;
-      }
-      /**
-       * Finishes in front of the watchers, then disconnects.
-       *
-       * Dropping the socket mid-sentence reads as a network failure. Gliding back to
-       * the last shape and holding the typing indicator for a beat makes it a
-       * departure, and the room's own leaving notice then lands on an exit.
-       */
-      async leave(doc) {
-        if (this.watching > 0 && this.focusId) {
-          await this.glideTo(doc, this.focusId, true);
-          await pause(FAREWELL_MS);
-        }
-        this.close();
-      }
-      close() {
-        if (this.closed) return;
-        this.closed = true;
-        this.stopMotion();
-        this.stopLasso();
-        this.pendingDrag?.resolve();
-        this.clearGesture();
-        this.land();
-        try {
-          this.awareness.setLocalState(null);
-        } catch {
-        }
-        this.provider.destroy();
-        this.awareness.destroy();
-        this.ydoc.destroy();
-      }
-      writeAll(source) {
-        const doc = normalizeDocument(source);
-        this.ydoc.transact(() => {
-          setMeta(this.ydoc, { name: doc.name, view: doc.view });
-          writeCollections(this.ydoc, doc);
-        });
-      }
-      publishPresence(patch) {
-        const base = {
-          userId: AI_USER_ID,
-          name: (process.env.ERD_MCP_AI_NAME ?? "AI assistant").trim() || "AI assistant",
-          color: (process.env.ERD_MCP_AI_COLOR ?? AI_COLOR).trim() || AI_COLOR,
-          cursor: null,
-          selectedIds: [],
-          view: "chen",
-          following: null,
-          pressing: false,
-          typing: false,
-          dragging: null,
-          ...this.awareness.getLocalState() ?? {}
-        };
-        this.awareness.setLocalState({
-          ...base,
-          ...patch,
-          intent: this.intent,
-          dragging: this.draggingPayload()
-        });
-      }
-      /**
-       * The notation somebody in the room is actually reading.
-       *
-       * Cursors are drawn only in the notation the reader chose, so an AI that
-       * always published its document's view disappeared for anyone working in the
-       * other one. Following a watcher keeps the arrow on their screen.
-       */
-      watchedView(fallback) {
-        let view = null;
-        this.awareness.getStates().forEach((state, clientId) => {
-          if (view || clientId === this.awareness.clientID) return;
-          const candidate = state.view;
-          if (candidate === "chen" || candidate === "crowfoot") view = candidate;
-        });
-        return view ?? fallback;
-      }
-      waitForSync(timeoutMs) {
-        return new Promise((resolve2, reject) => {
-          let settled = false;
-          let timer;
-          const finish = (error62) => {
-            if (settled) return;
-            settled = true;
-            if (timer) clearTimeout(timer);
-            this.provider.off("sync", onSync);
-            if (error62) reject(error62);
-            else resolve2();
-          };
-          const onSync = (synced) => {
-            if (synced) finish();
-          };
-          timer = setTimeout(() => finish(new Error("Timed out waiting for the relay.")), timeoutMs);
-          this.provider.on("sync", onSync);
-          this.provider.connect();
-        });
-      }
-      clearMaps() {
-        for (const name of [ENTITIES, ATTRIBUTES, RELATIONSHIPS, ISAS, LEGS, GROUPS, COMMENTS, META]) {
-          this.ydoc.getMap(name).clear();
-        }
-      }
+      return OriginSocket;
     };
-    LASSO_PAD_PX = 18;
-    LASSO_STEP_PX = 16;
-    LASSO_MIN_MS = 420;
-    LASSO_MAX_MS = 1100;
-    LASSO_MS_PER_PX = 0.55;
-  }
-});
-
-// mcp/diagram.ts
-import { constants as constants2 } from "node:fs";
-import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-function repositoryRoot() {
-  if (true) return process.cwd();
-  try {
-    return resolve(fileURLToPath(new URL("..", import.meta.url)));
-  } catch {
-    return process.cwd();
-  }
-}
-function liveInfo(live) {
-  return live ? { room: live.room, relay: live.relayUrl, watching: live.watching, peers: live.peers.map((peer) => peer.name) } : null;
-}
-function refreshSession(current) {
-  if (current.live) current.doc = current.live.snapshot();
-}
-function peekSession() {
-  if (!session) return null;
-  refreshSession(session);
-  return { doc: session.doc, filePath: session.filePath, dirty: session.dirty, live: liveInfo(session.live) };
-}
-function requireSession() {
-  if (!session) {
-    throw new Error("No diagram is open. Call create_diagram or open_diagram first.");
-  }
-  refreshSession(session);
-  return session;
-}
-function resolveDiagramPath(input2) {
-  if (!input2.trim()) throw new Error("Pass a diagram path.");
-  const candidate = isAbsolute(input2) ? resolve(input2) : resolve(WORKSPACE_ROOT, input2);
-  const rel = relative(WORKSPACE_ROOT, candidate);
-  if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
-    throw new Error(`Diagram paths must stay inside ${WORKSPACE_ROOT}.`);
-  }
-  if (!candidate.toLowerCase().endsWith(".json")) {
-    throw new Error("Diagram files must use a .json extension.");
-  }
-  return candidate;
-}
-async function fileExists(path) {
-  try {
-    await access(path, constants2.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function serialize(doc) {
-  return JSON.stringify(doc, null, 2) + "\n";
-}
-async function readDocument(path) {
-  let text;
-  try {
-    text = await readFile(path, "utf8");
-  } catch {
-    throw new Error(`Could not read ${path}.`);
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error(`${path} is not valid JSON.`);
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.entities)) {
-    throw new Error(`${path} does not contain a diagram. Export a JSON file from ERD Maker.`);
-  }
-  return normalizeDocument(parsed);
-}
-async function writeDocument(doc, path) {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, serialize(doc), "utf8");
-}
-function errorMessage(error62) {
-  return error62 instanceof Error ? error62.message : String(error62);
-}
-async function uniqueDefaultPath(name) {
-  await mkdir(DIAGRAMS_ROOT, { recursive: true });
-  const stem = toSqlName(name);
-  for (let index = 1; index < 1e4; index += 1) {
-    const candidate = resolve(DIAGRAMS_ROOT, `${stem}${index === 1 ? "" : `-${index}`}.json`);
-    if (!await fileExists(candidate)) return candidate;
-  }
-  return resolve(DIAGRAMS_ROOT, `${stem}-${Date.now().toString(36)}.json`);
-}
-function requireName(value, label) {
-  const name = value.trim();
-  if (!name) throw new Error(`A ${label.toLowerCase()} needs a name.`);
-  return name;
-}
-function entityKind(value) {
-  if (value === void 0) return "strong";
-  if (!ENTITY_KINDS.includes(value)) throw new Error(`Entity kind must be one of ${ENTITY_KINDS.join(", ")}.`);
-  return value;
-}
-function attributeKind(value, hasParts) {
-  if (value === void 0) return hasParts ? "composite" : "simple";
-  const kind = ATTRIBUTE_KINDS.find((candidate) => candidate === value);
-  if (!kind) throw new Error(`Attribute kind must be one of ${ATTRIBUTE_KINDS.join(", ")}.`);
-  if (hasParts && kind !== "composite") {
-    throw new Error('An attribute with parts must have kind "composite".');
-  }
-  return kind;
-}
-function relationshipKind(value, from2, to) {
-  if (value !== void 0) {
-    if (value !== "strong" && value !== "weak") throw new Error('Relationship kind must be "strong" or "weak".');
-    return value;
-  }
-  return from2.kind === "weak" || to.kind === "weak" ? "weak" : "strong";
-}
-function parseCardinality(value) {
-  const key = (value ?? "1:N").trim().toUpperCase();
-  const cards = CARDINALITIES[key];
-  if (!cards) throw new Error(`Cardinality "${value}" must be one of 1:1, 1:N, N:1, N:M, M:N.`);
-  return cards;
-}
-function participationOf(spec, card) {
-  const participation = spec ?? { min: 0, max: card === "1" ? 1 : "N" };
-  if (!validParticipation(participation.min, participation.max)) {
-    throw new Error("Participation needs a whole-number minimum of 0 or more, and a maximum at least as large (or N).");
-  }
-  return { min: participation.min, max: participation.max };
-}
-function newId(prefix, base, used) {
-  const root = `${prefix}_${toSqlName(base)}`;
-  let id2 = root;
-  for (let suffix = 2; used.has(id2); suffix += 1) id2 = `${root}_${suffix}`;
-  used.add(id2);
-  return id2;
-}
-function collectIds(doc) {
-  return new Set(
-    [...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas, ...doc.legs].map((node2) => node2.id)
-  );
-}
-function dataTypeOf(value, name) {
-  if (value === void 0 || value.trim() === "") return void 0;
-  const type = normalizeDataType(value);
-  if (!type) {
-    throw new Error(`Unknown data type "${value}" for ${name}. Use a type such as INT, VARCHAR(120), NUMERIC(10,2), DATE, TIMESTAMP, UUID, BOOLEAN, JSONB, or ENUM('a','b').`);
-  }
-  return type;
-}
-function addAttributeSpecs(doc, ownerId, ownerSlug, specs, used, onCreated) {
-  for (const spec of specs) {
-    const name = requireName(spec.name, "Attribute");
-    const parts = spec.attributes ?? [];
-    const attribute = {
-      id: newId("attr", `${ownerSlug}_${name}`, used),
-      name,
-      x: 0,
-      y: 0,
-      kind: attributeKind(spec.kind, parts.length > 0),
-      ownerId
-    };
-    const dataType = dataTypeOf(spec.dataType, name);
-    if (dataType) attribute.dataType = dataType;
-    doc.attributes.push(attribute);
-    onCreated?.(attribute);
-    if (parts.length) addAttributeSpecs(doc, attribute.id, `${ownerSlug}_${name}`, parts, used, onCreated);
-  }
-}
-function entityFromMap(byName, ref) {
-  const entity = byName.get(ref.trim().toLowerCase());
-  if (!entity) {
-    const names = [...byName.values()].map((candidate) => candidate.name).join(", ");
-    throw new Error(`No entity named "${ref}" in this diagram. Available entities: ${names}.`);
-  }
-  return entity;
-}
-function addRelationshipSpec(doc, spec, byName, used) {
-  const name = requireName(spec.name, "Relationship");
-  const from2 = entityFromMap(byName, spec.from);
-  const to = entityFromMap(byName, spec.to);
-  const [fromCard, toCard] = parseCardinality(spec.cardinality);
-  const relationship = {
-    id: newId("rel", name, used),
-    name,
-    x: 0,
-    y: 0,
-    kind: relationshipKind(spec.kind, from2, to)
-  };
-  doc.relationships.push(relationship);
-  addAttributeSpecs(doc, relationship.id, name, spec.attributes ?? [], used);
-  const leg = (entity, card, part, suffix) => ({
-    id: newId("leg", `${name}_${suffix}`, used),
-    fromId: relationship.id,
-    toId: entity.id,
-    cardinality: card,
-    participation: participationOf(part, card)
-  });
-  doc.legs.push(leg(from2, fromCard, spec.fromParticipation, from2.name));
-  doc.legs.push(leg(to, toCard, spec.toParticipation, to.name));
-  return relationship;
-}
-function specPoint(spec, label) {
-  if (spec.x === void 0 && spec.y === void 0) return null;
-  if (spec.x === void 0 || spec.y === void 0 || !Number.isFinite(spec.x) || !Number.isFinite(spec.y)) {
-    throw new Error(`${label} needs both x and y, or neither. Omit both to take the first free slot.`);
-  }
-  return { x: Math.round(spec.x), y: Math.round(spec.y) };
-}
-function buildDocument(spec) {
-  if (!Array.isArray(spec.entities) || spec.entities.length === 0) {
-    throw new Error("A diagram needs at least one entity.");
-  }
-  const name = requireName(spec.name, "Diagram");
-  const doc = emptyDocument(name);
-  doc.view = spec.view === "crowfoot" ? "crowfoot" : "chen";
-  const used = /* @__PURE__ */ new Set();
-  const byName = /* @__PURE__ */ new Map();
-  const fixed = /* @__PURE__ */ new Set();
-  for (const entitySpec of spec.entities) {
-    const entityName = requireName(entitySpec.name, "Entity");
-    const key = entityName.toLowerCase();
-    if (byName.has(key)) throw new Error(`Duplicate entity name "${entityName}". Use one entity per table.`);
-    const point = specPoint(entitySpec, `Entity "${entityName}"`);
-    const entity = {
-      id: newId("ent", entityName, used),
-      name: entityName,
-      x: point?.x ?? 0,
-      y: point?.y ?? 0,
-      // In the crow's-foot view the caller's point is the table's top-left, and
-      // it seeds the Chen position too so neither view starts in a pile.
-      ...point && doc.view === "crowfoot" ? { crowX: point.x, crowY: point.y } : {},
-      kind: entityKind(entitySpec.kind)
-    };
-    if (point) fixed.add(entity.id);
-    doc.entities.push(entity);
-    byName.set(key, entity);
-  }
-  for (const entitySpec of spec.entities) {
-    const entity = entityFromMap(byName, entitySpec.name);
-    addAttributeSpecs(doc, entity.id, entity.name, entitySpec.attributes ?? [], used);
-  }
-  for (const relationship of spec.relationships ?? []) {
-    addRelationshipSpec(doc, relationship, byName, used);
-  }
-  for (const isaSpec of spec.isas ?? []) {
-    const parent = entityFromMap(byName, isaSpec.parent);
-    if (!Array.isArray(isaSpec.children) || isaSpec.children.length === 0) {
-      throw new Error(`Specialization on ${parent.name} needs at least one child.`);
-    }
-    const children = isaSpec.children.map((child) => entityFromMap(byName, child));
-    doc.isas.push({
-      id: newId("isa", parent.name, used),
-      x: 0,
-      y: 0,
-      parentId: parent.id,
-      childIds: children.map((child) => child.id)
-    });
-  }
-  return { doc: normalizeDocument(doc), fixed };
-}
-function arrangeView(doc, view) {
-  return view === "crowfoot" ? { ...applyLayout({ ...doc, view: "crowfoot" }), view: "crowfoot" } : { ...applyLayout({ ...doc, view: "chen" }), view: "chen" };
-}
-function arrangeNewDocument(doc, view) {
-  const chen = arrangeView(doc, "chen");
-  return view === "crowfoot" ? arrangeView(chen, "crowfoot") : chen;
-}
-function placeNewDocument(built, view) {
-  placeChen(built.doc, view === "chen" ? built.fixed : /* @__PURE__ */ new Set());
-  placeCrow(built.doc, view === "crowfoot" ? built.fixed : /* @__PURE__ */ new Set());
-  return normalizeDocument(built.doc);
-}
-function placeChen(doc, fixed) {
-  const placed = new Set(fixed);
-  const placedDoc = () => ({
-    ...doc,
-    view: "chen",
-    entities: doc.entities.filter((node2) => placed.has(node2.id)),
-    attributes: doc.attributes.filter((node2) => placed.has(node2.id)),
-    relationships: doc.relationships.filter((node2) => placed.has(node2.id)),
-    isas: doc.isas.filter((node2) => placed.has(node2.id)),
-    legs: doc.legs.filter((leg) => placed.has(leg.fromId) && placed.has(leg.toId))
-  });
-  for (const entity of doc.entities) {
-    if (placed.has(entity.id)) continue;
-    const slot = findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.entity);
-    entity.x = slot.x;
-    entity.y = slot.y;
-    placed.add(entity.id);
-  }
-  for (const isa of doc.isas) {
-    const slot = findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.isa);
-    isa.x = slot.x;
-    isa.y = slot.y;
-    placed.add(isa.id);
-  }
-  for (const relationship of doc.relationships) {
-    const ends = doc.legs.filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id);
-    const from2 = ends[0] ? doc.entities.find((entity) => entity.id === ends[0].toId) : void 0;
-    const to = ends[1] ? doc.entities.find((entity) => entity.id === ends[1].toId) : void 0;
-    const spot = from2 && to ? findRelationshipSlot(placedDoc(), from2.id, to.id) : findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.relationship);
-    relationship.x = spot.x;
-    relationship.y = spot.y;
-    placed.add(relationship.id);
-  }
-  for (const attribute of doc.attributes) {
-    const slot = findAttributeSlot(placedDoc(), attribute.ownerId) ?? findFreeSlot(occupiedBoxes(placedDoc()), void 0, NODE_SIZE.attribute);
-    attribute.x = slot.x;
-    attribute.y = slot.y;
-    placed.add(attribute.id);
-  }
-}
-function placeCrow(doc, fixed) {
-  const heights = new Map(deriveTables(doc).map((table) => [table.entityId, tableHeight(table)]));
-  const occupied = [];
-  for (const entity of doc.entities) {
-    const size2 = { w: CROW_WIDTH, h: heights.get(entity.id) ?? CROW_HEADER_HEIGHT + CROW_ROW_HEIGHT };
-    if (fixed.has(entity.id)) {
-      const x = entity.crowX ?? entity.x;
-      const y = entity.crowY ?? entity.y;
-      entity.crowX = x;
-      entity.crowY = y;
-      occupied.push({ x, y, ...size2 });
-      continue;
-    }
-    const slot = findFreeSlot(occupied, void 0, size2);
-    entity.crowX = slot.x;
-    entity.crowY = slot.y;
-    occupied.push({ ...slot, ...size2 });
-  }
-}
-function nodeName(doc, id2) {
-  return doc.entities.find((node2) => node2.id === id2)?.name ?? doc.attributes.find((node2) => node2.id === id2)?.name ?? doc.relationships.find((node2) => node2.id === id2)?.name ?? (doc.isas.some((node2) => node2.id === id2) ? "specialization" : null) ?? (doc.legs.some((node2) => node2.id === id2) ? "line" : null);
-}
-function issuesOf(doc) {
-  return getDiagramIssues(doc).map((issue2) => ({ ...issue2, nodeName: nodeName(doc, issue2.nodeId) }));
-}
-function summarizeDocument(doc, filePath = null) {
-  const tables = deriveTables(doc);
-  return {
-    name: doc.name,
-    view: doc.view,
-    filePath,
-    counts: {
-      entities: doc.entities.length,
-      attributes: doc.attributes.length,
-      relationships: doc.relationships.length,
-      specializations: doc.isas.length
-    },
-    entities: doc.entities.map((entity) => {
-      const table = tables.find((candidate) => candidate.entityId === entity.id);
-      return {
-        id: entity.id,
-        name: entity.name,
-        kind: entity.kind,
-        position: doc.view === "crowfoot" ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y } : { x: entity.x, y: entity.y },
-        attributes: leafAttributesOf(doc, entity.id).map((attribute) => ({
-          id: attribute.id,
-          name: attribute.name,
-          kind: attribute.kind,
-          type: attributeType(attribute)
-        })),
-        columns: (table?.rows ?? []).map((row) => ({
-          name: row.name,
-          type: row.type,
-          pk: row.pk,
-          fk: row.fk,
-          ...row.unique ? { unique: true } : {},
-          ...row.references ? { references: row.references.label } : {}
-        }))
-      };
-    }),
-    relationships: doc.relationships.map((relationship) => ({
-      id: relationship.id,
-      name: relationship.name,
-      kind: relationship.kind,
-      ends: doc.legs.filter((leg) => leg.fromId === relationship.id || leg.toId === relationship.id).flatMap((leg) => {
-        const entityId = leg.fromId === relationship.id ? leg.toId : leg.fromId;
-        const entity = doc.entities.find((candidate) => candidate.id === entityId);
-        if (!entity) return [];
-        return [{
-          entityId: entity.id,
-          entityName: entity.name,
-          cardinality: leg.cardinality,
-          participation: leg.participation,
-          ...leg.columnId ? { columnId: leg.columnId } : {}
-        }];
-      }),
-      attributes: leafAttributesOf(doc, relationship.id).map((attribute) => ({
-        id: attribute.id,
-        name: attribute.name,
-        kind: attribute.kind,
-        type: attributeType(attribute)
-      }))
-    })),
-    specializations: doc.isas.map((isa) => ({
-      id: isa.id,
-      parent: doc.entities.find((entity) => entity.id === isa.parentId)?.name ?? null,
-      children: isa.childIds.map((id2) => doc.entities.find((entity) => entity.id === id2)?.name ?? id2)
-    })),
-    issues: issuesOf(doc),
-    sqlReadiness: describeSqlReadiness(doc)
-  };
-}
-function summaryOutline(summary) {
-  const lines = [`${summary.name} (${summary.view})`];
-  lines.push(`Entities (${summary.counts.entities}):`);
-  for (const entity of summary.entities) {
-    const attributes = entity.attributes.map((attribute) => `${attribute.name} ${attribute.kind}${attribute.type ? `:${attribute.type}` : ""}`).join(", ");
-    const x = Math.round(entity.position.x);
-    const y = Math.round(entity.position.y);
-    lines.push(`- ${entity.name} [${entity.kind}] ${entity.id} at (${x}, ${y})${attributes ? `: ${attributes}` : ""}`);
-  }
-  if (summary.relationships.length) {
-    lines.push(`Relationships (${summary.counts.relationships}):`);
-    for (const relationship of summary.relationships) {
-      const ends = relationship.ends.map((end) => `${end.entityName} ${end.cardinality} (${end.participation.min}..${end.participation.max})`).join(" - ");
-      lines.push(`- ${relationship.name} [${relationship.kind}] ${relationship.id}: ${ends}`);
-    }
-  }
-  if (summary.specializations.length) {
-    lines.push(`Specializations (${summary.counts.specializations}):`);
-    for (const isa of summary.specializations) {
-      lines.push(`- ${isa.parent ?? "(no parent)"} -> ${isa.children.join(", ")}`);
-    }
-  }
-  if (summary.issues.length) {
-    lines.push(`Warnings (${summary.issues.length}):`);
-    for (const issue2 of summary.issues) lines.push(`- ${issue2.code}: ${issue2.message}`);
-  } else {
-    lines.push("Warnings: none.");
-  }
-  return lines.join("\n");
-}
-function shareInfo(doc, options = {}) {
-  const current = session;
-  const live = current?.live ?? null;
-  const baseUrl = options.baseUrl ?? current?.liveBaseUrl ?? process.env.ERD_MCP_APP_URL ?? "http://localhost:5173/";
-  const room = options.room?.trim() || live?.room || newRoomId();
-  const includeSnapshot = options.includeSnapshot ?? true;
-  const url2 = buildShareUrl(baseUrl, doc, room, includeSnapshot);
-  const hashIndex = url2.indexOf("#");
-  return {
-    room,
-    url: url2,
-    hash: hashIndex === -1 ? "" : url2.slice(hashIndex),
-    ...live ? { live: liveInfo(live) } : {}
-  };
-}
-async function saveNew(doc, requested, overwrite) {
-  const path = requested ? resolveDiagramPath(requested) : await uniqueDefaultPath(doc.name);
-  if (requested && await fileExists(path) && !overwrite) {
-    throw new Error(`${path} already exists. Pass overwrite: true or choose another path.`);
-  }
-  await writeDocument(doc, path);
-  return path;
-}
-async function persistAfterMutation() {
-  const current = requireSession();
-  if (!current.filePath) return {};
-  try {
-    await writeDocument(current.doc, current.filePath);
-    current.dirty = false;
-    return { savedTo: current.filePath };
-  } catch (error62) {
-    return { saveError: errorMessage(error62) };
-  }
-}
-async function commit(current, doc, focusId) {
-  const next = normalizeDocument(doc);
-  if (!current.live) {
-    current.doc = next;
-    current.dirty = true;
-    return;
-  }
-  const live = current.live;
-  const watched = focusId !== null && Boolean(focusId) && live.watching > 0;
-  if (watched) await live.glideTo(next, focusId ?? null, false);
-  const changed = writeDocumentDiff(live.ydoc, current.doc, next);
-  live.flash(next, focusId ?? changed[0] ?? null, focusId !== null && focusId !== void 0);
-  current.doc = live.snapshot();
-  current.dirty = true;
-}
-async function commitDrag(current, doc, focusId) {
-  const next = normalizeDocument(doc);
-  if (!current.live) {
-    current.doc = next;
-    current.dirty = true;
-    return;
-  }
-  const live = current.live;
-  const carried = live.watching > 0 ? await live.dragTo(current.doc, next, focusId) : false;
-  writeDocumentDiff(live.ydoc, current.doc, next);
-  if (carried) live.release(next, focusId);
-  current.doc = live.snapshot();
-  current.dirty = true;
-}
-async function commitLasso(current, doc, ids) {
-  if (ids.length < 2) {
-    await commit(current, doc, ids[0] ?? null);
-    return;
-  }
-  const next = normalizeDocument(doc);
-  if (!current.live) {
-    current.doc = next;
-    current.dirty = true;
-    return;
-  }
-  const live = current.live;
-  const watched = live.watching > 0;
-  if (watched) await live.lasso(current.doc, ids);
-  writeDocumentDiff(live.ydoc, current.doc, next);
-  if (watched) live.release(next, null);
-  current.doc = live.snapshot();
-  current.dirty = true;
-}
-function thinkIn(current) {
-  if (current.live && current.live.watching > 0) current.live.think();
-}
-function activePosition(doc, id2) {
-  const entity = doc.entities.find((candidate) => candidate.id === id2);
-  if (entity) {
-    return doc.view === "crowfoot" ? { x: entity.crowX ?? entity.x, y: entity.crowY ?? entity.y } : { x: entity.x, y: entity.y };
-  }
-  if (doc.view === "crowfoot") return void 0;
-  const node2 = [...doc.attributes, ...doc.relationships, ...doc.isas].find((candidate) => candidate.id === id2);
-  return node2 ? { x: node2.x, y: node2.y } : void 0;
-}
-function mutation(doc, message, nodeId) {
-  const current = requireSession();
-  const position = nodeId ? activePosition(doc, nodeId) : void 0;
-  return {
-    message,
-    ...nodeId ? { nodeId } : {},
-    ...position ? { position } : {},
-    filePath: current.filePath,
-    ...current.live ? { live: liveInfo(current.live) } : {},
-    issues: issuesOf(doc)
-  };
-}
-async function createDiagram(spec) {
-  const previous = session;
-  const built = buildDocument(spec);
-  const authored = built.fixed.size > 0;
-  let doc = spec.layout === true || spec.layout !== false && !authored ? arrangeNewDocument(built.doc, built.doc.view) : placeNewDocument(built, built.doc.view);
-  const filePath = spec.save === false ? null : await saveNew(doc, spec.path, spec.overwrite ?? false);
-  if (previous?.live) {
-    await previous.live.replace(doc, previous.live.watching > 0);
-    doc = previous.live.snapshot();
-    if (filePath) await writeDocument(doc, filePath);
-    session = { doc, filePath, dirty: false, live: previous.live, liveBaseUrl: previous.liveBaseUrl };
-  } else {
-    session = { doc, filePath, dirty: false, live: null };
-  }
-  const summary = summarizeDocument(doc, filePath);
-  return { filePath, summary, outline: summaryOutline(summary), share: shareInfo(doc) };
-}
-async function openDiagram(path, view) {
-  const filePath = resolveDiagramPath(path);
-  const doc = await readDocument(filePath);
-  if (view) doc.view = view;
-  session?.live?.close();
-  session = { doc, filePath, dirty: false, live: null };
-  const summary = summarizeDocument(doc, filePath);
-  return { filePath, summary, outline: summaryOutline(summary) };
-}
-async function openRoom(options = {}) {
-  const linkText = (options.link ?? "").trim();
-  const link = roomFromLink(linkText);
-  if (linkText && !link.room && !link.baseUrl) {
-    throw new Error("That is not a room id or share link. Paste a link like https://kuy124.github.io/erd-maker/#room=... or an 8+ character room id.");
-  }
-  const current = session;
-  const room = link.room ?? (link.baseUrl ? newRoomId() : current?.live?.room ?? newRoomId());
-  if (current?.live?.room === room) {
-    const summary2 = summarizeDocument(current.doc, current.filePath);
-    return {
-      room,
-      url: shareInfo(current.doc).url,
-      relay: current.live.relayUrl,
-      watching: current.live.watching,
-      peers: current.live.peers.map((peer) => peer.name),
-      seeded: false,
-      summary: summary2,
-      outline: summaryOutline(summary2)
-    };
-  }
-  const seed = link.doc ?? (options.seed === false ? void 0 : current?.doc);
-  const next = await LiveRoom.join({
-    room,
-    ...seed ? { seed } : {},
-    ...lastPointer ? { startCursor: lastPointer } : {}
-  });
-  current?.live?.close();
-  const fileBelongs = Boolean(current?.filePath && next.seeded && seed === current.doc);
-  session = {
-    doc: next.snapshot(),
-    filePath: fileBelongs ? current.filePath : null,
-    dirty: false,
-    live: next,
-    liveBaseUrl: options.baseUrl ?? link.baseUrl ?? current?.liveBaseUrl
-  };
-  const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id ?? null;
-  next.enter(session.doc, focus);
-  const summary = summarizeDocument(session.doc, session.filePath);
-  return {
-    room,
-    url: shareInfo(session.doc, { baseUrl: session.liveBaseUrl }).url,
-    relay: next.relayUrl,
-    watching: next.watching,
-    peers: next.peers.map((peer) => peer.name),
-    seeded: next.seeded,
-    summary,
-    outline: summaryOutline(summary)
-  };
-}
-async function leaveRoom() {
-  const current = session;
-  const live = current?.live;
-  if (!current || !live) {
-    return { room: null, message: "This diagram is not in a live room, so there is nothing to leave." };
-  }
-  const room = live.room;
-  lastPointer = live.pointer;
-  await live.leave(current.doc);
-  session = { ...current, live: null };
-  return {
-    room,
-    message: `Left room ${room}. The diagram stays open here, so edits keep working \u2014 they just no longer stream to watchers.`
-  };
-}
-async function saveDiagram(path, overwrite = false) {
-  const current = requireSession();
-  const target = path ? resolveDiagramPath(path) : current.filePath;
-  if (!target) throw new Error("This diagram has no file yet. Pass a path to save it.");
-  if (path && target !== current.filePath && !overwrite && await fileExists(target)) {
-    throw new Error(`${target} already exists. Pass overwrite: true to replace it.`);
-  }
-  await writeDocument(current.doc, target);
-  current.filePath = target;
-  current.dirty = false;
-  return target;
-}
-function getDiagram() {
-  const current = requireSession();
-  return { filePath: current.filePath, dirty: current.dirty, live: liveInfo(current.live), document: current.doc };
-}
-function serverStatus() {
-  const current = peekSession();
-  return {
-    workspace: WORKSPACE_ROOT,
-    alive: true,
-    open: current ? {
-      name: current.doc.name,
-      view: current.doc.view,
-      filePath: current.filePath,
-      dirty: current.dirty,
-      shapes: {
-        entities: current.doc.entities.length,
-        attributes: current.doc.attributes.length,
-        relationships: current.doc.relationships.length,
-        isas: current.doc.isas.length
-      },
-      live: current.live
-    } : null
-  };
-}
-function summarizeSession() {
-  const current = requireSession();
-  const summary = summarizeDocument(current.doc, current.filePath);
-  return { filePath: current.filePath, live: liveInfo(current.live), summary, outline: summaryOutline(summary) };
-}
-function validateSession() {
-  const current = requireSession();
-  thinkIn(current);
-  const issues = issuesOf(current.doc);
-  return { valid: issues.length === 0, issues, sqlReadiness: describeSqlReadiness(current.doc) };
-}
-function sqlForSession(dialect = "standard", dropFirst = false) {
-  const current = requireSession();
-  thinkIn(current);
-  try {
-    return { dialect, sql: generateSql(current.doc, { dialect, dropFirst }) };
-  } catch (error62) {
-    throw new Error(`${errorMessage(error62)} ${describeSqlReadiness(current.doc)}`.trim());
-  }
-}
-async function arrangeSession(view) {
-  const current = requireSession();
-  const doc = structuredClone(current.doc);
-  if (view) doc.view = view;
-  await commit(current, arrangeView(doc, doc.view), null);
-  const outcome = await persistAfterMutation();
-  return {
-    ...mutation(current.doc, `Arranged ${current.doc.view} view.`),
-    ...outcome,
-    summary: summarizeDocument(current.doc, current.filePath)
-  };
-}
-function candidates(doc) {
-  return [
-    ...doc.entities.map((entity) => ({ id: entity.id, name: entity.name, kind: "entity" })),
-    ...doc.attributes.map((attribute) => ({ id: attribute.id, name: attribute.name, kind: "attribute" })),
-    ...doc.relationships.map((relationship) => ({ id: relationship.id, name: relationship.name, kind: "relationship" })),
-    ...doc.isas.map((isa) => ({ id: isa.id, name: "specialization", kind: "specialization" }))
-  ];
-}
-function resolveNode(doc, ref) {
-  const all2 = candidates(doc);
-  const byId = all2.find((node2) => node2.id === ref);
-  if (byId) return byId;
-  const lower = ref.trim().toLowerCase();
-  const byName = all2.filter((node2) => node2.name.toLowerCase() === lower);
-  if (byName.length === 1) return byName[0];
-  if (byName.length > 1) {
-    throw new Error(`"${ref}" matches more than one shape (${byName.map((node2) => node2.id).join(", ")}). Use the id.`);
-  }
-  throw new Error(`No entity, attribute, or relationship named "${ref}". Call summarize_diagram for ids and names.`);
-}
-function resolveEntity(doc, ref) {
-  const byId = doc.entities.find((entity) => entity.id === ref);
-  if (byId) return byId;
-  const lower = ref.trim().toLowerCase();
-  const byName = doc.entities.filter((entity) => entity.name.toLowerCase() === lower);
-  if (byName.length === 1) return byName[0];
-  if (byName.length > 1) {
-    throw new Error(`"${ref}" matches more than one entity (${byName.map((entity) => entity.id).join(", ")}). Use the id.`);
-  }
-  throw new Error(`No entity named "${ref}". Call summarize_diagram for entity names and ids.`);
-}
-function placeAttribute(doc, id2) {
-  const attribute = doc.attributes.find((candidate) => candidate.id === id2);
-  if (!attribute) return;
-  const without = { ...doc, attributes: doc.attributes.filter((candidate) => candidate.id !== id2), view: "chen" };
-  const slot = findAttributeSlot(without, attribute.ownerId);
-  if (slot) {
-    attribute.x = slot.x;
-    attribute.y = slot.y;
-  }
-}
-async function addEntity(input2) {
-  const current = requireSession();
-  const name = requireName(input2.name, "Entity");
-  if (current.doc.entities.some((entity2) => entity2.name.toLowerCase() === name.toLowerCase())) {
-    throw new Error(`An entity named "${name}" already exists.`);
-  }
-  const doc = structuredClone(current.doc);
-  const used = collectIds(doc);
-  const entity = {
-    id: newId("ent", name, used),
-    name,
-    x: 0,
-    y: 0,
-    kind: entityKind(input2.kind)
-  };
-  if (doc.view === "crowfoot") {
-    const chen = findFreeSlot(occupiedBoxes({ ...doc, view: "chen" }), void 0, NODE_SIZE.entity);
-    entity.x = chen.x;
-    entity.y = chen.y;
-  } else {
-    const spot2 = specPoint(input2, `Entity "${name}"`) ?? findFreeSlot(occupiedBoxes(doc), void 0, NODE_SIZE.entity);
-    entity.x = spot2.x;
-    entity.y = spot2.y;
-  }
-  doc.entities.push(entity);
-  addAttributeSpecs(
-    doc,
-    entity.id,
-    entity.name,
-    input2.attributes ?? [],
-    used,
-    (attribute) => placeAttribute(doc, attribute.id)
-  );
-  let spot = { x: entity.x, y: entity.y };
-  if (doc.view === "crowfoot") {
-    const table = deriveTables(doc).find((candidate) => candidate.entityId === entity.id);
-    const occupied = occupiedBoxes({ ...doc, entities: doc.entities.filter((node2) => node2.id !== entity.id) });
-    spot = specPoint(input2, `Entity "${name}"`) ?? findFreeSlot(occupied, void 0, { w: CROW_WIDTH, h: tableHeight(table) });
-    entity.crowX = spot.x;
-    entity.crowY = spot.y;
-  }
-  await commit(current, doc, entity.id);
-  const outcome = await persistAfterMutation();
-  return {
-    ...mutation(current.doc, `Added entity ${name} at (${spot.x}, ${spot.y}).`, entity.id),
-    ...outcome
-  };
-}
-async function addAttribute(input2) {
-  const current = requireSession();
-  const owner = resolveNode(current.doc, input2.owner);
-  if (owner.kind === "attribute") {
-    const attribute = current.doc.attributes.find((candidate) => candidate.id === owner.id);
-    if (attribute?.kind !== "composite") {
-      throw new Error(`"${owner.name}" is not a composite attribute, so it cannot own parts.`);
-    }
-  }
-  const name = requireName(input2.name, "Attribute");
-  const parts = input2.attributes ?? [];
-  const doc = structuredClone(current.doc);
-  const used = collectIds(doc);
-  const ownerSlug = owner.kind === "specialization" ? "specialization" : owner.name;
-  let added;
-  addAttributeSpecs(doc, owner.id, ownerSlug, [{
-    name,
-    ...input2.kind ? { kind: input2.kind } : {},
-    ...input2.dataType ? { dataType: input2.dataType } : {},
-    ...parts.length ? { attributes: parts } : {}
-  }], used, (attribute) => {
-    added ??= attribute.id;
-    placeAttribute(doc, attribute.id);
-  });
-  await commit(current, doc, added ?? null);
-  const outcome = await persistAfterMutation();
-  return { ...mutation(current.doc, `Added attribute ${name} to ${owner.name}.`, added), ...outcome };
-}
-async function addRelationship(input2) {
-  const current = requireSession();
-  const name = requireName(input2.name, "Relationship");
-  const doc = structuredClone(current.doc);
-  const from2 = resolveEntity(doc, input2.from);
-  const to = resolveEntity(doc, input2.to);
-  const [fromCard, toCard] = parseCardinality(input2.cardinality);
-  const relationship = {
-    id: newId("rel", name, collectIds(doc)),
-    name,
-    ...findRelationshipSlot(doc, from2.id, to.id),
-    kind: relationshipKind(input2.kind, from2, to)
-  };
-  const used = collectIds({ ...doc, relationships: [...doc.relationships, relationship] });
-  doc.relationships.push(relationship);
-  addAttributeSpecs(
-    doc,
-    relationship.id,
-    name,
-    input2.attributes ?? [],
-    used,
-    (attribute) => placeAttribute(doc, attribute.id)
-  );
-  const leg = (entity, card, part, suffix) => ({
-    id: newId("leg", `${name}_${suffix}`, used),
-    fromId: relationship.id,
-    toId: entity.id,
-    cardinality: card,
-    participation: participationOf(part, card)
-  });
-  doc.legs.push(leg(from2, fromCard, input2.fromParticipation, from2.name));
-  doc.legs.push(leg(to, toCard, input2.toParticipation, to.name));
-  await commit(current, doc, relationship.id);
-  const outcome = await persistAfterMutation();
-  return { ...mutation(current.doc, `Added relationship ${name} between ${from2.name} and ${to.name}.`, relationship.id), ...outcome };
-}
-async function addIsa(input2) {
-  const current = requireSession();
-  thinkIn(current);
-  const doc = structuredClone(current.doc);
-  const parent = resolveEntity(doc, input2.parent);
-  const children = input2.children.map((child) => resolveEntity(doc, child));
-  if (children.some((child) => child.id === parent.id)) throw new Error("A specialization cannot contain its own base.");
-  if (new Set(children.map((child) => child.name)).size !== children.length) throw new Error("Choose different children for the specialization.");
-  const name = requireName(input2.name ?? "Specialization", "Specialization");
-  const existing = doc.isas.find((isa) => isa.parentId === parent.id);
-  let target;
-  if (existing) {
-    for (const child of children) if (!existing.childIds.includes(child.id)) existing.childIds.push(child.id);
-    target = existing;
-  } else {
-    const used = collectIds(doc);
-    const isa = {
-      id: newId("isa", name, used),
-      x: parent.x,
-      y: parent.y - NODE_SIZE.isa.h - 16,
-      parentId: parent.id,
-      childIds: children.map((child) => child.id)
-    };
-    doc.isas.push(isa);
-    target = isa;
-  }
-  await commit(current, doc, target.id);
-  const outcome = await persistAfterMutation();
-  return { ...mutation(current.doc, `Added specialization ${name}: ${parent.name} by ${children.map((child) => child.name).join(", ")}.`, target.id), ...outcome };
-}
-async function updateNode(ref, patch) {
-  const current = requireSession();
-  const node2 = resolveNode(current.doc, ref);
-  const name = patch.name === void 0 ? void 0 : requireName(patch.name, "Shape");
-  let move = null;
-  if (patch.x !== void 0 || patch.y !== void 0) {
-    if (node2.kind !== "entity") throw new Error("Only entities can be moved with x and y.");
-    if (patch.x === void 0 || patch.y === void 0 || !Number.isFinite(patch.x) || !Number.isFinite(patch.y)) {
-      throw new Error("Moving an entity needs a number for both x and y.");
-    }
-    move = { x: Math.round(patch.x), y: Math.round(patch.y) };
-  }
-  const doc = structuredClone(current.doc);
-  if (node2.kind === "entity") {
-    const entity = doc.entities.find((candidate) => candidate.id === node2.id);
-    if (name !== void 0) entity.name = name;
-    if (patch.kind !== void 0) entity.kind = entityKind(patch.kind);
-    if (patch.dataType !== void 0) throw new Error("Only attributes have a data type.");
-    if (move) {
-      if (doc.view === "crowfoot") {
-        entity.crowX = move.x;
-        entity.crowY = move.y;
-      } else {
-        const dx = move.x - entity.x;
-        const dy = move.y - entity.y;
-        entity.x = move.x;
-        entity.y = move.y;
-        const owned = descendantAttributeIds(doc, entity.id);
-        for (const attribute of doc.attributes) {
-          if (!owned.has(attribute.id)) continue;
-          attribute.x += dx;
-          attribute.y += dy;
-        }
-      }
-    }
-  } else if (node2.kind === "relationship") {
-    const relationship = doc.relationships.find((candidate) => candidate.id === node2.id);
-    if (name !== void 0) relationship.name = name;
-    if (patch.kind !== void 0) {
-      if (patch.kind !== "strong" && patch.kind !== "weak") throw new Error('Relationship kind must be "strong" or "weak".');
-      relationship.kind = patch.kind;
-    }
-    if (patch.dataType !== void 0) throw new Error("Only attributes have a data type.");
-  } else if (node2.kind === "attribute") {
-    const attribute = doc.attributes.find((candidate) => candidate.id === node2.id);
-    if (name !== void 0) attribute.name = name;
-    if (patch.kind !== void 0) {
-      const kind = attributeKind(patch.kind, false);
-      const hasChildren = doc.attributes.some((candidate) => candidate.ownerId === attribute.id);
-      if (hasChildren && kind !== "composite") {
-        throw new Error(`"${attribute.name}" has parts, so its kind must stay composite.`);
-      }
-      attribute.kind = kind;
-    }
-    if (patch.dataType !== void 0) {
-      const type = dataTypeOf(patch.dataType, attribute.name);
-      if (type) attribute.dataType = type;
-    }
-  } else {
-    if (name !== void 0 || patch.kind !== void 0 || patch.dataType !== void 0) {
-      throw new Error("Specializations have no editable name or type; change their parent or children instead.");
-    }
-  }
-  if (move && name === void 0 && patch.kind === void 0) {
-    await commitDrag(current, doc, node2.id);
-  } else {
-    await commit(current, doc, node2.id);
-  }
-  const outcome = await persistAfterMutation();
-  const displayName = name ?? node2.name;
-  const message = move && name === void 0 && patch.kind === void 0 ? `Moved entity ${displayName} to (${move.x}, ${move.y}).` : `Updated ${node2.kind} ${displayName}.`;
-  return { ...mutation(current.doc, message, node2.id), ...outcome };
-}
-async function removeDiagramNode(ref) {
-  const current = requireSession();
-  const node2 = resolveNode(current.doc, ref);
-  const beforeAttributes = current.doc.attributes.length;
-  const doomed = [node2.id, ...descendantAttributeIds(current.doc, node2.id)];
-  const doc = removeNode(current.doc, node2.id);
-  await commitLasso(current, doc, doomed);
-  const removedAttributes = beforeAttributes - current.doc.attributes.length;
-  const outcome = await persistAfterMutation();
-  return {
-    ...mutation(
-      current.doc,
-      `Removed ${node2.kind} ${node2.name}${removedAttributes ? ` and ${removedAttributes} attribute${removedAttributes === 1 ? "" : "s"}` : ""}.`
-    ),
-    ...outcome
-  };
-}
-async function updateDiagram(patch) {
-  const current = requireSession();
-  const doc = structuredClone(current.doc);
-  if (patch.name !== void 0) doc.name = requireName(patch.name, "Diagram");
-  if (patch.view !== void 0) {
-    if (patch.view !== "chen" && patch.view !== "crowfoot") throw new Error('View must be "chen" or "crowfoot".');
-    doc.view = patch.view;
-  }
-  await commit(current, doc, null);
-  const outcome = await persistAfterMutation();
-  return {
-    ...mutation(current.doc, "Updated the diagram."),
-    ...outcome,
-    summary: summarizeDocument(current.doc, current.filePath)
-  };
-}
-function shareSession(options = {}) {
-  return shareInfo(requireSession().doc, options);
-}
-async function listDiagramFiles() {
-  let entries;
-  try {
-    entries = await readdir(DIAGRAMS_ROOT, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const files = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".json")) continue;
-    const fullPath = resolve(DIAGRAMS_ROOT, entry.name);
-    try {
-      const info = await stat(fullPath);
-      let name = null;
-      try {
-        const parsed = JSON.parse(await readFile(fullPath, "utf8"));
-        name = typeof parsed.name === "string" ? parsed.name : null;
-      } catch {
-      }
-      files.push({
-        path: relative(WORKSPACE_ROOT, fullPath).split("\\").join("/"),
-        name,
-        modified: info.mtime.toISOString(),
-        size: info.size
-      });
-    } catch {
-    }
-  }
-  return files.sort((a, b) => b.modified.localeCompare(a.modified));
-}
-var REPO_ROOT, WORKSPACE_ROOT, DIAGRAMS_ROOT, session, lastPointer, ATTRIBUTE_KINDS, CARDINALITIES;
-var init_diagram = __esm({
-  "mcp/diagram.ts"() {
-    "use strict";
-    init_dataTypes();
-    init_attributes();
-    init_columnNames();
-    init_crowfoot();
-    init_issues();
-    init_layout();
-    init_placement();
-    init_snapshot();
-    init_sql();
-    init_types3();
-    init_live();
-    REPO_ROOT = repositoryRoot();
-    WORKSPACE_ROOT = resolve(process.env.ERD_MCP_ROOT ?? REPO_ROOT);
-    DIAGRAMS_ROOT = resolve(WORKSPACE_ROOT, process.env.ERD_MCP_DIR ?? "diagrams");
-    session = null;
-    lastPointer = null;
-    ATTRIBUTE_KINDS = ["simple", "key", "unique", "multivalued", "derived", "composite"];
-    CARDINALITIES = {
-      "1:1": ["1", "1"],
-      "1:N": ["1", "N"],
-      "N:1": ["N", "1"],
-      "N:M": ["N", "M"],
-      "M:N": ["M", "N"]
-    };
-  }
-});
-
-// mcp/server.ts
-var server_exports = {};
-__export(server_exports, {
-  createServer: () => createServer2
-});
-function createServer2() {
-  const server = new McpServer(
-    { name: "erd-maker", version: "1.0.0" },
-    {
-      instructions: [
-        "# ERD Maker",
-        "Read, author, and export entity-relationship diagrams. They are JSON files under " + WORKSPACE_ROOT + ".",
-        "",
-        "## The 90% path",
-        "create_diagram { name, text } \u2014 pass the whole model as indented lines and you are done:",
-        "",
-        "  Customer",
-        "    customer_id: INT key",
-        "    email: TEXT unique",
-        "  Order",
-        "    order_id: INT key",
-        "  Customer 1:N Order as places",
-        "  Party isa Customer, Supplier",
-        "",
-        "An unindented line is an entity; indented lines are its attributes (`name`, `name: TYPE`, plus an optional",
-        "kind word: key, unique, multivalued, derived, composite). A line with 1:1/1:N/N:1/N:M is a relationship.",
-        "`Parent isa Child, Child` is a specialization. Then call validate_diagram, fix what it reports, and",
-        "generate_sql. That is the whole job for most requests.",
-        "",
-        "## Rules that are easy to get wrong",
-        '- "1:N" from A to B means one A relates to many Bs. The label at each end describes the entity at that end.',
-        "- A key attribute is the primary key and must be unique. Composite attributes own their parts.",
-        "- Positions are optional. Give no coordinates and the app arranges the diagram; give x/y on an entity to pin",
-        "  it. Only entities take coordinates \u2014 attribute columns, diamonds, and lines are placed for you. Leave room:",
-        "  ~500px apart across and ~360px down in Chen, ~360px across in crow's-foot. summarize_diagram reports",
-        "  positions; arrange_diagram re-lays the whole thing out.",
-        "- Refer to a shape by id or by unique name. summarize_diagram returns both.",
-        "- For participation constraints or attributes on a relationship, use the structured form",
-        "  (entities/relationships/isas) instead of text.",
-        "",
-        "## One diagram at a time",
-        "create_diagram or open_diagram makes a diagram current; add/update/remove tools edit it; every edit is written",
-        "back to its file. list_diagrams shows what is saved. Use the add/update/remove tools for follow-ups, not for",
-        "building a first draft.",
-        "",
-        "## Live rooms (optional, only when the person wants to watch)",
-        "open_room joins an ERD Maker room as a collaborator: later edits appear in the room's open tabs as they",
-        "happen, with the AI's name, cursor, and selection, and no refresh. Omit the link to start a room, or pass the",
-        "share link the person gave you to join theirs. A room that already has content wins; the open diagram only",
-        "seeds an empty room. create_share_link returns the live room while one is open, otherwise a snapshot URL.",
-        "leave_room signs out with a visible farewell \u2014 call it only when the person says they are done or asks you to",
-        "leave, not when your turn ends."
-      ].join("\n")
-    }
-  );
-  function json3(value) {
-    return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
-  }
-  const viewSchema = external_exports.enum(["chen", "crowfoot"]);
-  const attributeKindSchema = external_exports.enum(["simple", "key", "unique", "multivalued", "derived", "composite"]);
-  const entityKindSchema = external_exports.enum(["strong", "weak"]);
-  const cardinalitySchema = external_exports.enum(["1:1", "1:N", "N:1", "N:M", "M:N"]);
-  const attributeSpecSchema = external_exports.lazy(() => external_exports.object({
-    name: external_exports.string().describe('Attribute name, e.g. "customer_id".'),
-    kind: attributeKindSchema.optional().describe("Defaults to simple, or composite when the attribute has parts."),
-    dataType: external_exports.string().optional().describe("SQL type such as INT, VARCHAR(120), NUMERIC(10,2), DATE, UUID, BOOLEAN, JSONB, or ENUM('new','paid')."),
-    attributes: external_exports.array(attributeSpecSchema).optional().describe("Parts of a composite attribute.")
-  }));
-  const entitySpecSchema = external_exports.object({
-    name: external_exports.string().describe('Entity name in the database, e.g. "Customer".'),
-    kind: entityKindSchema.optional().describe("strong (default) or weak. A weak entity derives its key from a parent through an identifying relationship."),
-    attributes: external_exports.array(attributeSpecSchema).optional().describe("Attributes placed on the entity at creation."),
-    x: external_exports.number().optional().describe("Left edge in the view being created, in pixels. Give both x and y to place the entity deliberately; omit both to take the first free slot."),
-    y: external_exports.number().optional().describe("Top edge in the view being created, in pixels.")
-  });
-  const participationSchema = external_exports.object({
-    min: external_exports.number().int().min(0).describe("0 means the entity may take part zero times."),
-    max: external_exports.union([external_exports.number().int().min(1), external_exports.literal("N")]).describe("Biggest number of times the entity may take part; N is unbounded.")
-  });
-  const relationshipSpecSchema = external_exports.object({
-    name: external_exports.string().describe('Verb phrase, e.g. "places".'),
-    kind: entityKindSchema.optional().describe("strong (default) or weak, for an identifying relationship."),
-    from: external_exports.string().describe("Entity name or id at the first end."),
-    to: external_exports.string().describe("Entity name or id at the second end."),
-    cardinality: cardinalitySchema.optional().describe("from:to, each side describing the entity at that end. Defaults to 1:N."),
-    fromParticipation: participationSchema.optional(),
-    toParticipation: participationSchema.optional(),
-    attributes: external_exports.array(attributeSpecSchema).optional().describe("Attributes of the association itself, e.g. enrolled_at.")
-  });
-  const isaSpecSchema = external_exports.object({
-    parent: external_exports.string().describe("Superclass entity name or id."),
-    children: external_exports.array(external_exports.string()).min(1).describe("Subclass entity names or ids.")
-  });
-  server.registerTool("server_status", {
-    title: "Server status",
-    description: "Report what this server is running: the workspace, whether a diagram is open (and its name, view, file, shape counts, and live room), with no side effects. The tools here only fail when the server is gone or no diagram is open, so call this first to tell a healthy empty session from one whose tools will error.",
-    inputSchema: {}
-  }, async () => json3(serverStatus()));
-  server.registerTool("create_diagram", {
-    title: "Create a diagram",
-    description: 'Build a whole ERD and open it as the current diagram. Two equivalent ways to say the model; use either, not both.\n\nFASTEST \u2014 pass `text`, a few indented lines:\n  Customer\n    customer_id: INT key\n    email: TEXT unique\n  Order\n    order_id: INT key\n  Customer 1:N Order as places\n  Party isa Customer, Supplier\n\nRules for `text`: an unindented line is an entity (add `weak`, or `@ x,y` to place it). Indented lines are its attributes, written `name`, `name: TYPE`, or either plus a kind word \u2014 key, unique, multivalued, derived, composite. Indent further to give a composite attribute its parts. A line with a cardinality in it (1:1, 1:N, N:1, N:M) is a relationship `From CARD To`, named with `as places` or defaulting to "From To". `Parent isa Child, Child` declares a specialization. `#` starts a comment. Errors name the line.\n\nSTRUCTURED \u2014 pass `entities`, `relationships`, `isas` instead, when you need participation constraints or composite parts on a relationship.\n\nEither way the diagram is validated and saved to diagrams/<slug>.json unless path or save:false says otherwise, and it streams into a live room shape by shape when one is open. Returns the file path, a text outline, validation issues, and a share link. Positions are optional: no coordinates at all means the app arranges the diagram; give every entity x and y to pin it.',
-    inputSchema: {
-      name: external_exports.string().describe('Diagram name, e.g. "Sales".'),
-      text: external_exports.string().optional().describe("The whole model as indented lines \u2014 see the description. Alternative to entities."),
-      view: viewSchema.optional().describe("Notation to show: chen (default) or crowfoot."),
-      entities: external_exports.array(entitySpecSchema).optional().describe("Structured form. Every entity with its attributes, keys, and positions."),
-      relationships: external_exports.array(relationshipSpecSchema).optional().describe("Structured form. Every relationship between two entities with its cardinality."),
-      isas: external_exports.array(isaSpecSchema).optional().describe("Structured form. Every specialization of a base by its subclasses."),
-      path: external_exports.string().optional().describe("Workspace-relative .json path. Omit to use diagrams/<name>.json."),
-      overwrite: external_exports.boolean().optional().describe("Replace the file at path if it already exists."),
-      layout: external_exports.boolean().optional().describe("Auto-arrange the whole diagram. Defaults to auto-arrange when no entity has coordinates; otherwise the x and y you give are kept and shapes without coordinates take the first free slot."),
-      save: external_exports.boolean().optional().describe("Set false to keep the diagram only in this session.")
-    }
-  }, async ({ text, entities, relationships, isas, ...rest }) => {
-    if (text && (entities || relationships || isas)) {
-      throw new Error("Pass either text or entities/relationships/isas, not both.");
-    }
-    const model = text ? parseCompactDiagram(text) : null;
-    const spec = {
-      ...rest,
-      entities: entities ?? model?.entities ?? [],
-      relationships: relationships ?? model?.relationships,
-      isas: isas ?? model?.isas
-    };
-    if (spec.entities.length === 0) {
-      throw new Error("A diagram needs at least one entity. Pass text or a non-empty entities array.");
-    }
-    return json3(await createDiagram(spec));
-  });
-  server.registerTool("open_diagram", {
-    title: "Open a diagram",
-    description: "Open a saved diagram file as the current diagram, replacing whatever was open before. Paths are workspace-relative (or absolute inside the workspace). Use list_diagrams to discover files.",
-    inputSchema: {
-      path: external_exports.string().describe("Workspace-relative path to a .json diagram file."),
-      view: viewSchema.optional().describe("Show this notation after opening.")
-    }
-  }, async ({ path, view }) => json3(await openDiagram(path, view)));
-  server.registerTool("open_room", {
-    title: "Open a live room",
-    description: `Join an ERD Maker room as a collaborator. Every later edit streams into the room's open tabs as it happens, shown with the AI's cursor and selection, and the person watching does not need to refresh. Pass the share link they sent you, a "#room=..." fragment, or a room id; omit link to start a new room. An empty room is seeded from the link's snapshot or the open diagram; a room that already has content wins. Returns the room id, a share link, who is watching, whether the room was seeded, and the diagram summary.`,
-    inputSchema: {
-      link: external_exports.string().optional().describe('Share link, "#room=..." fragment, or room id. Omit to start a new room.'),
-      baseUrl: external_exports.string().optional().describe("App URL for the returned link, e.g. https://kuy124.github.io/erd-maker/."),
-      seed: external_exports.boolean().optional().describe("Set false to leave an empty room empty instead of copying the open diagram into it.")
-    }
-  }, async (options) => json3(await openRoom(options)));
-  server.registerTool("leave_room", {
-    title: "Leave a live room",
-    description: "Sign out of the live room the assistant is editing, after gliding back to the last shape and pausing, so watchers see it finish rather than watch an avatar that stopped moving. The diagram stays open here: later edits keep working, they just no longer stream. Calling open_room again rejoins, and the pointer resumes where it left off. Call this when the person says they are done, or when they ask the assistant to leave. Does nothing if no room is open.",
-    inputSchema: {}
-  }, async () => json3(await leaveRoom()));
-  server.registerTool("save_diagram", {
-    title: "Save the diagram",
-    description: "Write the open diagram to disk. Without a path it saves to the file it was opened from. With a path it saves there instead; an existing file at a different path is replaced only when overwrite is true.",
-    inputSchema: {
-      path: external_exports.string().optional().describe("Workspace-relative .json path to save to."),
-      overwrite: external_exports.boolean().optional().describe("Replace the file at path if it already exists.")
-    }
-  }, async ({ path, overwrite }) => json3({ filePath: await saveDiagram(path, overwrite) }));
-  server.registerTool("get_diagram", {
-    title: "Get the diagram JSON",
-    description: "Return the complete JSON document of the open diagram, including every coordinate. Use summarize_diagram instead when you only need names, columns, and relationships.",
-    inputSchema: {}
-  }, async () => json3(getDiagram()));
-  server.registerTool("summarize_diagram", {
-    title: "Summarize the diagram",
-    description: "Describe the open diagram compactly: entities with their attributes and position in the current view, derived table columns and foreign keys, relationships with cardinality and participation, specializations, and validation issues. Returns both structured data and a readable text outline. Use position to see where each entity sits before moving one.",
-    inputSchema: {}
-  }, async () => json3(summarizeSession()));
-  server.registerTool("validate_diagram", {
-    title: "Validate the diagram",
-    description: "Report the problems ERD Maker warns about: unnamed shapes, missing keys, incomplete relationships, invalid participation, attributes with no owner, and connections that cannot produce a foreign key. Also says whether SQL can be generated.",
-    inputSchema: {}
-  }, async () => json3(validateSession()));
-  server.registerTool("generate_sql", {
-    title: "Generate SQL",
-    description: "Generate CREATE TABLE DDL from the open diagram, using the same tables and foreign keys the crow's-foot view shows. Many-to-many relationships become junction tables, and weak entities inherit their parent key.",
-    inputSchema: {
-      dialect: external_exports.enum(["standard", "postgres", "mysql", "sqlite"]).optional().describe("Affects surrogate key syntax. Defaults to standard."),
-      dropFirst: external_exports.boolean().optional().describe("Emit DROP TABLE IF EXISTS before each CREATE TABLE.")
-    }
-  }, async ({ dialect, dropFirst }) => json3(sqlForSession(dialect, dropFirst)));
-  server.registerTool("arrange_diagram", {
-    title: "Auto-arrange the diagram",
-    description: "Run ERD Maker's automatic layout on the open diagram. Optionally switch the view first. Manual connector routes are cleared. Positions for the other notation are left alone.",
-    inputSchema: {
-      view: viewSchema.optional().describe("Switch to this notation, then arrange it.")
-    }
-  }, async ({ view }) => json3(await arrangeSession(view)));
-  server.registerTool("add_entity", {
-    title: "Add an entity",
-    description: "Add one entity to the open diagram, optionally with its attributes. Placement defaults to the first free slot; give x and y to choose a position. The new entity's id is returned for later calls.",
-    inputSchema: {
-      name: external_exports.string(),
-      kind: entityKindSchema.optional(),
-      attributes: external_exports.array(attributeSpecSchema).optional(),
-      x: external_exports.number().optional(),
-      y: external_exports.number().optional()
-    }
-  }, async (input2) => json3(await addEntity(input2)));
-  server.registerTool("add_attribute", {
-    title: "Add an attribute",
-    description: "Attach one attribute to an entity, relationship, specialization, or composite attribute, referenced by id or name. Composite parts go in attributes. The attribute is placed beside its owner, following the column already there.",
-    inputSchema: {
-      owner: external_exports.string().describe("Owner id or name."),
-      name: external_exports.string(),
-      kind: attributeKindSchema.optional(),
-      dataType: external_exports.string().optional().describe("SQL type such as INT, VARCHAR(120), DATE, or ENUM('a','b')."),
-      attributes: external_exports.array(attributeSpecSchema).optional().describe("Parts, when this is a composite attribute.")
-    }
-  }, async (input2) => json3(await addAttribute(input2)));
-  server.registerTool("add_relationship", {
-    title: "Add a relationship",
-    description: 'Connect two existing entities with a relationship. Cardinality is written from:to and each side describes the entity at that end. "1:N" from Customer to Order means one customer places many orders. Give relationship attributes for associations that carry data, such as enrolled_at on a many-to-many.',
-    inputSchema: {
-      name: external_exports.string().describe('Verb phrase, e.g. "places".'),
-      kind: entityKindSchema.optional().describe("strong (default) or weak, for an identifying relationship."),
-      from: external_exports.string().describe("Entity name or id."),
-      to: external_exports.string().describe("Entity name or id."),
-      cardinality: cardinalitySchema.optional().describe('from:to. "1:N" means the entity on the from side connects at most once per to side. One of: 1:1, 1:N, N:1, N:M, M:N.'),
-      fromParticipation: participationSchema.optional().describe("How many times the entity at from must take part."),
-      toParticipation: participationSchema.optional().describe("How many times the entity at to must take part."),
-      attributes: external_exports.array(attributeSpecSchema).optional().describe("Attributes of the association itself, e.g. enrolled_at.")
-    }
-  }, async (input2) => json3(await addRelationship(input2)));
-  server.registerTool("add_isa", {
-    title: "Add a specialization",
-    description: "Add a specialization (an is-a) to the open diagram. The base entity becomes the parent; every child is a subclass that inherits its keys and values. If the parent already has a specialization, it is extended with the new children so a base keeps its subclasses in one shape. Refer to the shapes by id or unique name, and return the returned id in later calls with update_node or remove_node.",
-    inputSchema: {
-      parent: external_exports.string().describe("Id or unique name of the base entity."),
-      children: external_exports.array(external_exports.string()).min(1).describe("Ids or unique names of the subclasses."),
-      name: external_exports.string().optional().describe('Name assigned to the specialization, defaulting to "Specialization".')
-    }
-  }, async (input2) => json3(await addIsa(input2)));
-  server.registerTool("update_node", {
-    title: "Update a shape",
-    description: "Rename or retype a shape, or move an entity to a given point. An entity takes a name, kind, and x/y; a relationship takes a name or kind; an attribute takes a name, kind, or data type. x and y are the entity's top-left in the current view, and moving one carries its attributes with it in Chen notation. Data types are normalized to the app's canonical form. Refer to the shape by id or unique name.",
-    inputSchema: {
-      node: external_exports.string().describe("Shape id or unique name."),
-      name: external_exports.string().optional().describe("New shape name in the database."),
-      kind: external_exports.string().optional().describe("Entity: strong|weak. Relationship: strong|weak. Attribute: simple|key|unique|multivalued|derived|composite."),
-      dataType: external_exports.string().optional().describe("Attributes only."),
-      x: external_exports.number().optional().describe("Entities only. Left edge in the current view; give both x and y."),
-      y: external_exports.number().optional().describe("Entities only. Top edge in the current view; give both x and y.")
-    }
-  }, async ({ node: node2, ...patch }) => json3(await updateNode(node2, patch)));
-  server.registerTool("remove_node", {
-    title: "Remove a shape",
-    description: "Delete a shape from the open diagram. Attributes it owns are deleted with it, and lines touching it are removed. Refer to it by id or unique name.",
-    inputSchema: {
-      node: external_exports.string().describe("Shape id or unique name.")
-    }
-  }, async ({ node: node2 }) => json3(await removeDiagramNode(node2)));
-  server.registerTool("update_diagram", {
-    title: "Update the diagram",
-    description: "Rename the open diagram or switch the notation shown. Chen and crow's-foot coordinates are stored separately, so switching never destroys the other view's layout.",
-    inputSchema: {
-      name: external_exports.string().optional().describe("New diagram name."),
-      view: viewSchema.optional().describe("Notation to show: chen (default) or crowfoot.")
-    }
-  }, async (patch) => json3(await updateDiagram(patch)));
-  server.registerTool("create_share_link", {
-    title: "Create a share link",
-    description: "Build a URL that opens the open diagram in ERD Maker. The snapshot is embedded by default, so the link works without a server. In a live room the URL points at that room instead, so the AI's edits keep streaming to whoever opens it. baseUrl defaults to the live room's app URL, then http://localhost:5173/ (or ERD_MCP_APP_URL); room reuses an existing room id instead of generating one.",
-    inputSchema: {
-      baseUrl: external_exports.string().optional().describe("App origin, e.g. https://erd.example.com/."),
-      room: external_exports.string().optional().describe("Reuses this room, keeping the AI's edits live in it."),
-      includeSnapshot: external_exports.boolean().optional().describe("Defaults to true.")
-    }
-  }, async (options) => json3(shareSession(options)));
-  server.registerTool("list_diagrams", {
-    title: "List saved diagrams",
-    description: "List JSON diagram files in the diagrams folder, newest first, with each diagram's stored name when it can be read.",
-    inputSchema: {}
-  }, async () => json3({ diagrams: await listDiagramFiles() }));
-  server.registerResource("current-diagram", "erd://current", {
-    title: "Current diagram",
-    description: "The open diagram as the JSON document ERD Maker imports.",
-    mimeType: "application/json"
-  }, async (uri) => {
-    const current = peekSession();
-    if (!current) return { contents: [{ uri: uri.href, text: "No diagram is open. Call create_diagram or open_diagram first." }] };
-    return {
-      contents: [{
-        uri: uri.href,
-        mimeType: "application/json",
-        text: JSON.stringify({ filePath: current.filePath, dirty: current.dirty, live: current.live, document: current.doc }, null, 2)
-      }]
-    };
-  });
-  server.registerResource("current-summary", "erd://current/summary", {
-    title: "Current diagram summary",
-    description: "Entities, columns, relationships, and issues of the open diagram, plus a text outline.",
-    mimeType: "application/json"
-  }, async (uri) => {
-    if (!peekSession()) {
-      return { contents: [{ uri: uri.href, text: "No diagram is open. Call create_diagram or open_diagram first." }] };
-    }
-    return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(summarizeSession(), null, 2) }] };
-  });
-  server.registerResource("current-sql", "erd://current/sql", {
-    title: "Current diagram SQL",
-    description: "Standard-dialect DDL for the open diagram, or the reason it cannot be generated yet.",
-    mimeType: "text/plain"
-  }, async (uri) => {
-    if (!peekSession()) {
-      return { contents: [{ uri: uri.href, text: "No diagram is open. Call create_diagram or open_diagram first." }] };
-    }
-    try {
-      return { contents: [{ uri: uri.href, mimeType: "text/plain", text: sqlForSession().sql }] };
-    } catch (error62) {
-      return { contents: [{ uri: uri.href, mimeType: "text/plain", text: errorMessage(error62) }] };
-    }
-  });
-  server.registerPrompt("design-erd", {
-    title: "Design an ERD",
-    description: "Work through requirements and produce a validated diagram with SQL.",
-    argsSchema: {
-      requirements: external_exports.string().describe("What the database must support."),
-      view: viewSchema.optional()
-    }
-  }, ({ requirements, view }) => ({
-    messages: [{
-      role: "user",
-      content: {
-        type: "text",
-        text: [
-          "Design an entity-relationship diagram for these requirements:",
-          "",
-          requirements,
-          "",
-          "Use the ERD Maker tools:",
-          '1. List entities and their attributes. Mark the identifier of each entity with kind "key" and give attributes a dataType.',
-          '2. Describe relationships with cardinality at each end. "1:N" from A to B means one A relates to many Bs. Use N:M when both sides can repeat; the junction table is generated for you.',
-          "3. Model a dependent entity as weak when its identity includes a parent's key.",
-          "4. Place the entities on a grid: give each one an x and y, related entities near each other, about 500px apart across and 360px down in Chen, so the attribute columns and relationship diamonds the app places for you have room. Do not rely on automatic arrangement.",
-          "5. If the person wants to watch, call open_room BEFORE create_diagram: pass their share link to join their room, or omit it to start a new one. Every edit then streams into their open tab without a refresh.",
-          "6. Call create_diagram once with the whole model \u2014 every entity with its attributes listed on it, every relationship, every specialization \u2014 then validate_diagram, and fix anything it reports.",
-          "7. Run generate_sql and include the DDL, along with the share link from create_diagram.",
-          "8. Leave the room open while the person keeps working. Call leave_room when they say they are done, or ask you to leave \u2014 your turn ending is not them being done.",
-          "9. Model specializations with add_isa: a parent entity and every subclass that inherits its keys and values, added after create_diagram.",
-          view ? `Show the diagram in the ${view} view after creating it.` : "",
-          "",
-          "Use the vocabulary of the requirements and do not invent attributes they do not imply."
-        ].filter(Boolean).join("\n")
-      }
-    }]
-  }));
-  return server;
-}
-var init_server3 = __esm({
-  "mcp/server.ts"() {
-    "use strict";
-    init_mcp();
-    init_stdio2();
-    init_zod();
-    init_compact();
-    init_diagram();
-    if (process.env.ERD_MCP_TRANSPORT !== "http") {
-      const transport = new StdioServerTransport();
-      createServer2().connect(transport).then(
-        () => console.error(`ERD Maker MCP ready. Workspace: ${WORKSPACE_ROOT}`),
-        (error62) => {
-          console.error("ERD Maker MCP failed to start:", errorMessage(error62));
-          process.exit(1);
-        }
-      );
-    }
   }
 });
 
@@ -58265,16 +58233,25 @@ var init_http = __esm({
   "mcp/http.ts"() {
     "use strict";
     init_streamableHttp();
-    init_server3();
+    init_tools();
     init_diagram();
-    PORT = Number(process.env.PORT ?? process.env.ERD_MCP_PORT ?? 8787);
-    HOST = process.env.HOST ?? "127.0.0.1";
-    PATH = process.env.ERD_MCP_PATH ?? "/mcp";
+    init_env();
+    init_fileWorkspace();
+    init_nodeSocket();
+    init_live();
+    useSocketFactory(nodeSocketFactory);
+    useWorkspace(new FileWorkspace({
+      root: env("ERD_MCP_ROOT") ?? process.cwd(),
+      diagramsDir: env("ERD_MCP_DIR") ?? "diagrams"
+    }));
+    PORT = Number(env("PORT") ?? env("ERD_MCP_PORT") ?? 8787);
+    HOST = env("HOST") ?? "127.0.0.1";
+    PATH = env("ERD_MCP_PATH") ?? "/mcp";
     http = createHttpServer(async (req, res) => {
       const url2 = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
       if (url2.pathname === "/health") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, server: "erd-maker", workspace: WORKSPACE_ROOT }));
+        res.end(JSON.stringify({ ok: true, server: "erd-maker", workspace: workspaceLabel() }));
         return;
       }
       if (url2.pathname !== PATH) {
@@ -58283,18 +58260,18 @@ var init_http = __esm({
         return;
       }
       const server = createServer2();
-      const transport = new StreamableHTTPServerTransport({
+      const transport2 = new StreamableHTTPServerTransport({
         sessionIdGenerator: void 0,
         enableJsonResponse: true
       });
       res.on("close", () => {
-        void transport.close();
+        void transport2.close();
         void server.close();
       });
       try {
         const body = req.method === "POST" ? await readJson(req) : void 0;
-        await server.connect(transport);
-        await transport.handleRequest(req, res, body);
+        await server.connect(transport2);
+        await transport2.handleRequest(req, res, body);
       } catch (error62) {
         const message = errorMessage(error62);
         console.error("ERD Maker HTTP request failed:", message);
@@ -58306,8 +58283,154 @@ var init_http = __esm({
     });
     http.listen(PORT, HOST, () => {
       console.error(`ERD Maker MCP (HTTP) ready at http://${HOST}:${PORT}${PATH}`);
-      console.error(`Workspace: ${WORKSPACE_ROOT}`);
+      console.error(`Workspace: ${workspaceLabel()}`);
     });
+  }
+});
+
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+function deserializeMessage(line) {
+  return JSONRPCMessageSchema.parse(JSON.parse(line));
+}
+function serializeMessage(message) {
+  return JSON.stringify(message) + "\n";
+}
+var STDIO_DEFAULT_MAX_BUFFER_SIZE, ReadBuffer;
+var init_stdio = __esm({
+  "node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js"() {
+    init_types();
+    STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
+    ReadBuffer = class {
+      constructor(options) {
+        this._maxBufferSize = options?.maxBufferSize ?? STDIO_DEFAULT_MAX_BUFFER_SIZE;
+      }
+      append(chunk) {
+        const newSize = (this._buffer?.length ?? 0) + chunk.length;
+        if (newSize > this._maxBufferSize) {
+          this.clear();
+          throw new Error(`ReadBuffer exceeded maximum size of ${this._maxBufferSize} bytes`);
+        }
+        this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
+      }
+      readMessage() {
+        if (!this._buffer) {
+          return null;
+        }
+        const index = this._buffer.indexOf("\n");
+        if (index === -1) {
+          return null;
+        }
+        const line = this._buffer.toString("utf8", 0, index).replace(/\r$/, "");
+        this._buffer = this._buffer.subarray(index + 1);
+        return deserializeMessage(line);
+      }
+      clear() {
+        this._buffer = void 0;
+      }
+    };
+  }
+});
+
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+import process2 from "node:process";
+var StdioServerTransport;
+var init_stdio2 = __esm({
+  "node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js"() {
+    init_stdio();
+    StdioServerTransport = class {
+      constructor(_stdin = process2.stdin, _stdout = process2.stdout, options) {
+        this._stdin = _stdin;
+        this._stdout = _stdout;
+        this._started = false;
+        this._ondata = (chunk) => {
+          try {
+            this._readBuffer.append(chunk);
+            this.processReadBuffer();
+          } catch (error62) {
+            this.onerror?.(error62);
+            this.close().catch(() => {
+            });
+          }
+        };
+        this._onerror = (error62) => {
+          this.onerror?.(error62);
+        };
+        this._readBuffer = new ReadBuffer({ maxBufferSize: options?.maxBufferSize });
+      }
+      /**
+       * Starts listening for messages on stdin.
+       */
+      async start() {
+        if (this._started) {
+          throw new Error("StdioServerTransport already started! If using Server class, note that connect() calls start() automatically.");
+        }
+        this._started = true;
+        this._stdin.on("data", this._ondata);
+        this._stdin.on("error", this._onerror);
+      }
+      processReadBuffer() {
+        while (true) {
+          try {
+            const message = this._readBuffer.readMessage();
+            if (message === null) {
+              break;
+            }
+            this.onmessage?.(message);
+          } catch (error62) {
+            this.onerror?.(error62);
+          }
+        }
+      }
+      async close() {
+        this._stdin.off("data", this._ondata);
+        this._stdin.off("error", this._onerror);
+        const remainingDataListeners = this._stdin.listenerCount("data");
+        if (remainingDataListeners === 0) {
+          this._stdin.pause();
+        }
+        this._readBuffer.clear();
+        this.onclose?.();
+      }
+      send(message) {
+        return new Promise((resolve2) => {
+          const json3 = serializeMessage(message);
+          if (this._stdout.write(json3)) {
+            resolve2();
+          } else {
+            this._stdout.once("drain", resolve2);
+          }
+        });
+      }
+    };
+  }
+});
+
+// mcp/server.ts
+var server_exports = {};
+var transport;
+var init_server3 = __esm({
+  "mcp/server.ts"() {
+    "use strict";
+    init_stdio2();
+    init_tools();
+    init_fileWorkspace();
+    init_env();
+    init_nodeSocket();
+    init_live();
+    init_diagram();
+    useWorkspace(new FileWorkspace({
+      root: env("ERD_MCP_ROOT") ?? process.cwd(),
+      diagramsDir: env("ERD_MCP_DIR") ?? "diagrams"
+    }));
+    useSocketFactory(nodeSocketFactory);
+    transport = new StdioServerTransport();
+    createServer2().connect(transport).then(
+      () => console.error(`ERD Maker MCP ready. Workspace: ${workspaceLabel()}`),
+      (error62) => {
+        console.error("ERD Maker MCP failed to start:", errorMessage(error62));
+        process.exit(1);
+      }
+    );
   }
 });
 

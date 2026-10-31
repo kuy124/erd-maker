@@ -1,4 +1,22 @@
-# ERD Maker MCP — the 30-second version
+# ERD Maker MCP
+
+## Nothing to install at all
+
+A hosted copy runs on Cloudflare:
+
+    https://erd-maker-mcp.cerberus-tusk-proxy.workers.dev/mcp
+
+```json
+{ "mcpServers": { "erd-maker": {
+  "type": "http",
+  "url": "https://erd-maker-mcp.cerberus-tusk-proxy.workers.dev/mcp"
+} } }
+```
+
+That is the whole setup. Diagrams are stored per client in Durable Object
+storage. See [CLOUDFLARE.md](./CLOUDFLARE.md) for how it is deployed.
+
+## Or run it yourself
 
 **You do not need to clone this repository.** The server is one file that needs
 only Node 20+.

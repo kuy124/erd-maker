@@ -12,12 +12,24 @@
 
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { createServer } from './server';
-import { errorMessage, WORKSPACE_ROOT } from './diagram';
+import { createServer } from './tools';
+import { errorMessage, useWorkspace, workspaceLabel } from './diagram';
+import { env } from './env';
+import { FileWorkspace } from './fileWorkspace';
+import { nodeSocketFactory } from './nodeSocket';
+import { useSocketFactory } from './live';
 
-const PORT = Number(process.env.PORT ?? process.env.ERD_MCP_PORT ?? 8787);
-const HOST = process.env.HOST ?? '127.0.0.1';
-const PATH = process.env.ERD_MCP_PATH ?? '/mcp';
+// The diagram lives in a file, not in the session, so a stateless transport
+// still has somewhere to put it.
+useSocketFactory(nodeSocketFactory);
+useWorkspace(new FileWorkspace({
+  root: env('ERD_MCP_ROOT') ?? process.cwd(),
+  diagramsDir: env('ERD_MCP_DIR') ?? 'diagrams',
+}));
+
+const PORT = Number(env('PORT') ?? env('ERD_MCP_PORT') ?? 8787);
+const HOST = env('HOST') ?? '127.0.0.1';
+const PATH = env('ERD_MCP_PATH') ?? '/mcp';
 
 /** Reads and parses a JSON body, so the transport does not have to. */
 async function readJson(req: IncomingMessage): Promise<unknown> {
@@ -32,7 +44,7 @@ const http = createHttpServer(async (req: IncomingMessage, res: ServerResponse) 
 
   if (url.pathname === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, server: 'erd-maker', workspace: WORKSPACE_ROOT }));
+    res.end(JSON.stringify({ ok: true, server: 'erd-maker', workspace: workspaceLabel() }));
     return;
   }
 
@@ -71,5 +83,5 @@ const http = createHttpServer(async (req: IncomingMessage, res: ServerResponse) 
 
 http.listen(PORT, HOST, () => {
   console.error(`ERD Maker MCP (HTTP) ready at http://${HOST}:${PORT}${PATH}`);
-  console.error(`Workspace: ${WORKSPACE_ROOT}`);
+  console.error(`Workspace: ${workspaceLabel()}`);
 });

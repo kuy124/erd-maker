@@ -12,7 +12,6 @@
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider } from 'y-websocket';
-import NodeWebSocket from 'ws';
 import { CROW_HEADER_HEIGHT, CROW_WIDTH, deriveTables, tableHeight } from '../src/model/crowfoot';
 import { normalizeDocument, parseShareHash } from '../src/model/snapshot';
 import { COMMENTS } from '../src/collab/comments';
@@ -35,6 +34,7 @@ import {
   upsertRelationship,
 } from '../src/collab/ydoc';
 import { NODE_SIZE, nodeKind, type DiagramComment, type Entity, type ErdDocument } from '../src/model/types';
+import { env } from './env';
 
 const FALLBACK_RELAY = 'wss://erd-sync.cerberus-tusk-proxy.workers.dev';
 const FALLBACK_ORIGIN = 'https://kuy124.github.io';
@@ -410,14 +410,19 @@ export interface LiveTransport {
   destroy(): void;
 }
 
-/** A ws socket that claims the origin the relay allowlists. */
-function socketWithOrigin(origin: string): typeof WebSocket {
-  class OriginSocket extends NodeWebSocket {
-    constructor(address: string | URL, protocols?: string | string[]) {
-      super(address, protocols, { origin });
-    }
-  }
-  return OriginSocket as unknown as typeof WebSocket;
+/**
+ * How a relay socket is built.
+ *
+ * The Node build subclasses ws to claim an origin the relay allowlists.
+ * Workers have no ws, so they supply their own factory instead.
+ */
+export type SocketFactory = (origin: string) => typeof WebSocket;
+
+let makeSocket: SocketFactory | null = null;
+
+/** Called by the host that can build sockets, before any room is joined. */
+export function useSocketFactory(factory: SocketFactory): void {
+  makeSocket = factory;
 }
 
 export class LiveRoom {
@@ -480,14 +485,14 @@ export class LiveRoom {
     if (!ROOM_PATTERN.test(room)) {
       throw new Error('A room id is 8 to 128 letters, digits, hyphens, or underscores. Paste a share link or a room id.');
     }
-    const relayUrl = (options.relayUrl ?? process.env.ERD_MCP_RELAY_URL ?? FALLBACK_RELAY).trim();
-    const relayOrigin = (options.relayOrigin ?? process.env.ERD_MCP_RELAY_ORIGIN ?? FALLBACK_ORIGIN).trim();
+    const relayUrl = (options.relayUrl ?? env('ERD_MCP_RELAY_URL') ?? FALLBACK_RELAY).trim();
+    const relayOrigin = (options.relayOrigin ?? env('ERD_MCP_RELAY_ORIGIN') ?? FALLBACK_ORIGIN).trim();
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
     const provider = new WebsocketProvider(relayUrl, room, ydoc, {
       connect: false,
       awareness,
-      WebSocketPolyfill: socketWithOrigin(relayOrigin),
+      ...(makeSocket ? { WebSocketPolyfill: makeSocket(relayOrigin) } : {}),
       disableBc: true,
       maxBackoffTime: 10000,
     });
@@ -1338,8 +1343,8 @@ export class LiveRoom {
     // one, and watchers would see "Peer 1234" instead of the AI's name.
     const base = {
       userId: AI_USER_ID,
-      name: (process.env.ERD_MCP_AI_NAME ?? 'AI assistant').trim() || 'AI assistant',
-      color: (process.env.ERD_MCP_AI_COLOR ?? AI_COLOR).trim() || AI_COLOR,
+      name: (env('ERD_MCP_AI_NAME') ?? 'AI assistant').trim() || 'AI assistant',
+      color: (env('ERD_MCP_AI_COLOR') ?? AI_COLOR).trim() || AI_COLOR,
       cursor: null,
       selectedIds: [],
       view: 'chen',

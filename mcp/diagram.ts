@@ -12,10 +12,6 @@
  * workspace root so a model-generated path cannot write anywhere on the machine.
  */
 
-import { constants, type Dirent } from 'node:fs';
-import { access, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { attributeType, normalizeDataType } from '../src/model/dataTypes';
 import { descendantAttributeIds, leafAttributesOf } from '../src/model/attributes';
 import { toSqlName } from '../src/model/columnNames';
@@ -31,6 +27,8 @@ import { applyLayout } from '../src/model/layout';
 import { findAttributeSlot, findFreeSlot, findRelationshipSlot, occupiedBoxes, type Box } from '../src/model/placement';
 import { buildShareUrl, newRoomId, normalizeDocument } from '../src/model/snapshot';
 import { describeSqlReadiness, generateSql } from '../src/model/sql';
+import { type Workspace } from './workspace';
+import { env } from './env';
 import {
   ENTITY_KINDS,
   NODE_SIZE,
@@ -53,25 +51,31 @@ import { LiveRoom, roomFromLink, writeDocumentDiff, type CursorPoint } from './l
 /** Injected by mcp/build.mjs; absent when running from source. */
 declare const __ERD_BUNDLED__: boolean | undefined;
 
-function repositoryRoot(): string {
-  // A single-file bundle has no checkout around it, so the workspace is wherever
-  // it was started from; ERD_MCP_ROOT still overrides that below.
-  if (typeof __ERD_BUNDLED__ !== 'undefined' && __ERD_BUNDLED__) return process.cwd();
-  // A test runner serves this module from a virtual http URL, which cannot be
-  // turned into a path; the process working directory is the checkout there.
-  try {
-    return resolve(fileURLToPath(new URL('..', import.meta.url)));
-  } catch {
-    return process.cwd();
-  }
+/**
+ * The storage this service reads and writes through.
+ *
+ * Injected rather than imported so the same service runs against a disk
+ * locally and a bucket in the cloud. `diagram.ts` never names a filesystem
+ * function, which is what lets the whole module bundle for Workers.
+ */
+let workspace: Workspace | null = null;
+
+/** Called once by whichever host is starting up, before any tool runs. */
+export function useWorkspace(next: Workspace): void {
+  workspace = next;
 }
 
-const REPO_ROOT = repositoryRoot();
-/** Files the MCP reads and writes must stay under this directory. */
-export const WORKSPACE_ROOT = resolve(process.env.ERD_MCP_ROOT ?? REPO_ROOT);
+function requireWorkspace(): Workspace {
+  if (!workspace) {
+    throw new Error('The diagram service has no workspace. Start it through the MCP entry point.');
+  }
+  return workspace;
+}
 
-/** Where diagrams are created when a tool call does not name a path. */
-export const DIAGRAMS_ROOT = resolve(WORKSPACE_ROOT, process.env.ERD_MCP_DIR ?? 'diagrams');
+/** How the workspace is named in status output. */
+export function workspaceLabel(): string {
+  return workspace?.label ?? '(none)';
+}
 
 export type DiagramView = ErdDocument['view'];
 
@@ -270,68 +274,41 @@ function requireSession(): Session {
 
 /** Keeps a model-supplied path inside the workspace. */
 export function resolveDiagramPath(input: string): string {
-  if (!input.trim()) throw new Error('Pass a diagram path.');
-  const candidate = isAbsolute(input) ? resolve(input) : resolve(WORKSPACE_ROOT, input);
-  const rel = relative(WORKSPACE_ROOT, candidate);
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
-    throw new Error(`Diagram paths must stay inside ${WORKSPACE_ROOT}.`);
-  }
-  if (!candidate.toLowerCase().endsWith('.json')) {
-    throw new Error('Diagram files must use a .json extension.');
-  }
-  return candidate;
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
+  return requireWorkspace().resolve(input);
 }
 
 function serialize(doc: ErdDocument): string {
   return JSON.stringify(doc, null, 2) + '\n';
 }
 
-async function readDocument(path: string): Promise<ErdDocument> {
+async function readDocument(key: string): Promise<ErdDocument> {
+  const store = requireWorkspace();
+  const shown = store.display(key);
   let text: string;
   try {
-    text = await readFile(path, 'utf8');
+    text = await store.read(key);
   } catch {
-    throw new Error(`Could not read ${path}.`);
+    throw new Error(`Could not read ${shown}.`);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error(`${path} is not valid JSON.`);
+    throw new Error(`${shown} is not valid JSON.`);
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
     !Array.isArray((parsed as Record<string, unknown>).entities)) {
-    throw new Error(`${path} does not contain a diagram. Export a JSON file from ERD Maker.`);
+    throw new Error(`${shown} does not contain a diagram. Export a JSON file from ERD Maker.`);
   }
   return normalizeDocument(parsed);
 }
 
-async function writeDocument(doc: ErdDocument, path: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, serialize(doc), 'utf8');
+async function writeDocument(doc: ErdDocument, key: string): Promise<void> {
+  await requireWorkspace().write(key, serialize(doc));
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-async function uniqueDefaultPath(name: string): Promise<string> {
-  await mkdir(DIAGRAMS_ROOT, { recursive: true });
-  const stem = toSqlName(name);
-  for (let index = 1; index < 10_000; index += 1) {
-    const candidate = resolve(DIAGRAMS_ROOT, `${stem}${index === 1 ? '' : `-${index}`}.json`);
-    if (!(await fileExists(candidate))) return candidate;
-  }
-  return resolve(DIAGRAMS_ROOT, `${stem}-${Date.now().toString(36)}.json`);
 }
 
 function requireName(value: string, label: string): string {
@@ -778,7 +755,7 @@ export function summaryOutline(summary: DiagramSummary): string {
 function shareInfo(doc: ErdDocument, options: { baseUrl?: string; room?: string; includeSnapshot?: boolean } = {}): ShareInfo {
   const current = session;
   const live = current?.live ?? null;
-  const baseUrl = options.baseUrl ?? current?.liveBaseUrl ?? process.env.ERD_MCP_APP_URL ?? 'http://localhost:5173/';
+  const baseUrl = options.baseUrl ?? current?.liveBaseUrl ?? env('ERD_MCP_APP_URL') ?? 'http://localhost:5173/';
   // A link to a room the AI is already in keeps the AI's edits live.
   const room = options.room?.trim() || live?.room || newRoomId();
   const includeSnapshot = options.includeSnapshot ?? true;
@@ -793,9 +770,10 @@ function shareInfo(doc: ErdDocument, options: { baseUrl?: string; room?: string;
 }
 
 async function saveNew(doc: ErdDocument, requested: string | undefined, overwrite: boolean): Promise<string> {
-  const path = requested ? resolveDiagramPath(requested) : await uniqueDefaultPath(doc.name);
-  if (requested && (await fileExists(path)) && !overwrite) {
-    throw new Error(`${path} already exists. Pass overwrite: true or choose another path.`);
+  const store = requireWorkspace();
+  const path = requested ? resolveDiagramPath(requested) : await store.defaultKey(doc.name);
+  if (requested && (await store.exists(path)) && !overwrite) {
+    throw new Error(`${store.display(path)} already exists. Pass overwrite: true or choose another path.`);
   }
   await writeDocument(doc, path);
   return path;
@@ -807,7 +785,7 @@ async function persistAfterMutation(): Promise<{ savedTo?: string; saveError?: s
   try {
     await writeDocument(current.doc, current.filePath);
     current.dirty = false;
-    return { savedTo: current.filePath };
+    return { savedTo: requireWorkspace().display(current.filePath) };
   } catch (error) {
     return { saveError: errorMessage(error) };
   }
@@ -1090,8 +1068,8 @@ export async function saveDiagram(path?: string, overwrite = false): Promise<str
   if (!target) throw new Error('This diagram has no file yet. Pass a path to save it.');
   // Saving back to the open file is the whole point of this call; replacing some
   // other diagram with it is a mistake unless the caller says so.
-  if (path && target !== current.filePath && !overwrite && (await fileExists(target))) {
-    throw new Error(`${target} already exists. Pass overwrite: true to replace it.`);
+  if (path && target !== current.filePath && !overwrite && (await requireWorkspace().exists(target))) {
+    throw new Error(`${requireWorkspace().display(target)} already exists. Pass overwrite: true to replace it.`);
   }
   await writeDocument(current.doc, target);
   current.filePath = target;
@@ -1131,7 +1109,7 @@ export function serverStatus(): {
 } {
   const current = peekSession();
   return {
-    workspace: WORKSPACE_ROOT,
+    workspace: workspaceLabel(),
     alive: true,
     open: current
       ? {
@@ -1542,36 +1520,25 @@ export async function listDiagramFiles(): Promise<Array<{
   modified: string;
   size: number;
 }>> {
-  let entries: Dirent[];
-  try {
-    entries = await readdir(DIAGRAMS_ROOT, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const files: Array<{ path: string; name: string | null; modified: string; size: number }> = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.json')) continue;
-    const fullPath = resolve(DIAGRAMS_ROOT, entry.name);
-    try {
-      const info = await stat(fullPath);
-      let name: string | null = null;
+  const store = requireWorkspace();
+  const entries = await store.list();
+  return entries.map((entry) => {
+    let name: string | null = null;
+    if (entry.text !== null) {
       try {
-        const parsed = JSON.parse(await readFile(fullPath, 'utf8')) as Record<string, unknown>;
+        const parsed = JSON.parse(entry.text) as Record<string, unknown>;
         name = typeof parsed.name === 'string' ? parsed.name : null;
       } catch {
-        // A file that is not a diagram is still worth listing; opening it will explain why.
+        // Not a diagram, but still worth listing: opening it will explain why.
       }
-      files.push({
-        path: relative(WORKSPACE_ROOT, fullPath).split('\\').join('/'),
-        name,
-        modified: info.mtime.toISOString(),
-        size: info.size,
-      });
-    } catch {
-      // A file that vanished between listing and stat is not an error worth failing the call.
     }
-  }
-  return files.sort((a, b) => b.modified.localeCompare(a.modified));
+    return {
+      path: store.display(entry.key),
+      name,
+      modified: entry.modified,
+      size: entry.size,
+    };
+  });
 }
 
 export { errorMessage };

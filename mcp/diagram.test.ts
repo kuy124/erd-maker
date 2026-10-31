@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFile, unlink } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   addAttribute,
   addEntity,
@@ -8,8 +10,10 @@ import {
   getDiagram,
   serverStatus,
   updateNode,
-  WORKSPACE_ROOT,
+  useWorkspace,
+  workspaceLabel,
 } from '../mcp/diagram';
+import { FileWorkspace } from './fileWorkspace';
 import {
   leaveRoom,
   listDiagramFiles,
@@ -45,6 +49,11 @@ function baseSpec(): CreateSpec {
     relationships: [{ name: 'places', from: 'Customer', to: 'Order', cardinality: '1:N' as const }],
   };
 }
+
+// The service takes its storage by injection now, so the suite points it at the
+// checkout the same way a local run does.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+useWorkspace(new FileWorkspace({ root: REPO_ROOT }));
 
 describe('diagram service', () => {
   it('builds, places, and summarizes a diagram', async () => {
@@ -237,7 +246,7 @@ describe('diagram service', () => {
     });
     const status = serverStatus();
     expect(status.alive).toBe(true);
-    expect(status.workspace).toBe(WORKSPACE_ROOT);
+    expect(status.workspace).toBe(workspaceLabel());
     expect(status.open?.name).toBe('Status');
     expect(status.open?.shapes).toEqual({ entities: 1, attributes: 1, relationships: 0, isas: 0 });
     expect(status.open?.filePath).toBeNull();

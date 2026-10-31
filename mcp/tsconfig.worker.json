@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["worker.ts", "workerSocket.ts", "objectWorkspace.ts", "tools.ts", "compact.ts", "workspace.ts", "env.ts", "diagram.ts", "live.ts"]
+}

@@ -9,4 +9,5 @@ playwright-report/
 .DS_Store
 *.local
 .wrangler/
+mcp/.dryrun/
 output/

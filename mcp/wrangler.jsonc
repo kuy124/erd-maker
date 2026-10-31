@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "erd-maker-mcp",
+  "main": "dist/worker.mjs",
+  "compatibility_date": "2025-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [{ "name": "ERD_MCP", "class_name": "ErdMcpServer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ErdMcpServer"] }],
+  "vars": {
+    "DIAGRAMS_PREFIX": "diagrams"
+  }
+}
