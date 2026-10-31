@@ -504,10 +504,11 @@ export class LiveRoom {
 
     try {
       await live.waitForSync(options.timeoutMs ?? 12_000);
-    } catch {
+    } catch (cause) {
       live.close();
+      const reason = cause instanceof Error ? cause.message : String(cause);
       throw new Error(
-        `Could not join room "${room}" through ${relayUrl}. ` +
+        `Could not join room "${room}" through ${relayUrl}: ${reason} ` +
         `Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`,
       );
     }

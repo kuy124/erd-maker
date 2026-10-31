@@ -49857,10 +49857,11 @@ var LiveRoom = class _LiveRoom {
     live.publishPresence({ cursor: live.cursor, selectedIds: [], view: "chen", typing: false });
     try {
       await live.waitForSync(options.timeoutMs ?? 12e3);
-    } catch {
+    } catch (cause) {
       live.close();
+      const reason = cause instanceof Error ? cause.message : String(cause);
       throw new Error(
-        `Could not join room "${room}" through ${relayUrl}. Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`
+        `Could not join room "${room}" through ${relayUrl}: ${reason} Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`
       );
     }
     if (options.seed && live.isEmpty()) {
@@ -52359,11 +52360,17 @@ var WorkerWebSocket = class _WorkerWebSocket {
   }
   async open(url2, origin) {
     try {
-      const response = await fetch(url2, {
-        headers: { Upgrade: "websocket", Origin: origin, Connection: "Upgrade" }
+      const target = url2.replace(/^ws:/, "http:").replace(/^wss:/, "https:");
+      const response = await fetch(target, {
+        // Only Upgrade is set. Connection is a forbidden header name in the
+        // fetch spec, and Workers rejects a request that tries to set it;
+        // the runtime adds the upgrade itself.
+        headers: { Upgrade: "websocket", Origin: origin }
       });
       const socket = response.webSocket;
-      if (!socket) throw new Error("The relay did not upgrade the connection.");
+      if (!socket) {
+        throw new Error(`The relay did not upgrade the connection (HTTP ${response.status}).`);
+      }
       this.socket = socket;
       socket.accept();
       socket.addEventListener("message", (event) => {
@@ -52381,6 +52388,7 @@ var WorkerWebSocket = class _WorkerWebSocket {
       for (const data of this.queued.splice(0)) this.send(data);
     } catch (error62) {
       this.readyState = _WorkerWebSocket.CLOSED;
+      console.error("erd-maker: relay socket failed:", error62 instanceof Error ? error62.message : error62);
       this.onerror?.(error62);
     }
   }

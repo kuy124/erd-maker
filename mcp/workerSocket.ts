@@ -35,11 +35,24 @@ class WorkerWebSocket {
 
   private async open(url: string, origin: string): Promise<void> {
     try {
-      const response = await fetch(url, {
-        headers: { Upgrade: 'websocket', Origin: origin, Connection: 'Upgrade' },
+      /*
+       * fetch() in a Worker speaks http(s), not ws(s).
+       *
+       * y-websocket builds a wss:// URL, and fetch rejects that scheme outright
+       * ("Fetch API cannot load"). The upgrade is requested by the headers, so
+       * the scheme only has to be one fetch accepts.
+       */
+      const target = url.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
+      const response = await fetch(target, {
+        // Only Upgrade is set. Connection is a forbidden header name in the
+        // fetch spec, and Workers rejects a request that tries to set it;
+        // the runtime adds the upgrade itself.
+        headers: { Upgrade: 'websocket', Origin: origin },
       });
       const socket = response.webSocket;
-      if (!socket) throw new Error('The relay did not upgrade the connection.');
+      if (!socket) {
+        throw new Error(`The relay did not upgrade the connection (HTTP ${response.status}).`);
+      }
       this.socket = socket;
       socket.accept();
       socket.addEventListener('message', (event) => {
@@ -57,6 +70,7 @@ class WorkerWebSocket {
       for (const data of this.queued.splice(0)) this.send(data);
     } catch (error) {
       this.readyState = WorkerWebSocket.CLOSED;
+      console.error('erd-maker: relay socket failed:', error instanceof Error ? error.message : error);
       this.onerror?.(error);
     }
   }
