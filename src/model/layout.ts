@@ -27,7 +27,15 @@ import { diamondEdge, ellipseEdge, rectEdge, segmentBetween, segmentForLeg, type
 // lanes, so it is much tighter than a relationship diamond is wide.
 const V_GAP = 70;
 const LAYER_GAP = 70;
+// The dense Chen grid stacks owner groups in rows, and a group is already a
+// tall fan, so its rows sit closer than standalone nodes would. This is a row
+// gap only: `V_GAP` still sizes the attribute ring an owner reserves, so
+// lowering it to tighten rows would shrink every fan and make attributes
+// collide. Separate knobs keep the two independent.
+const DENSE_ROW_GAP = 24;
 // Bounded fans reserve extra angular space instead of borrowing distant rings.
+// Six covers the widest fan the compact engine places comfortably; past that the
+// layered engine's wider spacing is the better trade.
 const COMPACT_FAN_CAPACITY = 6;
 const DENSE_ENTITY_COUNT = 25;
 
@@ -240,7 +248,7 @@ function clearAttributeSlot(doc: ErdDocument, owner: Positioned, count: number, 
   const candidates: Point[] = [];
   // ponytail: bounded local search, not a global router; use global routing if dense graphs need it.
   const radius = attributeRadius(doc, owner.id, count, bounds ? COMPACT_FAN_CAPACITY : 8);
-  const samples = Math.max(24, count * 4);
+  const samples = Math.max(48, count * 8);
   for (let ring = 0; ring < 4; ring++) {
     for (let i = 0; i < samples; i++) {
       const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
@@ -286,14 +294,21 @@ function clearAttributeSlot(doc: ErdDocument, owner: Positioned, count: number, 
 /**
  * Arranges every visible graph node. Returns absolute top-left positions.
  */
-/** Pack related nodes into a balanced grid, then bring neighbours closer. */
-function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, { w: number; h: number }>, horizontalGap?: number, alignTop = false) {
+/**
+ * Pack related nodes into a balanced grid, then bring neighbours closer.
+ *
+ * `verticalGap` is separate from `V_GAP` on purpose. `V_GAP` also sizes the
+ * attribute ring an owner reserves, so lowering it to tighten rows used to
+ * shrink every fan and make attributes collide. A caller that wants tighter
+ * rows passes a row gap here and leaves the fan geometry alone.
+ */
+function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, { w: number; h: number }>, horizontalGap?: number, alignTop = false, verticalGap = V_GAP) {
   const ids = [...graph.keys()].sort();
   const edges = ids.flatMap(id => graph.get(id)!.neighbors.filter(next => id < next).map(next => [id, next] as const));
   const average = { w: ids.reduce((sum, id) => sum + sizes.get(id)!.w, 0) / ids.length,
     h: ids.reduce((sum, id) => sum + sizes.get(id)!.h, 0) / ids.length };
   const gap = horizontalGap ?? Math.max(144, 72 + Math.ceil(Math.max(...[...graph.values()].map(node => node.neighbors.length)) / 2) * 18);
-  const ideal = Math.max(1, Math.min(ids.length, Math.round(Math.sqrt(ids.length * 1.6 * (average.h + V_GAP) / (average.w + gap)))));
+  const ideal = Math.max(1, Math.min(ids.length, Math.round(Math.sqrt(ids.length * 1.6 * (average.h + verticalGap) / (average.w + gap)))));
   const candidates = [];
   for (let columns = Math.max(1, ideal - 1); columns <= Math.min(ids.length, ideal + 1); columns++) {
     const order = [...ids];
@@ -302,7 +317,7 @@ function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, 
     }
     const cell = new Map(order.map((id, index) => [id, index]));
     const distance = (a: number, b: number) => Math.abs(a % columns - b % columns) * (average.w + gap) +
-      Math.abs(Math.floor(a / columns) - Math.floor(b / columns)) * (average.h + V_GAP);
+      Math.abs(Math.floor(a / columns) - Math.floor(b / columns)) * (average.h + verticalGap);
     const cost = (id: string) => graph.get(id)!.neighbors.reduce((sum, next) => sum + distance(cell.get(id)!, cell.get(next)!), 0);
     // ponytail: four local swap sweeps; use a graph-layout engine if much larger
     // schemas need global crossing minimization rather than nearby neighbours.
@@ -327,10 +342,10 @@ function arrangeGridComponent(graph: Map<string, GraphNode>, sizes: Map<string, 
     const boxes = order.map((id, index) => {
       const size = sizes.get(id)!, column = index % columns, row = Math.floor(index / columns);
       return { id, ...size, x: widths.slice(0, column).reduce((sum, w) => sum + w + gap, 0) + (widths[column]! - size.w) / 2,
-        y: heights.slice(0, row).reduce((sum, h) => sum + h + V_GAP, 0) + (alignTop ? 0 : (heights[row]! - size.h) / 2) };
+        y: heights.slice(0, row).reduce((sum, h) => sum + h + verticalGap, 0) + (alignTop ? 0 : (heights[row]! - size.h) / 2) };
     });
     const width = widths.reduce((sum, w) => sum + w, 0) + (columns - 1) * gap;
-    const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * V_GAP;
+    const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * verticalGap;
     const length = order.reduce((sum, id) => sum + cost(id), 0) / Math.max(1, order.length);
     const byId = new Map(boxes.map(box => [box.id, box]));
     const segments = edges.map(([from, to]) => {
@@ -371,7 +386,7 @@ function arrangeChenComponent(doc: ErdDocument, graph: Map<string, GraphNode>, s
   // Enough room for a relationship diamond between two owner groups, and no
   // more: the 40px of slack this used to add was pure margin around every cell.
   const gap = NODE_SIZE.relationship.w + 20;
-  const grid = arrangeGridComponent(linked, sizes, gap);
+  const grid = arrangeGridComponent(linked, sizes, gap, false, DENSE_ROW_GAP);
   const coreBox = (block: Positioned & { w: number; h: number }) => {
     const size = sizeFor(doc, block.id);
     return { id: block.id, ...size, x: block.x + (block.w - size.w) / 2, y: block.y + (block.h - size.h) / 2 };
@@ -452,6 +467,12 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
   }
   const compactGraph = doc.view !== 'crowfoot' && (doc.entities.length >= DENSE_ENTITY_COUNT ||
     (fans.size > 0 && Math.max(...fans.values()) <= COMPACT_FAN_CAPACITY));
+  // A diagram just past the fan limit is still compact: the ring grows with the
+  // fan, so a slightly wider one costs far less than switching the whole graph
+  // to the layered engine, which reserves a ring per owner regardless.
+  const widest = fans.size ? Math.max(...fans.values()) : 0;
+  const nearLimit = doc.view !== 'crowfoot' && widest > COMPACT_FAN_CAPACITY && widest <= COMPACT_FAN_CAPACITY + 1;
+  const useCompact = compactGraph || (nearLimit && doc.entities.length >= 8);
   while (remaining.size) {
     const graph = new Map<string, GraphNode>();
     const queue = [[...remaining.keys()].sort()[0]!];
@@ -467,7 +488,7 @@ export function autoArrange(doc: ErdDocument): LayoutResult {
       components.push(arrangeGridComponent(graph, layoutSizes, undefined, true));
       continue;
     }
-    if (compactGraph && doc.entities.some(entity => graph.has(entity.id))) {
+    if (useCompact && doc.entities.some(entity => graph.has(entity.id))) {
       for (const id of graph.keys()) layoutSizes.set(id, attributeSpace(doc, id, new Set(), COMPACT_FAN_CAPACITY));
       components.push(arrangeChenComponent(doc, graph, layoutSizes));
       for (const id of graph.keys()) compactOwners.add(id);
