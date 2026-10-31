@@ -14,12 +14,22 @@ import type { SocketFactory } from './live';
 type Handler = ((event: unknown) => void) | null;
 
 class WorkerWebSocket {
-  static readonly CONNECTING = 0;
-  static readonly OPEN = 1;
-  static readonly CLOSING = 2;
-  static readonly CLOSED = 3;
+  /*
+   * These are instance fields, not static ones, and that is load-bearing.
+   *
+   * y-websocket decides whether it may send with
+   * `ws.readyState === ws.OPEN`, where `ws` is the socket instance. A static
+   * field is not on the instance, so `ws.OPEN` was undefined, the comparison
+   * was always false, and every update was dropped in silence: the socket
+   * connected, the handshake completed, and nothing the assistant drew ever
+   * reached the room.
+   */
+  readonly CONNECTING = 0;
+  readonly OPEN = 1;
+  readonly CLOSING = 2;
+  readonly CLOSED = 3;
 
-  readyState = WorkerWebSocket.CONNECTING;
+  readyState = 0;
   binaryType = 'arraybuffer';
   onopen: Handler = null;
   onclose: Handler = null;
@@ -56,27 +66,38 @@ class WorkerWebSocket {
       this.socket = socket;
       socket.accept();
       socket.addEventListener('message', (event) => {
-        this.onmessage?.({ data: (event as MessageEvent).data });
+        /*
+         * Deliver a Uint8Array, not the raw ArrayBuffer.
+         *
+         * lib0, which y-websocket decodes every frame with, reads a
+         * Uint8Array or a plain array. Handed an ArrayBuffer it throws
+         * "Unexpected end of array", so the sync reply that tells the
+         * provider its write landed was dropped and the room stayed empty.
+         */
+        const data = (event as MessageEvent).data;
+        this.onmessage?.({
+          data: data instanceof ArrayBuffer ? new Uint8Array(data) : data,
+        });
       });
       socket.addEventListener('close', (event) => {
-        this.readyState = WorkerWebSocket.CLOSED;
+        this.readyState = this.CLOSED;
         this.onclose?.(event);
       });
       socket.addEventListener('error', (event) => {
         this.onerror?.(event);
       });
-      this.readyState = WorkerWebSocket.OPEN;
+      this.readyState = this.OPEN;
       this.onopen?.({});
       for (const data of this.queued.splice(0)) this.send(data);
     } catch (error) {
-      this.readyState = WorkerWebSocket.CLOSED;
+      this.readyState = this.CLOSED;
       console.error('erd-maker: relay socket failed:', error instanceof Error ? error.message : error);
       this.onerror?.(error);
     }
   }
 
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
-    if (this.readyState !== WorkerWebSocket.OPEN || !this.socket) {
+    if (this.readyState !== this.OPEN || !this.socket) {
       this.queued.push(data);
       return;
     }
@@ -84,9 +105,9 @@ class WorkerWebSocket {
   }
 
   close(): void {
-    this.readyState = WorkerWebSocket.CLOSING;
+    this.readyState = this.CLOSING;
     this.socket?.close();
-    this.readyState = WorkerWebSocket.CLOSED;
+    this.readyState = this.CLOSED;
   }
 
   addEventListener(type: string, handler: (event: unknown) => void): void {

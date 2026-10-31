@@ -52342,12 +52342,22 @@ var ObjectStorageWorkspace = class {
 };
 
 // mcp/workerSocket.ts
-var WorkerWebSocket = class _WorkerWebSocket {
-  static CONNECTING = 0;
-  static OPEN = 1;
-  static CLOSING = 2;
-  static CLOSED = 3;
-  readyState = _WorkerWebSocket.CONNECTING;
+var WorkerWebSocket = class {
+  /*
+   * These are instance fields, not static ones, and that is load-bearing.
+   *
+   * y-websocket decides whether it may send with
+   * `ws.readyState === ws.OPEN`, where `ws` is the socket instance. A static
+   * field is not on the instance, so `ws.OPEN` was undefined, the comparison
+   * was always false, and every update was dropped in silence: the socket
+   * connected, the handshake completed, and nothing the assistant drew ever
+   * reached the room.
+   */
+  CONNECTING = 0;
+  OPEN = 1;
+  CLOSING = 2;
+  CLOSED = 3;
+  readyState = 0;
   binaryType = "arraybuffer";
   onopen = null;
   onclose = null;
@@ -52374,35 +52384,38 @@ var WorkerWebSocket = class _WorkerWebSocket {
       this.socket = socket;
       socket.accept();
       socket.addEventListener("message", (event) => {
-        this.onmessage?.({ data: event.data });
+        const data = event.data;
+        this.onmessage?.({
+          data: data instanceof ArrayBuffer ? new Uint8Array(data) : data
+        });
       });
       socket.addEventListener("close", (event) => {
-        this.readyState = _WorkerWebSocket.CLOSED;
+        this.readyState = this.CLOSED;
         this.onclose?.(event);
       });
       socket.addEventListener("error", (event) => {
         this.onerror?.(event);
       });
-      this.readyState = _WorkerWebSocket.OPEN;
+      this.readyState = this.OPEN;
       this.onopen?.({});
       for (const data of this.queued.splice(0)) this.send(data);
     } catch (error62) {
-      this.readyState = _WorkerWebSocket.CLOSED;
+      this.readyState = this.CLOSED;
       console.error("erd-maker: relay socket failed:", error62 instanceof Error ? error62.message : error62);
       this.onerror?.(error62);
     }
   }
   send(data) {
-    if (this.readyState !== _WorkerWebSocket.OPEN || !this.socket) {
+    if (this.readyState !== this.OPEN || !this.socket) {
       this.queued.push(data);
       return;
     }
     this.socket.send(data);
   }
   close() {
-    this.readyState = _WorkerWebSocket.CLOSING;
+    this.readyState = this.CLOSING;
     this.socket?.close();
-    this.readyState = _WorkerWebSocket.CLOSED;
+    this.readyState = this.CLOSED;
   }
   addEventListener(type, handler) {
     if (type === "open") this.onopen = handler;
