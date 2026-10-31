@@ -374,12 +374,31 @@ export interface TransportState {
   direct: number;
   /** Peers the signalling server found, but the network refused to reach. */
   blocked: number;
+  /**
+   * Signalling has been down long enough that the network is refusing it, not
+   * flapping it. A retry in a few seconds can still win a flap back; this says
+   * the room is not coming back on its own, so the app should stop promising
+   * a reconnect and point at the snapshot way out instead.
+   */
+  unreachable: boolean;
 }
 
 type PeerLink = { state: 'pending' | 'connected' | 'failed' };
 
 const peerLinks = new WeakMap<WebrtcProvider, Map<string, PeerLink>>();
 const transportListeners = new WeakMap<WebrtcProvider, Set<() => void>>();
+/**
+ * When signalling last held, per room.
+ *
+ * A socket that drops and one that can never open read the same from the
+ * provider: both are "not connected". The difference is time, so the moment
+ * signalling holds is remembered and a long enough gap marks the room
+ * unreachable — the app's status is honest instead of promising a reconnect
+ * that will not come.
+ */
+const signallingDownSince = new WeakMap<WebrtcProvider, number>();
+/** Past this, a down signalling path is a network condition, not a flap. */
+const SIGNALLING_STALE_MS = 60_000;
 
 /**
  * Listen for the connection changing.
@@ -448,19 +467,33 @@ function announceTransport(provider: WebrtcProvider): void {
 /** What the room connection is doing right now. */
 export function transportState(provider: WebrtcProvider): TransportState {
   const relay = relays.get(provider);
-  if (relay) return { signalling: relay.wsconnected, direct: connectedPeerCount(provider), blocked: 0 };
   const links = peerLinks.get(provider);
   let direct = 0;
   let blocked = 0;
-  for (const link of links?.values() ?? []) {
-    if (link.state === 'connected') direct += 1;
-    else if (link.state === 'failed') blocked += 1;
+  if (relay) {
+    direct = connectedPeerCount(provider);
+  } else {
+    for (const link of links?.values() ?? []) {
+      if (link.state === 'connected') direct += 1;
+      else if (link.state === 'failed') blocked += 1;
+    }
   }
+  // lib0's websocket client reconnects on its own, so this is the live answer.
+  const signalling = relay
+    ? relay.wsconnected
+    : provider.signalingConns.some((conn) => conn.connected);
+  const now = Date.now();
+  if (signalling) {
+    signallingDownSince.delete(provider);
+  } else if (!signallingDownSince.has(provider)) {
+    signallingDownSince.set(provider, now);
+  }
+  const downSince = signallingDownSince.get(provider);
   return {
-    // lib0's websocket client reconnects on its own, so this is the live answer.
-    signalling: provider.signalingConns.some((conn) => conn.connected),
+    signalling,
     direct,
     blocked,
+    unreachable: !signalling && !!downSince && now - downSince >= SIGNALLING_STALE_MS,
   };
 }
 

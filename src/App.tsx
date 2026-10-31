@@ -1212,8 +1212,12 @@ function NameField({ state }: { state: EditorState }) {
  */
 function connectionState(state: EditorState): { state: string; label: string; note: string; fix: boolean } {
   if (import.meta.env.VITE_SYNC_URL) {
-    if (!state.transport.signalling) return { state: 'offline', label: 'Reconnecting', fix: true,
-      note: 'Reconnecting to cloud sync. Your edits stay saved in this browser.' };
+    if (!state.transport.signalling) {
+      if (state.transport.unreachable) return { state: 'offline', label: 'Offline', fix: true,
+        note: 'Cloud sync cannot be reached from this network, so the room is not getting reconnects. Your edits stay saved in this browser; share a snapshot link to keep working together.' };
+      return { state: 'offline', label: 'Reconnecting', fix: true,
+        note: 'Reconnecting to cloud sync. Your edits stay saved in this browser.' };
+    }
     return { state: 'live', label: state.peers.length ? 'Live' : 'Connected', fix: false,
       note: state.peers.length ? 'Connected to cloud sync with collaborators.' : 'Connected to cloud sync. Share this room link to invite collaborators.' };
   }

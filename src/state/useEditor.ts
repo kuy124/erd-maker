@@ -174,7 +174,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   const [peers, setPeers] = useState<PeerState[]>([]);
   const [connected, setConnected] = useState(false);
   const [directPeers, setDirectPeers] = useState(0);
-  const [transport, setTransport] = useState<TransportState>({ signalling: false, direct: 0, blocked: 0 });
+  const [transport, setTransport] = useState<TransportState>({ signalling: false, direct: 0, blocked: 0, unreachable: false });
   const [selection, setSelection] = useState<string[]>([]);
   /**
    * The id of the shape created by the most recent add, or null.
