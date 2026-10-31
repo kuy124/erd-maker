@@ -124,7 +124,7 @@ export interface CreateSpec {
   path?: string;
   /** Replace an explicitly named file that already exists. */
   overwrite?: boolean;
-  /** Run the app's whole-diagram layout instead of keeping the supplied positions. */
+  /** Run the app's whole-diagram layout instead of keeping the supplied positions. False keeps free-slot placement. */
   layout?: boolean;
   /** Set false to keep the diagram in this session without writing a file. */
   save?: boolean;
@@ -933,9 +933,13 @@ export async function createDiagram(spec: CreateSpec): Promise<{
 }> {
   const previous = session;
   const built = buildDocument(spec);
-  // Layout is opt-in. A diagram that says where its shapes go opens exactly
-  // where it was drawn; without coordinates, shapes take the next free slot.
-  let doc = spec.layout === true
+  // A diagram that says where its shapes go opens exactly where it was drawn.
+  // One that arrives with no coordinates at all is arranged by the app's own
+  // layout engine instead of taking free slots on a grid: the grid parks each
+  // shape beside its owner without ever looking at the diagram as a whole,
+  // which is not a layout a person would accept.
+  const authored = built.fixed.size > 0;
+  let doc = spec.layout === true || (spec.layout !== false && !authored)
     ? arrangeNewDocument(built.doc, built.doc.view)
     : placeNewDocument(built, built.doc.view);
   const filePath = spec.save === false ? null : await saveNew(doc, spec.path, spec.overwrite ?? false);

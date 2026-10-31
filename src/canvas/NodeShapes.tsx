@@ -29,6 +29,8 @@ interface BaseProps {
   connectable?: boolean | undefined;
   /** True for a shape that arrived after this view opened, so it blooms in. */
   enter?: boolean | undefined;
+  /** True for a shape that has left the document, so it dissolves out. */
+  depart?: boolean | undefined;
 }
 
 /**
@@ -50,20 +52,23 @@ function nodeClass(props: Pick<BaseProps, 'connecting' | 'connectable'>, extra =
 /**
  * A shape's ink, as one group.
  *
- * The group exists for the entrance. A `scale` on the shape's own group
- * would compose with its `translate(x y)` and shrink the position too, so every
- * new shape would slide across the paper toward the origin as it appeared. One
- * level in, the group has no transform of its own and scales about its centre.
+ * The group exists for the entrance and the departure. A `scale` on the
+ * shape's own group would compose with its `translate(x y)` and shrink the
+ * position too, so every new shape would slide across the paper toward the
+ * origin as it appeared. One level in, the group has no transform of its own
+ * and scales about its centre.
  *
  * The kind of entrance — an entity tracing its outline, an attribute springing —
  * is named on the shape's own group instead, where the stylesheet can select the
- * body and label underneath it.
+ * body and label underneath it. A departure is just leaving, so one class
+ * covers every primitive.
  */
-function Ink({ enter, children }: {
+function Ink({ enter, depart, children }: {
   enter?: boolean | undefined;
+  depart?: boolean | undefined;
   children: React.ReactNode;
 }) {
-  return <g className={enter ? 'node--enter' : undefined}>{children}</g>;
+  return <g className={enter ? 'node--enter' : depart ? 'node--exit' : undefined}>{children}</g>;
 }
 
 function Outline({ selected, peerColor, x, y, w, h }: { selected: boolean; peerColor?: string | undefined; x: number; y: number; w: number; h: number }) {
@@ -88,6 +93,7 @@ export const EntityShape = memo(function EntityShape({
   connecting,
   connectable,
   enter,
+  depart,
 }: BaseProps & { entity: Entity }) {
   const { w, h } = NODE_SIZE.entity;
   const weak = entity.kind === 'weak';
@@ -101,7 +107,7 @@ export const EntityShape = memo(function EntityShape({
       aria-label={`Entity ${entity.name}${weak ? ', weak' : entity.kind === 'associative' ? ', associative' : ''}`}
       data-node-id={entity.id}
     >
-      <Ink enter={enter}>
+      <Ink enter={enter} depart={depart}>
         <rect className="node__body" width={w} height={h} pathLength={1} />
         {weak ? <rect className="node__body" x={5} y={5} width={w - 10} height={h - 10} pathLength={1} /> : null}
         {entity.kind === 'associative' ? <polygon className="node__body entity-associative" pathLength={1}
@@ -121,6 +127,7 @@ export const RelationshipShape = memo(function RelationshipShape({
   connecting,
   connectable,
   enter,
+  depart,
 }: BaseProps & { relationship: Relationship }) {
   const { w, h } = NODE_SIZE.relationship;
   const hw = w / 2;
@@ -137,7 +144,7 @@ export const RelationshipShape = memo(function RelationshipShape({
       aria-label={`Relationship ${relationship.name}${weak ? ', identifying' : ''}`}
       data-node-id={relationship.id}
     >
-      <Ink enter={enter}>
+      <Ink enter={enter} depart={depart}>
         <polygon className="node__body" points={points} />
         {weak ? (
           <polygon
@@ -160,6 +167,7 @@ export const AttributeShape = memo(function AttributeShape({
   connecting,
   connectable,
   enter,
+  depart,
 }: BaseProps & { attribute: Attribute }) {
   const { w, h } = NODE_SIZE.attribute;
   const rx = w / 2;
@@ -179,7 +187,7 @@ export const AttributeShape = memo(function AttributeShape({
       aria-label={`Attribute ${attribute.name}, ${attribute.kind}`}
       data-node-id={attribute.id}
     >
-      <Ink enter={enter}>
+      <Ink enter={enter} depart={depart}>
         <ellipse className="node__body" cx={rx} cy={ry} rx={rx} ry={ry} />
         {multivalued ? (
           <ellipse className="node__body" cx={rx} cy={ry} rx={rx - 5} ry={ry - 5} />
@@ -265,6 +273,7 @@ export const IsaShape = memo(function IsaShape({
   connecting,
   connectable,
   enter,
+  depart,
 }: BaseProps & { isa: Isa }) {
   const { w, h } = NODE_SIZE.isa;
   const hw = w / 2;
@@ -281,7 +290,7 @@ export const IsaShape = memo(function IsaShape({
       aria-label="Specialization"
       data-node-id={isa.id}
     >
-      <Ink enter={enter}>
+      <Ink enter={enter} depart={depart}>
         <polygon className="isa-triangle" points={points} />
         <text className="isa-label" x={hw} y={hh + 6}>
           ISA
@@ -291,6 +300,37 @@ export const IsaShape = memo(function IsaShape({
     </g>
   );
 });
+
+/**
+ * A shape that has left the document, drawn from its last render so it can
+ * dissolve off the paper instead of vanishing.
+ *
+ * Ghosts sit under the live shapes, stay out of the accessibility tree, and
+ * never take the pointer: they are already gone, and the paper below them has
+ * to stay reachable while they fade.
+ */
+export type DepartingEntry =
+  | { kind: 'entity'; node: Entity }
+  | { kind: 'attribute'; node: Attribute }
+  | { kind: 'relationship'; node: Relationship }
+  | { kind: 'isa'; node: Isa };
+
+export function DepartingNode({ entry }: { entry: DepartingEntry }) {
+  const idle = () => undefined;
+  return (
+    <g className="layer-departing" aria-hidden="true" style={{ pointerEvents: 'none' }}>
+      {entry.kind === 'entity' ? (
+        <EntityShape entity={entry.node} selected={false} onPointerDown={idle} depart />
+      ) : entry.kind === 'attribute' ? (
+        <AttributeShape attribute={entry.node} selected={false} onPointerDown={idle} depart />
+      ) : entry.kind === 'relationship' ? (
+        <RelationshipShape relationship={entry.node} selected={false} onPointerDown={idle} depart />
+      ) : (
+        <IsaShape isa={entry.node} selected={false} onPointerDown={idle} depart />
+      )}
+    </g>
+  );
+}
 
 /** ERDPlus-style endpoint symbols, also used by the table renderer. */
 export function CardinalityMarker({ origin, toward, many, required, className = 'leg', scale = 1 }: {

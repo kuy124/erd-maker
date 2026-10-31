@@ -157,8 +157,10 @@ export function serializeSvg(
     '.layer-bend-handles',
     '.connection-ports',
     // A group frame is a working aid, not part of the drawing.
-    // A group frame is a working aid, not part of the drawing.
     '.layer-groups',
+    // Ghosts of removed shapes are a screen-only effect: mid-fade opacity
+    // would freeze into the file and the shape would come back half-visible.
+    '.layer-departing',
   ]) {
     clone.querySelectorAll(selector).forEach((n) => n.remove());
   }

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ENDPOINT_STUB, isRouteSafe, moveRouteSegment, placeEndpointLabels, placeRouteCaption, roundedRoutePath, splitRouteSegment, symbolBoxes, type RoutePoint } from '../model/connectorRouting';
 import { useCanvasZoom } from './useCanvasZoom';
+import { useDepartures } from './departures';
 import { CommentPins, useCommentPlacement } from './CommentPins';
 import {
   CROW_HEADER_HEIGHT,
@@ -292,6 +293,12 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   }, [tables, drag.drag, peers]);
 
   const byId = useMemo(() => new Map(positioned.map((t) => [t.entityId, t])), [positioned]);
+
+  /**
+   * Tables that have left the paper since the last change, held a moment
+   * longer so they dissolve instead of snapping out of existence.
+   */
+  const departingTables = useDepartures(positioned, (table) => table.entityId);
   // Where a table is, so a peer's aim is drawn around the table it names.
   const boundsOf = useCallback((id: string) => {
     const table = byId.get(id);
@@ -369,6 +376,34 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
           </g>
 
           <g className="layer-tables">
+            {departingTables.map((table) => (
+              <g
+                key={`departing-${table.entityId}`}
+                transform={`translate(${table.x} ${table.y})`}
+                aria-hidden="true"
+                style={{ pointerEvents: 'none' }}
+              >
+                <g className="node--exit">
+                  <rect
+                    className="node__body"
+                    width={table.width}
+                    height={tableHeight(table)}
+                    style={table.weak ? { strokeDasharray: '6 4' } : undefined}
+                  />
+                  <line
+                    className="leg"
+                    x1={0}
+                    y1={CROW_HEADER_HEIGHT}
+                    x2={table.width}
+                    y2={CROW_HEADER_HEIGHT}
+                  />
+                  <text className="crow-table__name" x={CROW_NAME_X} y={CROW_HEADER_HEIGHT / 2}>
+                    {table.name}
+                    {table.weak ? ' (weak)' : table.associative ? ' (associative)' : ''}
+                  </text>
+                </g>
+              </g>
+            ))}
             {positioned.map((table) => {
               const height = tableHeight(table);
               const isSelected = selection.includes(table.entityId);

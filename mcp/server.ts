@@ -138,8 +138,8 @@ server.registerTool('create_diagram', {
   title: 'Create a diagram',
   description:
     'Build an ERD from a complete description and open it as the current diagram. List every entity with its attributes, then relationships between entities by name, then optional specializations. ' +
-    'Entities keep the x and y you give them; anything without coordinates takes the next free slot beside its neighbours, with attributes stacked beside their owner. ' +
-    'Pass layout:true only when you want the app to arrange the whole diagram for you. ' +
+    'Entities keep the x and y you give them. Give every entity coordinates or none at all: a diagram with no coordinates is auto-arranged by the app\'s layout engine, while a partially placed one keeps the given positions and parks the rest beside their owners. ' +
+    'Pass layout:true to arrange anyway and layout:false to keep free-slot placement. ' +
     'The diagram is validated and saved to diagrams/<slug>.json unless path or save:false says otherwise. ' +
     'In a live room the new diagram replaces the room content and streams in shape by shape for whoever is watching. ' +
     'Returns the file path, a text outline, validation issues, and a share link that opens it in ERD Maker.',
@@ -151,7 +151,7 @@ server.registerTool('create_diagram', {
     isas: z.array(isaSpecSchema).optional(),
     path: z.string().optional().describe('Workspace-relative .json path. Omit to use diagrams/<name>.json.'),
     overwrite: z.boolean().optional().describe('Replace the file at path if it already exists.'),
-    layout: z.boolean().optional().describe('Auto-arrange the whole diagram. Defaults to false: the x and y you give are kept, and shapes without coordinates take the first free slot.'),
+    layout: z.boolean().optional().describe('Auto-arrange the whole diagram. Defaults to auto-arrange when no entity has coordinates; otherwise the x and y you give are kept and shapes without coordinates take the first free slot.'),
     save: z.boolean().optional().describe('Set false to keep the diagram only in this session.'),
   },
 }, async (spec) => json(await createDiagram(spec)));

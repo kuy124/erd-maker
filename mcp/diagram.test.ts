@@ -158,6 +158,31 @@ describe('diagram service', () => {
     expect([loose.x, loose.y]).not.toEqual([0, 0]);
   });
 
+  it('runs the layout engine over a spec that gives no coordinates', async () => {
+    await createDiagram({ ...baseSpec(), name: 'Arranged', save: false });
+    const doc = getDiagram().document;
+
+    // Nothing stacks on anything else: the engine separates the whole
+    // drawing, where the free-slot grid it used to fall back to stacked
+    // relationships on their owners.
+    const boxes = [
+      ...doc.entities.map((node) => ({ ...node, w: 150, h: 60 })),
+      ...doc.relationships.map((node) => ({ ...node, w: 150, h: 72 })),
+    ];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i]!, b = boxes[j]!;
+        const overlap =
+          a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        expect(overlap).toBe(false);
+      }
+    }
+    // And the relationship is drawn somewhere, not left at the origin the
+    // authored placement path leaves free-slot shapes on.
+    const places = doc.relationships.find((relationship) => relationship.name === 'places')!;
+    expect([places.x, places.y]).not.toEqual([0, 0]);
+  });
+
   it('rejects half a coordinate', async () => {
     await expect(createDiagram({
       name: 'Half', save: false,

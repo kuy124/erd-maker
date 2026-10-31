@@ -674,6 +674,28 @@ body {
 }
 
 /*
+ * A shape dissolves out as it is removed.
+ *
+ * The partner of the bloom above, on the same inner group for the same
+ * reason: a `scale` on the group that carries the shape's `translate(x y)`
+ * would drag the shape toward the world origin as it shrank. One class
+ * covers every primitive — everything is leaving, nothing needs to be
+ * introduced, and an exit is always shorter than the entrance that
+ * announced the same shape.
+ */
+.node--exit {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: node-fade 220ms var(--ease-in) forwards;
+}
+
+@keyframes node-fade {
+  0% { opacity: 1; scale: 1; }
+  35% { opacity: .7; }
+  100% { opacity: 0; scale: .88; }
+}
+
+/*
  * An arriving entity is drawn, not popped.
  *
  * Its outline traces itself first — dash offset over a normalised path — then

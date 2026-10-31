@@ -601,6 +601,35 @@ describe('intent choreography', () => {
     expect(local().pressing).toBe(false);
   });
 
+  it('walks to where the loop begins instead of appearing there', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    // Park the pointer across the paper, the way a session that just edited
+    // there leaves it, so the loop begins somewhere else entirely.
+    live.flash(doc, 'ent_order');
+    await vi.advanceTimersByTimeAsync(HOVER_MS + PRESS_MS);
+    expect(local().cursor).toEqual({ x: 375, y: 50 });
+
+    const lassoing = live.lasso(doc, ['ent_customer', 'attr_customer_id', 'attr_email']);
+    // Synchronously nothing is happening yet: the ring does not start the
+    // instant the gesture is asked for, the way a teleporting pointer would.
+    expect(local().intent).toBeNull();
+    await vi.advanceTimersByTimeAsync(120);
+    // 120ms in there is still no ring: the pointer is en route to the corner
+    // the loop is drawn from, travelling there instead of appearing on it.
+    expect(local().intent).toBeNull();
+    expect(local().cursor!.x).toBeLessThan(375);
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await lassoing;
+    // The padded loop begins outside the entity's top-left corner (10, 20),
+    // wherever the pointer was when the gesture started.
+    expect(local().intent.lasso[0]).toEqual({ x: -8, y: 2 });
+    live.release(doc, null);
+    expect(local().intent).toBeNull();
+    expect(local().pressing).toBe(false);
+  });
+
   it('shows a thinking ring over the last shape and lets it fade', async () => {
     const { live, local } = headless();
     const doc = sampleDoc();

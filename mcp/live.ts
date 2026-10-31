@@ -358,8 +358,8 @@ interface StreamRoute {
   resolve: () => void;
 }
 
-/** How a hop behaves when it lands: a click, a plain hover, or a held shape. */
-type TravelMode = 'click' | 'hover' | 'drag';
+/** How a hop behaves when it lands: a click, a plain hover, a held shape, or the approach to a lasso. */
+type TravelMode = 'click' | 'hover' | 'drag' | 'lasso';
 
 interface Travel {
   from: CursorPoint;
@@ -714,6 +714,32 @@ export class LiveRoom {
     if (!loop) return Promise.resolve();
     this.clearGesture();
     const start = { ...loop.corners[0]! };
+    return this.walkLasso(loop, ids, start, view);
+  }
+
+  /**
+   * Walks the loop, after travelling to the corner it begins on.
+   *
+   * Appearing on the first corner reads as the pointer teleporting into the
+   * gesture. Arriving there first — with the same eased hop every other move
+   * uses — keeps the whole sweep in one continuous motion, the way a hand
+   * drawing a ring around a group would.
+   */
+  private async walkLasso(
+    loop: LassoLoop,
+    ids: string[],
+    start: CursorPoint,
+    view: ErdDocument['view'],
+  ): Promise<void> {
+    if (this.cursor && !this.route) {
+      await new Promise<void>((resolve) => {
+        this.arrival = resolve;
+        this.moveTo(start, false, 'lasso');
+      });
+      // A stream that started while the pointer was en route owns it again;
+      // the loop would be drawn over a moving cursor.
+      if (this.closed || this.route) return;
+    }
     this.cursor = start;
     this.intent = { kind: 'lasso', lasso: [start] };
     this.publishPresence({ cursor: start, selectedIds: [], view, typing: false, pressing: false });
@@ -791,6 +817,7 @@ export class LiveRoom {
     if (!this.cursor) {
       this.cursor = { x: target.x, y: target.y };
       if (mode === 'hover') this.publishHover();
+      else if (mode === 'lasso') this.land();
       else this.beginClick(typing);
       return;
     }
@@ -798,6 +825,7 @@ export class LiveRoom {
     if (distance < 0.75) {
       this.cursor = { x: target.x, y: target.y };
       if (mode === 'hover') this.publishHover();
+      else if (mode === 'lasso') this.land();
       else this.beginClick(typing);
       return;
     }
@@ -864,6 +892,17 @@ export class LiveRoom {
           view: this.cursorView,
           typing: false,
           pressing: true,
+        });
+        this.land();
+      } else if (travel.mode === 'lasso') {
+        // The loop sets out from here: no hover or click, just the pointer
+        // arriving where the ring will be drawn from.
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: [],
+          view: this.cursorView,
+          typing: false,
+          pressing: false,
         });
         this.land();
       } else {

@@ -14,7 +14,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
 import { descendantAttributeIds } from '../model/attributes';
 import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentForLeg, type Point } from './geometry';
-import { AttributeShape, CardinalityMarker, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape } from './NodeShapes';
+import { AttributeShape, CardinalityMarker, DepartingNode, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape, type DepartingEntry } from './NodeShapes';
+import { useDepartures } from './departures';
 import { attributeEdgeId, connectorIds, isaChildEdgeId, isaParentEdgeId } from './entrance';
 import { useDrag, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
@@ -522,6 +523,23 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
     displayDoc.isas.length === 0;
 
   /**
+   * The shapes that have left the paper since the last change, held a moment
+   * longer so they dissolve instead of snapping out of existence.
+   *
+   * Read from `displayDoc`, not `doc`: a removal arriving over the wire should
+   * fade the shape where the reader last saw it, not at the drag preview.
+   */
+  const departing = useDepartures(
+    useMemo(() => [
+      ...displayDoc.entities.map((node): DepartingEntry => ({ kind: 'entity', node })),
+      ...displayDoc.attributes.map((node): DepartingEntry => ({ kind: 'attribute', node })),
+      ...displayDoc.relationships.map((node): DepartingEntry => ({ kind: 'relationship', node })),
+      ...displayDoc.isas.map((node): DepartingEntry => ({ kind: 'isa', node })),
+    ], [displayDoc]),
+    (entry) => entry.node.id,
+  );
+
+  /**
    * The shapes that were already on the paper when this view opened.
    *
    * Everything after that baseline blooms in, because it was just drawn. The
@@ -776,6 +794,9 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
               `connectable` marks a legal target, so the gesture is visible
               rather than something the user has to hold in their head. */}
           <g className="layer-nodes">
+            {departing.map((entry) => (
+              <DepartingNode key={entry.node.id} entry={entry} />
+            ))}
             {displayDoc.isas.map((isa) => (
               <IsaShape
                 key={isa.id}
