@@ -3,8 +3,14 @@ import { readFile, unlink } from 'node:fs/promises';
 import {
   addAttribute,
   addEntity,
+  addIsa,
   createDiagram,
   getDiagram,
+  serverStatus,
+  updateNode,
+  WORKSPACE_ROOT,
+} from '../mcp/diagram';
+import {
   leaveRoom,
   listDiagramFiles,
   openDiagram,
@@ -14,7 +20,6 @@ import {
   shareSession,
   sqlForSession,
   summarizeSession,
-  updateNode,
   validateSession,
   type AttributeSpec,
   type CreateSpec,
@@ -188,6 +193,54 @@ describe('diagram service', () => {
       name: 'Half', save: false,
       entities: [{ name: 'A', x: 10 }],
     })).rejects.toThrow(/both x and y/);
+  });
+
+  it('writes a specialization as one shape over the parent entity', async () => {
+    await createDiagram({
+      name: 'Isa', save: false,
+      entities: [{ name: 'Person', x: 100, y: 200 }, { name: 'Customer' }, { name: 'Employee' }],
+    });
+    const doc = getDiagram().document;
+    const base = doc.entities.find(({ name }) => name === 'Person')!;
+    const children = doc.entities.filter(({ name }) => ['Customer', 'Employee'].includes(name));
+    const result = await addIsa({ parent: base.id, children: children.map(({ id }) => id) });
+    expect(result.nodeId).toMatch(/^isa_/);
+    const { isas } = getDiagram().document;
+    expect(isas.length).toBe(1);
+    expect(isas[0]!.parentId).toBe(base.id);
+    expect(isas[0]!.childIds).toEqual(children.map(({ id }) => id));
+    // The shape keeps the parent in place, a square above it.
+    expect(isas[0]!.x).toBe(base.x);
+    expect(isas[0]!.y).toBe(base.y - NODE_SIZE.isa.h - 16);
+  });
+
+  it('extends a specialization when the base is given again', async () => {
+    await createDiagram({
+      name: 'Isa extends', save: false,
+      entities: [{ name: 'Person', x: 100, y: 200 }, { name: 'Customer' }, { name: 'Employee' }],
+    });
+    const doc = getDiagram().document;
+    const base = doc.entities.find(({ name }) => name === 'Person')!;
+    const [first] = doc.entities.filter(({ name }) => ['Customer', 'Employee'].includes(name));
+    await addIsa({ parent: base.id, children: [first.id] });
+    expect(getDiagram().document.isas.length).toBe(1);
+    expect(getDiagram().document.isas[0]!.childIds).toEqual([first.id]);
+    const others = doc.entities.filter(({ name }) => ['Customer', 'Employee'].includes(name)).map(({ id }) => id);
+    await addIsa({ parent: base.id, children: others });
+    expect(getDiagram().document.isas[0]!.childIds).toEqual(others);
+  });
+
+  it('reports the open diagram through server_status', async () => {
+    await createDiagram({
+      name: 'Status', save: false,
+      entities: [{ name: 'A', attributes: [{ name: 'a_id', kind: 'key' }] }],
+    });
+    const status = serverStatus();
+    expect(status.alive).toBe(true);
+    expect(status.workspace).toBe(WORKSPACE_ROOT);
+    expect(status.open?.name).toBe('Status');
+    expect(status.open?.shapes).toEqual({ entities: 1, attributes: 1, relationships: 0, isas: 0 });
+    expect(status.open?.filePath).toBeNull();
   });
 
   it('keeps a crow\'s-foot table at the given point', async () => {

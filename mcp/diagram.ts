@@ -1103,6 +1103,48 @@ export function getDiagram(): {
   return { filePath: current.filePath, dirty: current.dirty, live: liveInfo(current.live), document: current.doc };
 }
 
+/**
+ * A quick read of what the server is running right now.
+ *
+ * An agent cannot see the process or the workspace; this is how it tells a live
+ * server with no diagram open from a dead one whose tools all fail. It costs
+ * nothing when nothing is open, so a caller can afford to check before a long
+ * build and learn the session was replaced out from under it.
+ */
+export function serverStatus(): {
+  workspace: string;
+  alive: true;
+  open: {
+    name: string;
+    view: DiagramView;
+    filePath: string | null;
+    dirty: boolean;
+    shapes: { entities: number; attributes: number; relationships: number; isas: number };
+    live: LiveInfo | null;
+  } | null;
+} {
+  const current = peekSession();
+  return {
+    workspace: WORKSPACE_ROOT,
+    alive: true,
+    open: current
+      ? {
+          name: current.doc.name,
+          view: current.doc.view,
+          filePath: current.filePath,
+          dirty: current.dirty,
+          shapes: {
+            entities: current.doc.entities.length,
+            attributes: current.doc.attributes.length,
+            relationships: current.doc.relationships.length,
+            isas: current.doc.isas.length,
+          },
+          live: current.live,
+        }
+      : null,
+  };
+}
+
 export function summarizeSession(): {
   filePath: string | null;
   live: LiveInfo | null;
@@ -1321,13 +1363,53 @@ export async function addRelationship(input: RelationshipSpec): Promise<Mutation
   return { ...mutation(current.doc, `Added relationship ${name} between ${from.name} and ${to.name}.`, relationship.id), ...outcome };
 }
 
+/** Add a specialization to a diagram that is already open. */
+export interface AddIsaSpec {
+  parent: string;
+  children: string[];
+  name?: string;
+}
+
+export async function addIsa(input: AddIsaSpec): Promise<MutationResult & Awaited<ReturnType<typeof persistAfterMutation>>> {
+  const current = requireSession();
+  thinkIn(current);
+  const doc = structuredClone(current.doc);
+  const parent = resolveEntity(doc, input.parent);
+  const children = input.children.map((child) => resolveEntity(doc, child));
+  if (children.some((child) => child.id === parent.id)) throw new Error('A specialization cannot contain its own base.');
+  if (new Set(children.map((child) => child.name)).size !== children.length) throw new Error('Choose different children for the specialization.');
+  const name = requireName(input.name ?? 'Specialization', 'Specialization');
+  // A specialization that already owns this parent is extended, so the parent keeps its
+  // subclasses in one shape rather than splitting over several triangles.
+  const existing = doc.isas.find((isa) => isa.parentId === parent.id);
+  let target: Isa | undefined;
+  if (existing) {
+    for (const child of children) if (!existing.childIds.includes(child.id)) existing.childIds.push(child.id);
+    target = existing;
+  } else {
+    const used = collectIds(doc);
+    const isa: Isa = {
+      id: newId('isa', name, used),
+      x: parent.x,
+      y: parent.y - NODE_SIZE.isa.h - 16,
+      parentId: parent.id,
+      childIds: children.map((child) => child.id),
+    };
+    doc.isas.push(isa);
+    target = isa;
+  }
+  await commit(current, doc, target.id);
+  const outcome = await persistAfterMutation();
+  return { ...mutation(current.doc, `Added specialization ${name}: ${parent.name} by ${children.map((child) => child.name).join(', ')}.`, target!.id), ...outcome };
+}
+
 export async function updateNode(ref: string, patch: {
   name?: string;
   kind?: string;
   dataType?: string;
   x?: number;
   y?: number;
-}): Promise<MutationResult> {
+}): Promise<MutationResult & Awaited<ReturnType<typeof persistAfterMutation>>> {
   const current = requireSession();
   const node = resolveNode(current.doc, ref);
   const name = patch.name === undefined ? undefined : requireName(patch.name, 'Shape');

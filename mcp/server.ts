@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The stdio MCP server.
  *
  * A thin surface over `diagram.ts`: each tool declares its arguments with zod,
@@ -19,6 +19,7 @@ import { z } from 'zod';
 import {
   addAttribute,
   addEntity,
+  addIsa,
   addRelationship,
   arrangeSession,
   createDiagram,
@@ -31,6 +32,7 @@ import {
   peekSession,
   removeDiagramNode,
   saveDiagram,
+  serverStatus,
   shareSession,
   sqlForSession,
   summarizeSession,
@@ -39,6 +41,7 @@ import {
   validateSession,
   WORKSPACE_ROOT,
   type AttributeSpec,
+  type AddIsaSpec,
 } from './diagram';
 
 const server = new McpServer(
@@ -80,6 +83,7 @@ const server = new McpServer(
       'Cardinality "1:N" from A to B means one A relates to many Bs; the label at each end describes the',
       'entity at that end. Attribute kinds are simple, key, unique, multivalued, derived, and composite;',
       'composite attributes own their parts.',
+      'A key attribute carries the primary key, and every value of a key attribute must be unique.',
       '',
       'Typical flow: one create_diagram holding the whole model — every entity with its attributes listed on it,',
       'every relationship with its cardinality, every specialization — then validate_diagram, fix what it reports,',
@@ -106,16 +110,16 @@ const attributeSpecSchema: z.ZodType<AttributeSpec> = z.lazy(() => z.object({
 }));
 
 const entitySpecSchema = z.object({
-  name: z.string(),
+  name: z.string().describe('Entity name in the database, e.g. "Customer".'),
   kind: entityKindSchema.optional().describe('strong (default) or weak. A weak entity derives its key from a parent through an identifying relationship.'),
-  attributes: z.array(attributeSpecSchema).optional(),
+  attributes: z.array(attributeSpecSchema).optional().describe('Attributes placed on the entity at creation.'),
   x: z.number().optional().describe('Left edge in the view being created, in pixels. Give both x and y to place the entity deliberately; omit both to take the first free slot.'),
   y: z.number().optional().describe('Top edge in the view being created, in pixels.'),
 });
 
 const participationSchema = z.object({
   min: z.number().int().min(0).describe('0 means the entity may take part zero times.'),
-  max: z.union([z.number().int().min(1), z.literal('N')]),
+  max: z.union([z.number().int().min(1), z.literal('N')]).describe('Biggest number of times the entity may take part; N is unbounded.'),
 });
 
 const relationshipSpecSchema = z.object({
@@ -134,6 +138,15 @@ const isaSpecSchema = z.object({
   children: z.array(z.string()).min(1).describe('Subclass entity names or ids.'),
 });
 
+server.registerTool('server_status', {
+  title: 'Server status',
+  description:
+    'Report what this server is running: the workspace, whether a diagram is open (and its name, view, file, ' +
+    'shape counts, and live room), with no side effects. The tools here only fail when the server is gone or ' +
+    'no diagram is open, so call this first to tell a healthy empty session from one whose tools will error.',
+  inputSchema: {},
+}, async () => json(serverStatus()));
+
 server.registerTool('create_diagram', {
   title: 'Create a diagram',
   description:
@@ -146,9 +159,9 @@ server.registerTool('create_diagram', {
   inputSchema: {
     name: z.string().describe('Diagram name, e.g. "Sales".'),
     view: viewSchema.optional().describe('Notation to show: chen (default) or crowfoot.'),
-    entities: z.array(entitySpecSchema).min(1),
-    relationships: z.array(relationshipSpecSchema).optional(),
-    isas: z.array(isaSpecSchema).optional(),
+    entities: z.array(entitySpecSchema).min(1).describe('Every entity with its attributes, keys, and positions.'),
+    relationships: z.array(relationshipSpecSchema).optional().describe('Every relationship between two entities with its cardinality.'),
+    isas: z.array(isaSpecSchema).optional().describe('Every specialization of a base by its subclasses.'),
     path: z.string().optional().describe('Workspace-relative .json path. Omit to use diagrams/<name>.json.'),
     overwrite: z.boolean().optional().describe('Replace the file at path if it already exists.'),
     layout: z.boolean().optional().describe('Auto-arrange the whole diagram. Defaults to auto-arrange when no entity has coordinates; otherwise the x and y you give are kept and shapes without coordinates take the first free slot.'),
@@ -200,7 +213,7 @@ server.registerTool('save_diagram', {
     'With a path it saves there instead; an existing file at a different path is replaced only when overwrite is true.',
   inputSchema: {
     path: z.string().optional().describe('Workspace-relative .json path to save to.'),
-    overwrite: z.boolean().optional(),
+    overwrite: z.boolean().optional().describe('Replace the file at path if it already exists.'),
   },
 }, async ({ path, overwrite }) => json({ filePath: await saveDiagram(path, overwrite) }));
 
@@ -289,12 +302,26 @@ server.registerTool('add_relationship', {
     kind: entityKindSchema.optional().describe('strong (default) or weak, for an identifying relationship.'),
     from: z.string().describe('Entity name or id.'),
     to: z.string().describe('Entity name or id.'),
-    cardinality: cardinalitySchema.optional(),
-    fromParticipation: participationSchema.optional(),
-    toParticipation: participationSchema.optional(),
-    attributes: z.array(attributeSpecSchema).optional(),
+    cardinality: cardinalitySchema.optional().describe('from:to. "1:N" means the entity on the from side connects at most once per to side. One of: 1:1, 1:N, N:1, N:M, M:N.'),
+    fromParticipation: participationSchema.optional().describe('How many times the entity at from must take part.'),
+    toParticipation: participationSchema.optional().describe('How many times the entity at to must take part.'),
+    attributes: z.array(attributeSpecSchema).optional().describe('Attributes of the association itself, e.g. enrolled_at.'),
   },
 }, async (input) => json(await addRelationship(input)));
+
+server.registerTool('add_isa', {
+  title: 'Add a specialization',
+  description:
+    'Add a specialization (an is-a) to the open diagram. The base entity becomes the parent; every child is a ' +
+    'subclass that inherits its keys and values. If the parent already has a specialization, it is extended with ' +
+    'the new children so a base keeps its subclasses in one shape. Refer to the shapes by id or unique name, and ' +
+    'return the returned id in later calls with update_node or remove_node.',
+  inputSchema: {
+    parent: z.string().describe('Id or unique name of the base entity.'),
+    children: z.array(z.string()).min(1).describe('Ids or unique names of the subclasses.'),
+    name: z.string().optional().describe('Name assigned to the specialization, defaulting to "Specialization".'),
+  },
+}, async (input) => json(await addIsa(input)));
 
 server.registerTool('update_node', {
   title: 'Update a shape',
@@ -305,7 +332,7 @@ server.registerTool('update_node', {
     'Data types are normalized to the app\'s canonical form. Refer to the shape by id or unique name.',
   inputSchema: {
     node: z.string().describe('Shape id or unique name.'),
-    name: z.string().optional(),
+    name: z.string().optional().describe('New shape name in the database.'),
     kind: z.string().optional().describe('Entity: strong|weak. Relationship: strong|weak. Attribute: simple|key|unique|multivalued|derived|composite.'),
     dataType: z.string().optional().describe('Attributes only.'),
     x: z.number().optional().describe('Entities only. Left edge in the current view; give both x and y.'),
@@ -328,8 +355,8 @@ server.registerTool('update_diagram', {
   description:
     'Rename the open diagram or switch the notation shown. Chen and crow\'s-foot coordinates are stored separately, so switching never destroys the other view\'s layout.',
   inputSchema: {
-    name: z.string().optional(),
-    view: viewSchema.optional(),
+    name: z.string().optional().describe('New diagram name.'),
+    view: viewSchema.optional().describe('Notation to show: chen (default) or crowfoot.'),
   },
 }, async (patch) => json(await updateDiagram(patch)));
 
@@ -341,7 +368,7 @@ server.registerTool('create_share_link', {
     'baseUrl defaults to the live room\'s app URL, then http://localhost:5173/ (or ERD_MCP_APP_URL); room reuses an existing room id instead of generating one.',
   inputSchema: {
     baseUrl: z.string().optional().describe('App origin, e.g. https://erd.example.com/.'),
-    room: z.string().optional(),
+    room: z.string().optional().describe('Reuses this room, keeping the AI\'s edits live in it.'),
     includeSnapshot: z.boolean().optional().describe('Defaults to true.'),
   },
 }, async (options) => json(shareSession(options)));
@@ -420,6 +447,7 @@ server.registerPrompt('design-erd', {
         '6. Call create_diagram once with the whole model — every entity with its attributes listed on it, every relationship, every specialization — then validate_diagram, and fix anything it reports.',
         '7. Run generate_sql and include the DDL, along with the share link from create_diagram.',
         '8. Leave the room open while the person keeps working. Call leave_room when they say they are done, or ask you to leave — your turn ending is not them being done.',
+        '9. Model specializations with add_isa: a parent entity and every subclass that inherits its keys and values, added after create_diagram.',
         view ? `Show the diagram in the ${view} view after creating it.` : '',
         '',
         'Use the vocabulary of the requirements and do not invent attributes they do not imply.',
