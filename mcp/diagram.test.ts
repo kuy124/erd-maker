@@ -222,9 +222,9 @@ describe('diagram service', () => {
     const doc = getDiagram().document;
     const base = doc.entities.find(({ name }) => name === 'Person')!;
     const [first] = doc.entities.filter(({ name }) => ['Customer', 'Employee'].includes(name));
-    await addIsa({ parent: base.id, children: [first.id] });
+    await addIsa({ parent: base.id, children: [first!.id] });
     expect(getDiagram().document.isas.length).toBe(1);
-    expect(getDiagram().document.isas[0]!.childIds).toEqual([first.id]);
+    expect(getDiagram().document.isas[0]!.childIds).toEqual([first!.id]);
     const others = doc.entities.filter(({ name }) => ['Customer', 'Employee'].includes(name)).map(({ id }) => id);
     await addIsa({ parent: base.id, children: others });
     expect(getDiagram().document.isas[0]!.childIds).toEqual(others);

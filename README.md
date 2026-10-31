@@ -140,10 +140,14 @@ Placement is the assistant's job, not a side effect. `create_diagram` accepts an
 
 Install once with `npm install`, then run `npm run mcp` to check that the server starts. It speaks MCP over stdio, so the client launches it; there is no build step.
 
+**No clone needed.** `node mcp/build.mjs` produces `mcp/dist/erd-maker-mcp.mjs`: one file, dependencies inlined, nothing but Node 20+ required. Copy that file anywhere and point a client at it. It serves the same tools over stdio by default, or over Streamable HTTP with `--http`. See [`mcp/README.md`](mcp/README.md) for the one-page version.
+
 To connect a client:
 
 - **Project MCP file.** `.mcp.json` in this folder already points at `mcp/start.mjs`. Clients that read a project MCP file, Claude Code among them, connect when the folder is open.
-- **Custom server entry.** In a client with its own server list, add a stdio server named `erd-maker` with command `node` and one argument, the absolute path to `mcp/start.mjs`. In Qoder Desktop, open Settings > Extensions > Connectors, choose Add Connector, then Add custom MCP.
+- **Bundled file.** Point the client at `mcp/dist/erd-maker-mcp.mjs` instead, which works from any directory.
+- **Custom server entry.** In a client with its own server list, add a stdio server named `erd-maker` with command `node` and one argument, the absolute path to `mcp/start.mjs` or the bundled file. In Qoder Desktop, open Settings > Extensions > Connectors, choose Add Connector, then Add custom MCP.
+- **Remote.** Launch the bundle with `--http` and add it as an HTTP server at `http://127.0.0.1:8787/mcp`.
 - **Manual config.** Any client that edits MCP JSON takes this entry:
 
 ```json
@@ -184,7 +188,7 @@ Files stay under the repository root:
 | `ERD_MCP_AI_NAME` | `AI assistant` | Name peers see in a live room. |
 | `ERD_MCP_AI_COLOR` | `#6B3FA0` | Presence colour peers see. |
 
-Eighteen tools cover the diagram: `create_diagram`, `open_diagram`, `open_room`, `leave_room`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
+Eighteen tools cover the diagram: `create_diagram`, `open_diagram`, `open_room`, `leave_room`, `save_diagram`, `list_diagrams`, `get_diagram`, `summarize_diagram`, `validate_diagram`, `generate_sql`, `arrange_diagram`, `add_entity`, `add_attribute`, `add_relationship`, `add_isa`, `update_node`, `remove_node`, `update_diagram`, `create_share_link`, plus `server_status`. `create_diagram` accepts the whole model as indented text as well as JSON, so a first draft is one call of plain lines rather than nested objects. The open diagram is also an MCP resource (`erd://current`, plus `erd://current/summary` and `erd://current/sql`), and a `design-erd` prompt walks a model from requirements to a validated diagram.
 
 Paths must end in `.json` and stay inside the workspace. A call that fails leaves the open diagram unchanged, and saving over an existing file needs `overwrite: true`.
 

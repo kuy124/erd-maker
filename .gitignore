@@ -1,5 +1,8 @@
 ﻿node_modules/
 dist/
+# mcp/dist/ is committed on purpose: it is the downloadable single-file server.
+# Rebuild with `npm run mcp:build`.
+!mcp/dist/
 test-results/
 playwright-report/
 *.tsbuildinfo

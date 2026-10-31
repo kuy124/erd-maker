@@ -16,6 +16,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { parseCompactDiagram } from './compact';
 import {
   addAttribute,
   addEntity,
@@ -41,54 +42,63 @@ import {
   validateSession,
   WORKSPACE_ROOT,
   type AttributeSpec,
-  type AddIsaSpec,
+  type CreateSpec,
 } from './diagram';
 
-const server = new McpServer(
+/**
+ * Builds a server with every tool registered.
+ *
+ * A factory rather than a single instance because HTTP needs a fresh transport
+ * per request, and a transport belongs to exactly one server. stdio builds one
+ * and keeps it.
+ */
+export function createServer(): McpServer {
+  const server = new McpServer(
   { name: 'erd-maker', version: '1.0.0' },
   {
     instructions: [
-      'Read, author, and export entity-relationship diagrams for ERD Maker, stored as JSON files under',
-      WORKSPACE_ROOT + '.',
+      '# ERD Maker',
+      'Read, author, and export entity-relationship diagrams. They are JSON files under ' + WORKSPACE_ROOT + '.',
       '',
-      'One diagram is open at a time: create_diagram or open_diagram makes it current, the add/update/remove',
-      'tools edit it, and every edit is written back to its file. Shapes can be referenced by id or by a',
-      'unique name; summarize_diagram returns both.',
+      '## The 90% path',
+      'create_diagram { name, text } — pass the whole model as indented lines and you are done:',
       '',
-      'Place shapes by coordinates: create_diagram and update_node take x and y for an ENTITY, its top-left in',
-      'the view you are creating. Only entities take coordinates — the attribute column, the relationship',
-      'diamonds, and the lines are placed for you, so leave them room instead of trying to position them. In',
-      'Chen an entity is 150x60 and the app stacks its attributes beside it at 80px a row, on whichever side',
-      'fits, so one with four attributes needs roughly 340px across and 300px down: keep about 500px between',
-      'the top-left x of two entities on a row and 360px between rows. In crow\'s-foot a table is 280 wide',
-      'and grows 44px per column, so leave about 360px across.',
-      'summarize_diagram reports every position, so read it before moving anything; layout:true or',
-      'arrange_diagram hands the whole job to the app\'s own layout when you would rather not place anything.',
+      '  Customer',
+      '    customer_id: INT key',
+      '    email: TEXT unique',
+      '  Order',
+      '    order_id: INT key',
+      '  Customer 1:N Order as places',
+      '  Party isa Customer, Supplier',
       '',
-      'Live rooms: open_room joins an ERD Maker room as a collaborator, so every later edit appears in the',
-      'room\'s open tabs as it happens, with the AI\'s name, cursor, and selection, and no refresh. Omit the',
-      'link to start a room, or pass the share link the person gave you to join theirs. A room that already',
-      'has content wins; the open diagram or the link\'s snapshot only seeds an empty room. While in a room,',
-      'create_share_link returns that same room, so the AI\'s edits stay live for whoever opens it. Edits are',
-      'authored in view: the pointer travels to each shape, clicks it, and the shape appears under it, one',
-      'continuous stroke across the whole diagram.',
+      'An unindented line is an entity; indented lines are its attributes (`name`, `name: TYPE`, plus an optional',
+      'kind word: key, unique, multivalued, derived, composite). A line with 1:1/1:N/N:1/N:M is a relationship.',
+      '`Parent isa Child, Child` is a specialization. Then call validate_diagram, fix what it reports, and',
+      'generate_sql. That is the whole job for most requests.',
       '',
-      'leave_room signs out with a visible farewell: it glides back to the last shape, pauses with the typing',
-      'indicator up, then leaves, so the room sees a departure instead of an avatar that stopped moving. Call it',
-      'when the person says they are done, or when they ask the assistant to leave — and not otherwise. Your own',
-      'turn ending is not the person being done, and neither is one finished edit: stay in the room while they keep',
-      'working, however many turns that takes, and keep editing in the same room. Rejoining with open_room puts the',
-      'pointer back where it left off.',
+      '## Rules that are easy to get wrong',
+      '- "1:N" from A to B means one A relates to many Bs. The label at each end describes the entity at that end.',
+      '- A key attribute is the primary key and must be unique. Composite attributes own their parts.',
+      '- Positions are optional. Give no coordinates and the app arranges the diagram; give x/y on an entity to pin',
+      '  it. Only entities take coordinates — attribute columns, diamonds, and lines are placed for you. Leave room:',
+      '  ~500px apart across and ~360px down in Chen, ~360px across in crow\'s-foot. summarize_diagram reports',
+      '  positions; arrange_diagram re-lays the whole thing out.',
+      '- Refer to a shape by id or by unique name. summarize_diagram returns both.',
+      '- For participation constraints or attributes on a relationship, use the structured form',
+      '  (entities/relationships/isas) instead of text.',
       '',
-      'Cardinality "1:N" from A to B means one A relates to many Bs; the label at each end describes the',
-      'entity at that end. Attribute kinds are simple, key, unique, multivalued, derived, and composite;',
-      'composite attributes own their parts.',
-      'A key attribute carries the primary key, and every value of a key attribute must be unique.',
+      '## One diagram at a time',
+      'create_diagram or open_diagram makes a diagram current; add/update/remove tools edit it; every edit is written',
+      'back to its file. list_diagrams shows what is saved. Use the add/update/remove tools for follow-ups, not for',
+      'building a first draft.',
       '',
-      'Typical flow: one create_diagram holding the whole model — every entity with its attributes listed on it,',
-      'every relationship with its cardinality, every specialization — then validate_diagram, fix what it reports,',
-      'then generate_sql. Use the add/update/remove tools for follow-ups, not for building the first draft.',
-      'create_share_link produces a URL that opens the diagram in the app.',
+      '## Live rooms (optional, only when the person wants to watch)',
+      'open_room joins an ERD Maker room as a collaborator: later edits appear in the room\'s open tabs as they',
+      'happen, with the AI\'s name, cursor, and selection, and no refresh. Omit the link to start a room, or pass the',
+      'share link the person gave you to join theirs. A room that already has content wins; the open diagram only',
+      'seeds an empty room. create_share_link returns the live room while one is open, otherwise a snapshot URL.',
+      'leave_room signs out with a visible farewell — call it only when the person says they are done or asks you to',
+      'leave, not when your turn ends.',
     ].join('\n'),
   },
 );
@@ -150,24 +160,54 @@ server.registerTool('server_status', {
 server.registerTool('create_diagram', {
   title: 'Create a diagram',
   description:
-    'Build an ERD from a complete description and open it as the current diagram. List every entity with its attributes, then relationships between entities by name, then optional specializations. ' +
-    'Entities keep the x and y you give them. Give every entity coordinates or none at all: a diagram with no coordinates is auto-arranged by the app\'s layout engine, while a partially placed one keeps the given positions and parks the rest beside their owners. ' +
-    'Pass layout:true to arrange anyway and layout:false to keep free-slot placement. ' +
-    'The diagram is validated and saved to diagrams/<slug>.json unless path or save:false says otherwise. ' +
-    'In a live room the new diagram replaces the room content and streams in shape by shape for whoever is watching. ' +
-    'Returns the file path, a text outline, validation issues, and a share link that opens it in ERD Maker.',
+    'Build a whole ERD and open it as the current diagram. Two equivalent ways to say the model; use either, not both.\n\n' +
+    'FASTEST — pass `text`, a few indented lines:\n' +
+    '  Customer\n' +
+    '    customer_id: INT key\n' +
+    '    email: TEXT unique\n' +
+    '  Order\n' +
+    '    order_id: INT key\n' +
+    '  Customer 1:N Order as places\n' +
+    '  Party isa Customer, Supplier\n\n' +
+    'Rules for `text`: an unindented line is an entity (add `weak`, or `@ x,y` to place it). Indented lines are its ' +
+    'attributes, written `name`, `name: TYPE`, or either plus a kind word — key, unique, multivalued, derived, ' +
+    'composite. Indent further to give a composite attribute its parts. A line with a cardinality in it ' +
+    '(1:1, 1:N, N:1, N:M) is a relationship `From CARD To`, named with `as places` or defaulting to "From To". ' +
+    '`Parent isa Child, Child` declares a specialization. `#` starts a comment. Errors name the line.\n\n' +
+    'STRUCTURED — pass `entities`, `relationships`, `isas` instead, when you need participation constraints or ' +
+    'composite parts on a relationship.\n\n' +
+    'Either way the diagram is validated and saved to diagrams/<slug>.json unless path or save:false says otherwise, ' +
+    'and it streams into a live room shape by shape when one is open. Returns the file path, a text outline, ' +
+    'validation issues, and a share link. Positions are optional: no coordinates at all means the app arranges the ' +
+    'diagram; give every entity x and y to pin it.',
   inputSchema: {
     name: z.string().describe('Diagram name, e.g. "Sales".'),
+    text: z.string().optional().describe('The whole model as indented lines — see the description. Alternative to entities.'),
     view: viewSchema.optional().describe('Notation to show: chen (default) or crowfoot.'),
-    entities: z.array(entitySpecSchema).min(1).describe('Every entity with its attributes, keys, and positions.'),
-    relationships: z.array(relationshipSpecSchema).optional().describe('Every relationship between two entities with its cardinality.'),
-    isas: z.array(isaSpecSchema).optional().describe('Every specialization of a base by its subclasses.'),
+    entities: z.array(entitySpecSchema).optional().describe('Structured form. Every entity with its attributes, keys, and positions.'),
+    relationships: z.array(relationshipSpecSchema).optional().describe('Structured form. Every relationship between two entities with its cardinality.'),
+    isas: z.array(isaSpecSchema).optional().describe('Structured form. Every specialization of a base by its subclasses.'),
     path: z.string().optional().describe('Workspace-relative .json path. Omit to use diagrams/<name>.json.'),
     overwrite: z.boolean().optional().describe('Replace the file at path if it already exists.'),
     layout: z.boolean().optional().describe('Auto-arrange the whole diagram. Defaults to auto-arrange when no entity has coordinates; otherwise the x and y you give are kept and shapes without coordinates take the first free slot.'),
     save: z.boolean().optional().describe('Set false to keep the diagram only in this session.'),
   },
-}, async (spec) => json(await createDiagram(spec)));
+}, async ({ text, entities, relationships, isas, ...rest }) => {
+  if (text && (entities || relationships || isas)) {
+    throw new Error('Pass either text or entities/relationships/isas, not both.');
+  }
+  const model = text ? parseCompactDiagram(text) : null;
+  const spec: CreateSpec = {
+    ...rest,
+    entities: entities ?? model?.entities ?? [],
+    relationships: relationships ?? model?.relationships,
+    isas: isas ?? model?.isas,
+  };
+  if (spec.entities.length === 0) {
+    throw new Error('A diagram needs at least one entity. Pass text or a non-empty entities array.');
+  }
+  return json(await createDiagram(spec));
+});
 
 server.registerTool('open_diagram', {
   title: 'Open a diagram',
@@ -456,12 +496,20 @@ server.registerPrompt('design-erd', {
   }],
 }));
 
-const transport = new StdioServerTransport();
+  return server;
+}
 
-server.connect(transport).then(
-  () => console.error(`ERD Maker MCP ready. Workspace: ${WORKSPACE_ROOT}`),
-  (error: unknown) => {
-    console.error('ERD Maker MCP failed to start:', errorMessage(error));
-    process.exit(1);
-  },
-);
+// stdio is the default. `main.ts` sets ERD_MCP_TRANSPORT=http to pick the other
+// entry point, so this module can also be imported by `http.ts` without
+// grabbing stdin.
+if (process.env.ERD_MCP_TRANSPORT !== 'http') {
+  const transport = new StdioServerTransport();
+
+  createServer().connect(transport).then(
+    () => console.error(`ERD Maker MCP ready. Workspace: ${WORKSPACE_ROOT}`),
+    (error: unknown) => {
+      console.error('ERD Maker MCP failed to start:', errorMessage(error));
+      process.exit(1);
+    },
+  );
+}

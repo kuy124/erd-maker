@@ -42,6 +42,7 @@ import {
   type Entity,
   type EntityKind,
   type ErdDocument,
+  type Isa,
   type Leg,
   type Participation,
   type Relationship,
@@ -49,7 +50,13 @@ import {
 } from '../src/model/types';
 import { LiveRoom, roomFromLink, writeDocumentDiff, type CursorPoint } from './live';
 
+/** Injected by mcp/build.mjs; absent when running from source. */
+declare const __ERD_BUNDLED__: boolean | undefined;
+
 function repositoryRoot(): string {
+  // A single-file bundle has no checkout around it, so the workspace is wherever
+  // it was started from; ERD_MCP_ROOT still overrides that below.
+  if (typeof __ERD_BUNDLED__ !== 'undefined' && __ERD_BUNDLED__) return process.cwd();
   // A test runner serves this module from a virtual http URL, which cannot be
   // turned into a path; the process working directory is the checkout there.
   try {
@@ -60,7 +67,6 @@ function repositoryRoot(): string {
 }
 
 const REPO_ROOT = repositoryRoot();
-
 /** Files the MCP reads and writes must stay under this directory. */
 export const WORKSPACE_ROOT = resolve(process.env.ERD_MCP_ROOT ?? REPO_ROOT);
 

@@ -11,6 +11,8 @@
     "typecheck": "tsc -b && tsc -p mcp/tsconfig.json",
     "mcp": "node mcp/start.mjs",
     "mcp:typecheck": "tsc -p mcp/tsconfig.json",
+    "mcp:build": "node mcp/build.mjs",
+    "mcp:verify": "node mcp/build.mjs --check && node mcp/verify.mjs && node mcp/verify-http.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
