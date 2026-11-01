@@ -146,6 +146,17 @@ export interface EditorState {
   placeTables: (positions: Map<string, { x: number; y: number }>) => void;
   ydoc: Y.Doc;
   awareness: RoomHandle['awareness'];
+  /**
+   * Everything that appeared in the document because THIS editor made it.
+   *
+   * The entrance animation is how a watcher sees a shape arrive from elsewhere
+   * — the AI streaming it, a colleague dropping it in. What the person made
+   * with their own hands was never arriving, so it should not act like a guest:
+   * a table added with the toolbar spawns and named with the keyboard should
+   * appear as soon as it is made. The canvases subtract this set from the
+   * baseline check that decides something "enters".
+   */
+  localIds: Set<string>;
 }
 
 let counter = 0;
@@ -153,6 +164,15 @@ let counter = 0;
 function makeId(prefix: string): string {
   counter += 1;
   return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}`;
+}
+
+/** Every node id the shared document currently holds. */
+function localNodeKeys(ydoc: Y.Doc): Set<string> {
+  const keys = new Set<string>();
+  for (const name of ['entities', 'attributes', 'relationships', 'isas', 'legs'] as const) {
+    for (const key of ydoc.getMap(name).keys()) keys.add(String(key));
+  }
+  return keys;
 }
 
 function savedView(room: string): ErdDocument['view'] | null {
@@ -324,16 +344,22 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     if (kept.length !== selection.length) setSelection(kept);
   }, [doc, selection]);
 
+  const localIds = useRef<Set<string>>(new Set());
+
   const mutate = useCallback(
     (fn: () => void, separate = false) => {
       if (separate) undoRef.current?.stopCapturing();
+      const before = localNodeKeys(room.ydoc);
       room.ydoc.transact(fn);
       if (separate) undoRef.current?.stopCapturing();
+      // Whatever this transaction brought into being was made here, not sent
+      // here. See the `localIds` field on `EditorState` for why that matters.
+      for (const key of localNodeKeys(room.ydoc)) if (!before.has(key)) localIds.current.add(key);
     },
     [room],
   );
 
-  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'transport' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness' | 'commentLocation' | 'selectedCommentId' | 'threads'>>(() => ({
+  const api = useMemo<Omit<EditorState, 'doc' | 'view' | 'canUndo' | 'canRedo' | 'notice' | 'peers' | 'connected' | 'directPeers' | 'transport' | 'loaded' | 'room' | 'identity' | 'selection' | 'pointer' | 'justCreated' | 'viewport' | 'tool' | 'ydoc' | 'awareness' | 'localIds' | 'commentLocation' | 'selectedCommentId' | 'threads'>>(() => ({
     setTool,    setSelection: (ids) => { setSelection(ids); setJustCreated(null); },
     toggleSelection: (id) => setSelection((current) =>
       current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
@@ -769,6 +795,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     selectedCommentId,
     ydoc: room.ydoc,
     awareness: room.awareness,
+    localIds: localIds.current,
     ...api,
     justCreated,
   };

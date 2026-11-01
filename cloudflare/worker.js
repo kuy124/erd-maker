@@ -44,7 +44,13 @@ export class DiagramRoom {
       encoding.writeVarUint(out, 0);
       sync.writeUpdate(out, update);
       this.broadcast(encoding.toUint8Array(out));
+      this.saveSoon();
     });
+
+    // Debounced-save timer; see `saveSoon` below.
+    this.saveTimer = null;
+    // Whether the flush alarm is armed; see `saveSoon`.
+    this.alarmArmed = false;
     this.presence.on('update', ({ added, updated, removed }, origin) => {
       const ids = this.clients.get(origin);
       for (const id of added) ids?.add(id);
@@ -72,10 +78,46 @@ export class DiagramRoom {
   }
 
   save() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
     const written = this.ctx.storage.put('doc', Y.encodeStateAsUpdate(this.doc));
     // Keep the object alive until the write lands; eviction right after the
     // last disconnect is exactly when this matters.
     try { this.ctx.waitUntil(written); } catch { /* No waitUntil outside a handler. */ }
+  }
+
+  /**
+   * Records the room without waiting for it to empty out.
+   *
+   * Saving only on the last disconnect assumes the object lives forever, but a
+   * relay object can be evicted with a hibernated socket still nominally
+   * attached — a client that never sends a close event, or one that lost its
+   * last frame silently. Then `close()` runs, the room stays in memory, and an
+   * eviction loses every shape streamed into it. The room is what a watcher
+   * loads, so losing it is not just losing history: the watcher lands in an
+   * empty room and cannot edit what is not there.
+   *
+   * Debounced because the AI streams many small writes in a burst, and
+   * encoding a whole state per write would dwarf the writes themselves.
+   */
+  saveSoon() {
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer);
+    this.saveTimer = setTimeout(() => this.save(), 500);
+    // Storage writes outside a request context (the debounce timer, a close
+    // event that arrives silently) are not guaranteed to be flushed by the
+    // time the object goes idle. An alarm wakes the object with a full
+    // context, away from the last message, so the write is not lost.
+    try {
+      if (!this.ctx.storage.getAlarm) return;
+      if (this.alarmArmed) return;
+      this.alarmArmed = true;
+      this.ctx.storage.setAlarm(Date.now() + 2000);
+    } catch { /* Alarms unsupported; the debounce still runs. */ }
+  }
+
+  async alarm() {
+    this.alarmArmed = false;
+    this.save();
   }
 
   async fetch() {

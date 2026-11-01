@@ -315,7 +315,21 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   // never re-draws when a table moves.
   const settledLinks = useRef<Set<string> | null>(null);
   if (!settledLinks.current && !isEmpty) settledLinks.current = new Set(links.map((link) => link.id));
-  const linkEnters = (id: string) => settledLinks.current !== null && !settledLinks.current.has(id);
+  const linkEnters = (id: string) =>
+    settledLinks.current !== null && !settledLinks.current.has(id) && !state.localIds.has(id);
+
+  /**
+   * The tables that were already laid out when this view opened.
+   *
+   * A table arriving later draws itself in like a Chen entity: the outline
+   * traces, the fill comes up, the name settles. Without this the AI streaming
+   * one into the room has no gesture at all for the biggest shape on the paper,
+   * so a whole diagram arriving looked like slides being flipped.
+   */
+  const settledTables = useRef<Set<string> | null>(null);
+  if (!settledTables.current && !isEmpty) settledTables.current = new Set(positioned.map((t) => t.entityId));
+  const tableEnters = (id: string) =>
+    settledTables.current !== null && !settledTables.current.has(id) && !state.localIds.has(id);
 
   return (
     <div
@@ -417,7 +431,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   aria-label={`Table ${table.name}`}
                   data-node-id={table.entityId}
                   data-testid={`table-${table.name}`}
+                  className={tableEnters(table.entityId) ? 'node--enter-entity' : undefined}
                 >
+                  <g className={tableEnters(table.entityId) ? 'node--enter' : undefined}>
                   <title>{table.name + (table.weak ? ' (weak entity)' : ' entity table')}</title>
                   <rect
                     className="node__body"
@@ -517,6 +533,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
                   {isSelected ? (
                     <rect className="selection-ring" x={-5} y={-5} width={table.width + 10} height={height + 10} />
                   ) : null}
+                  </g>
                 </g>
               );
             })}

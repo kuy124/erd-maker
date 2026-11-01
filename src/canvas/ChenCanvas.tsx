@@ -549,7 +549,8 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
    */
   const settled = useRef<Set<string> | null>(null);
   if (!settled.current && !isEmpty) settled.current = new Set(allNodes(doc).map((node) => node.id));
-  const enters = (id: string) => settled.current !== null && !settled.current.has(id);
+  const enters = (id: string) =>
+    settled.current !== null && !settled.current.has(id) && !state.localIds.has(id);
 
   /**
    * The connectors that were already drawn when this view opened.
@@ -560,7 +561,8 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
    */
   const settledLinks = useRef<Set<string> | null>(null);
   if (!settledLinks.current && !isEmpty) settledLinks.current = new Set(connectorIds(doc));
-  const linkEnters = (id: string) => settledLinks.current !== null && !settledLinks.current.has(id);
+  const linkEnters = (id: string) =>
+    settledLinks.current !== null && !settledLinks.current.has(id) && !state.localIds.has(id);
 
   const commentPlacement = useCommentPlacement(state, toWorld);
 

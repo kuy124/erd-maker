@@ -28,6 +28,40 @@ await later.ready;
 assert.equal(later.doc.getMap('check').get('kept'), 'after everyone left',
   'A visitor arriving after everyone left got an empty room');
 
-console.log('PASS: a room opens with nobody connected');
 // Awareness keeps a timer alive; the worker runtime does not care, Node does.
+// Debounce: a burst of writes savings to disk once, not once per write.
+const writes = [];
+{
+  const burst = new DiagramRoom({
+    storage: { get: async key => saved.get(key), put: async (key, value) => { writes.push(key); saved.set(key, value); } },
+    waitUntil: () => {},
+  });
+  await burst.ready;
+  for (let i = 0; i < 5; i++) burst.doc.getMap('check').set(`key${i}`, 'burst');
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(writes.length, 0, 'The debounce window wrote mid-burst');
+  await new Promise(resolve => setTimeout(resolve, 700));
+  assert.equal(writes.filter(key => key === 'doc').length, 1,
+    'A burst of writes produced more than one save');
+}
+
+// Close path: a connect/disconnect cycle must not lose the document.
+{
+  const room = new DiagramRoom({
+    storage: { get: async key => saved.get(key), put: async (key, value) => { saved.set(key, value); } },
+    waitUntil: () => {},
+  });
+  await room.ready;
+  room.doc.getMap('check').set('close', 'survives');
+  const socket = {};
+  room.clients.set(socket, new Set());
+  room.close(socket);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(saved.get('doc'), 'A disconnected room was not written');
+  const revisit = new DiagramRoom({ storage, waitUntil: () => {} });
+  await revisit.ready;
+  assert.equal(revisit.doc.getMap('check').get('close'), 'survives',
+    'A room revisited after a disconnect lost its content');
+}
+console.log('PASS: a room opens with nobody connected');
 process.exit(0);

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
-import { HOVER_MS, LiveRoom, PRESS_MS, THINK_MS, TYPING_MS, legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
+import { HOVER_MS, LiveRoom, PRESS_MS, THINK_MS, TYPE_CHAR_MS, TYPING_MS, legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
-import { seedDocument, snapshotFromYdoc, upsertAttribute } from '../src/collab/ydoc';
+import { seedDocument, snapshotFromYdoc, upsertAttribute, upsertEntity } from '../src/collab/ydoc';
 import { CROW_HEADER_HEIGHT, CROW_WIDTH } from '../src/model/crowfoot';
 
-function sampleDoc(): ErdDocument {
+export function sampleDoc(): ErdDocument {
   const doc = emptyDocument('Sales');
   doc.entities.push(
     { id: 'ent_customer', name: 'Customer', x: 10, y: 20, kind: 'strong' },
@@ -431,14 +431,14 @@ describe('live diffs', () => {
  * would receive.
  */
 describe('intent choreography', () => {
-  function headless(): { live: LiveRoom; local: () => Record<string, any> } {
+  function headless(): { live: LiveRoom; local: () => Record<string, any>; awareness: Awareness } {
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
     const transport = { on: () => {}, off: () => {}, connect: () => {}, destroy: () => {} };
     const live = new LiveRoom(
       'room1234', ydoc, transport as never, awareness, 'wss://relay.test', 'https://app.test',
     );
-    return { live, local: () => (awareness.getLocalState() ?? {}) as Record<string, any> };
+    return { live, local: () => (awareness.getLocalState() ?? {}) as Record<string, any>, awareness };
   }
 
   beforeEach(() => {
@@ -518,6 +518,61 @@ describe('intent choreography', () => {
     expect(local().typing).toBe(true);
     await vi.advanceTimersByTimeAsync(2);
     expect(local().typing).toBe(false);
+  });
+
+  it('writes each character of a name after the shape lands', async () => {
+    const { live, local, awareness } = headless();
+    const doc = sampleDoc();
+    upsertEntity(live.ydoc, doc.entities[0]!);
+    // A watcher in the room is what makes the replay worth doing.
+    awareness.getStates().set(4242, { name: 'Faris' });
+    const typing = live.typeName(doc, { id: 'ent_customer', kind: 'entity' });
+
+    // One frame per character, with the typing indicator up the whole time.
+    const name = 'Customer';
+    for (let at = 1; at <= name.length; at++) {
+      expect(live.ydoc.getMap('entities').get('ent_customer')?.get('name')).toBe(name.slice(0, at));
+      expect(local().typing).toBe(true);
+      await vi.advanceTimersByTimeAsync(TYPE_CHAR_MS);
+    }
+    await typing;
+    expect(live.ydoc.getMap('entities').get('ent_customer')?.get('name')).toBe('Customer');
+    // The indicator holds for a beat after the last character.
+    await vi.advanceTimersByTimeAsync(TYPING_MS - TYPE_CHAR_MS - 2);
+    expect(local().typing).toBe(true);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(local().typing).toBe(false);
+  });
+
+  it('skips the typed replay when nobody is watching', async () => {
+    const { live } = headless();
+    const doc = sampleDoc();
+    upsertEntity(live.ydoc, doc.entities[0]!);
+    expect(live.watching).toBe(0);
+    await live.typeName(doc, { id: 'ent_customer', kind: 'entity' });
+    expect(live.ydoc.getMap('entities').get('ent_customer')?.get('name')).toBe('Customer');
+  });
+
+  it('drags a connection between its two shapes before the line inks in', async () => {
+    const { live, local } = headless();
+    const doc = sampleDoc();
+    const drawing = live.drawLink(doc, { id: 'rel_places', kind: 'relationship' });
+
+    // Press lands on the first end and holds.
+    await vi.advanceTimersByTimeAsync(HOVER_MS);
+    expect(local().intent).toEqual({ kind: 'press', targetId: 'ent_customer' });
+    expect(local().pressing).toBe(true);
+
+    // While the pointer travels, the intent turns to the far end; the
+    // relationship is not yet in the document, so nothing telegraphs the line.
+    await vi.advanceTimersByTimeAsync(300);
+    expect(local().intent).toEqual({ kind: 'drag', targetId: 'ent_order' });
+    expect(live.ydoc.getMap('relationships').size).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(400);
+    await drawing;
+    expect(live.pointer).toEqual(presenceAt(doc, 'ent_order', 'chen').cursor);
+    expect(local().pressing).toBe(true);
   });
 
   it('drags a moved entity with its attributes instead of teleporting it', async () => {

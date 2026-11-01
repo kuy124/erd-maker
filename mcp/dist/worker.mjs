@@ -49667,6 +49667,7 @@ var FAREWELL_MS = 700;
 var HOVER_MS = 90;
 var PRESS_MS = 380;
 var TYPING_MS = 900;
+var TYPE_CHAR_MS = 55;
 var THINK_MS = 900;
 var ENTRANCE_OFFSET = 320;
 function roomFromLink(input2) {
@@ -49802,6 +49803,12 @@ var LiveRoom = class _LiveRoom {
   provider;
   awareness;
   typingTimer;
+  /**
+   * Bumped by `clearTyping` to cancel an in-flight name or connection gesture.
+   * A new stream or a goodbye must not leave the old one typing into a room the
+   * pointer has already left.
+   */
+  typingGeneration = 0;
   hoverTimer;
   pressTimer;
   thinkTimer;
@@ -50277,7 +50284,7 @@ var LiveRoom = class _LiveRoom {
     const reaches = [0];
     for (const duration3 of routeDurationsMs(knots)) reaches.push(reaches[reaches.length - 1] + duration3);
     return new Promise((resolve) => {
-      this.route = { doc: doc2, steps, knots, reaches, started: Date.now(), written: 0, arming: false, resolve };
+      this.route = { doc: doc2, steps, knots, reaches, started: Date.now(), written: 0, arming: false, paused: false, resolve };
       this.advanceRoute();
       this.routeTimer = setInterval(() => this.advanceRoute(), MOVE_FRAME_MS);
     });
@@ -50286,7 +50293,9 @@ var LiveRoom = class _LiveRoom {
   async travelEach(doc2, steps) {
     for (const step of steps) {
       await this.glideTo(doc2, step.id);
+      if (step.kind === "relationship") await this.drawLink(doc2, step);
       this.writeStep(doc2, step);
+      void this.typeName(doc2, step);
     }
   }
   /** Publishes the next frame of the route, clicking every knot it crosses. */
@@ -50296,6 +50305,7 @@ var LiveRoom = class _LiveRoom {
       this.stopRoute();
       return;
     }
+    if (route.paused) return;
     const elapsed = Date.now() - route.started;
     const last2 = route.knots.length - 1;
     let leg = 0;
@@ -50323,7 +50333,19 @@ var LiveRoom = class _LiveRoom {
       route.written += 1;
       this.focusId = step.id;
       this.cursorSelection = [step.id];
+      if (step.kind === "relationship") {
+        void this.drawLink(route.doc, step).then((dragged) => {
+          if (this.route !== route) return;
+          route.started += dragged;
+          route.paused = false;
+          this.writeStep(route.doc, step);
+          void this.typeName(route.doc, step);
+          this.publishRoute(true);
+        });
+        return;
+      }
       this.writeStep(route.doc, step);
+      void this.typeName(route.doc, step);
       this.publishRoute(true);
       return;
     }
@@ -50439,6 +50461,16 @@ var LiveRoom = class _LiveRoom {
   /** Holds the typing indicator up for TYPING_MS, then lets it go. */
   beginTyping() {
     this.clearTyping();
+    this.refreshTyping();
+  }
+  /**
+   * Resets the typing window without cancelling a replay in flight.
+   *
+   * `typeName` calls this per character; calling `beginTyping` instead would
+   * bump the generation it checks to know whether to keep going.
+   */
+  refreshTyping() {
+    if (this.typingTimer) clearTimeout(this.typingTimer);
     this.typingTimer = setTimeout(() => {
       this.typingTimer = void 0;
       this.publishPresence({ typing: false });
@@ -50480,6 +50512,7 @@ var LiveRoom = class _LiveRoom {
   clearTyping() {
     if (this.typingTimer) clearTimeout(this.typingTimer);
     this.typingTimer = void 0;
+    this.typingGeneration += 1;
   }
   clearHover() {
     if (this.hoverTimer) clearTimeout(this.hoverTimer);
@@ -50564,6 +50597,77 @@ var LiveRoom = class _LiveRoom {
         if (leg.fromId === step.id || leg.toId === step.id) upsertLeg(this.ydoc, leg);
       }
     });
+  }
+  /**
+   * Drags a connection from one of its shapes to the other.
+   *
+   * The line does not exist while this runs, so nothing on the watcher's side
+   * tracks it — the gesture is carried by presence alone: a press on the first
+   * end, the pointer travelling to the second with the finger still down, the
+   * intent shifting from the shape it left to the one it is heading for. The
+   * caller writes the relationship once this resolves, so the line inks in as
+   * the drag lands rather than ahead of it.
+   *
+   * Returns how long the drag took, so the route's clock can absorb the pause.
+   */
+  async drawLink(doc2, step) {
+    const view = this.cursorView;
+    const relationship = doc2.relationships.find((candidate) => candidate.id === step.id);
+    const legs = relationship ? doc2.legs.filter((leg) => leg.fromId === relationship.id) : [];
+    const ends = legs.map((leg) => presenceAt(doc2, leg.toId, view).cursor).filter((cursor) => cursor !== null);
+    const route = this.route;
+    if (!relationship || ends.length < 2) return 0;
+    const generation = this.typingGeneration;
+    if (route) route.paused = true;
+    const began = Date.now();
+    const from2 = ends[0];
+    const to = ends[1];
+    this.focusId = legs[0]?.toId ?? null;
+    this.cursorSelection = this.focusId ? [this.focusId] : [];
+    this.intent = { kind: "press", targetId: this.focusId };
+    this.cursor = { ...from2 };
+    this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+    await pause(PRESS_MS);
+    if (this.typingGeneration !== generation || this.closed || this.route !== route) return Date.now() - began;
+    const span = Math.min(620, 160 + Math.hypot(to.x - from2.x, to.y - from2.y) / 4);
+    let elapsed = 0;
+    while (elapsed < span) {
+      if (this.typingGeneration !== generation || this.closed || this.route !== route) return Date.now() - began;
+      const progress = travelEase(elapsed / span);
+      this.cursor = { x: from2.x + (to.x - from2.x) * progress, y: from2.y + (to.y - from2.y) * progress };
+      this.intent = { kind: "drag", targetId: legs[1]?.toId ?? null };
+      this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+      await pause(MOVE_FRAME_MS);
+      elapsed += MOVE_FRAME_MS;
+    }
+    this.cursor = { ...to };
+    return Date.now() - began;
+  }
+  /**
+   * Types a shape's name out after the shape lands.
+   *
+   * `writeStep` writes the whole shape at once, so the name is already correct;
+   * this rewrites it a character at a time purely for the watcher, publishing
+   * `typing` on every keystroke for the indicator under the cursor. A shape
+   * arrives as a person makes it — drawn first, then named. Skipped when nobody
+   * is watching and for names too short to be worth replaying.
+   */
+  async typeName(doc2, step) {
+    if (this.watching === 0 || this.closed) return;
+    const name = shapeNameAt(doc2, step);
+    if (name.length < 4) return;
+    const mapName = step.kind === "entity" ? ENTITIES : step.kind === "attribute" ? ATTRIBUTES : step.kind === "relationship" ? RELATIONSHIPS : null;
+    const map4 = mapName ? this.ydoc.getMap(mapName).get(step.id) : void 0;
+    if (!map4) return;
+    const generation = this.typingGeneration;
+    this.refreshTyping();
+    for (let at = 1; at <= name.length; at++) {
+      if (this.typingGeneration !== generation || this.closed) return;
+      map4.set("name", name.slice(0, at));
+      this.refreshTyping();
+      this.publishPresence({ typing: true });
+      await pause(TYPE_CHAR_MS);
+    }
   }
   /** Where the pointer is right now, for a caller that means to come back. */
   get pointer() {
@@ -50707,6 +50811,12 @@ function liveSteps(doc2) {
     steps.push({ id: attribute.id, kind: "attribute" });
   }
   return steps;
+}
+function shapeNameAt(doc2, step) {
+  if (step.kind === "entity") return doc2.entities.find((candidate) => candidate.id === step.id)?.name ?? "";
+  if (step.kind === "attribute") return doc2.attributes.find((candidate) => candidate.id === step.id)?.name ?? "";
+  if (step.kind === "relationship") return doc2.relationships.find((candidate) => candidate.id === step.id)?.name ?? "";
+  return "";
 }
 function presenceAt(doc2, focusId, view) {
   const cursor = focusId ? focusPoint({ ...doc2, view }, focusId) : null;
