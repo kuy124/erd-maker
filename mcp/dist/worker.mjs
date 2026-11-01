@@ -38999,6 +38999,7 @@ function findRelationshipSlot(doc2, fromId, toId) {
 // src/model/layout.ts
 var V_GAP = 70;
 var LAYER_GAP = 70;
+var DENSE_ROW_GAP = 24;
 var COMPACT_FAN_CAPACITY = 6;
 var DENSE_ENTITY_COUNT = 25;
 function buildGraph(doc2) {
@@ -39161,7 +39162,7 @@ function clearAttributeSlot(doc2, owner, count, bounds) {
   for (const a of doc2.attributes) if (a.ownerId) add(segmentBetween(doc2, a.ownerId, a.id));
   const candidates2 = [];
   const radius = attributeRadius(doc2, owner.id, count, bounds ? COMPACT_FAN_CAPACITY : 8);
-  const samples = Math.max(24, count * 4);
+  const samples = Math.max(48, count * 8);
   for (let ring = 0; ring < 4; ring++) {
     for (let i = 0; i < samples; i++) {
       const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
@@ -39205,7 +39206,7 @@ function clearAttributeSlot(doc2, owner, count, bounds) {
   }
   return best.point;
 }
-function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
+function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false, verticalGap = V_GAP) {
   const ids = [...graph.keys()].sort();
   const edges = ids.flatMap((id2) => graph.get(id2).neighbors.filter((next) => id2 < next).map((next) => [id2, next]));
   const average = {
@@ -39213,7 +39214,7 @@ function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
     h: ids.reduce((sum, id2) => sum + sizes.get(id2).h, 0) / ids.length
   };
   const gap = horizontalGap ?? Math.max(144, 72 + Math.ceil(Math.max(...[...graph.values()].map((node2) => node2.neighbors.length)) / 2) * 18);
-  const ideal = Math.max(1, Math.min(ids.length, Math.round(Math.sqrt(ids.length * 1.6 * (average.h + V_GAP) / (average.w + gap)))));
+  const ideal = Math.max(1, Math.min(ids.length, Math.round(Math.sqrt(ids.length * 1.6 * (average.h + verticalGap) / (average.w + gap)))));
   const candidates2 = [];
   for (let columns = Math.max(1, ideal - 1); columns <= Math.min(ids.length, ideal + 1); columns++) {
     const order = [...ids];
@@ -39221,7 +39222,7 @@ function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
       order.splice(start, columns, ...order.slice(start, start + columns).reverse());
     }
     const cell = new Map(order.map((id2, index) => [id2, index]));
-    const distance = (a, b) => Math.abs(a % columns - b % columns) * (average.w + gap) + Math.abs(Math.floor(a / columns) - Math.floor(b / columns)) * (average.h + V_GAP);
+    const distance = (a, b) => Math.abs(a % columns - b % columns) * (average.w + gap) + Math.abs(Math.floor(a / columns) - Math.floor(b / columns)) * (average.h + verticalGap);
     const cost = (id2) => graph.get(id2).neighbors.reduce((sum, next) => sum + distance(cell.get(id2), cell.get(next)), 0);
     for (let sweep = 0; sweep < 4; sweep++) {
       let changed = false;
@@ -39253,11 +39254,11 @@ function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
         id: id2,
         ...size2,
         x: widths.slice(0, column).reduce((sum, w) => sum + w + gap, 0) + (widths[column] - size2.w) / 2,
-        y: heights.slice(0, row).reduce((sum, h) => sum + h + V_GAP, 0) + (alignTop ? 0 : (heights[row] - size2.h) / 2)
+        y: heights.slice(0, row).reduce((sum, h) => sum + h + verticalGap, 0) + (alignTop ? 0 : (heights[row] - size2.h) / 2)
       };
     });
     const width = widths.reduce((sum, w) => sum + w, 0) + (columns - 1) * gap;
-    const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * V_GAP;
+    const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * verticalGap;
     const length2 = order.reduce((sum, id2) => sum + cost(id2), 0) / Math.max(1, order.length);
     const byId = new Map(boxes.map((box) => [box.id, box]));
     const segments = edges.map(([from2, to]) => {
@@ -39293,7 +39294,7 @@ function arrangeChenComponent(doc2, graph, sizes) {
   };
   const linked = new Map([...anchors].map((id2) => [id2, { id: id2, neighbors: neighbours(id2) }]));
   const gap = NODE_SIZE.relationship.w + 20;
-  const grid = arrangeGridComponent(linked, sizes, gap);
+  const grid = arrangeGridComponent(linked, sizes, gap, false, DENSE_ROW_GAP);
   const coreBox = (block) => {
     const size2 = sizeFor(doc2, block.id);
     return { id: block.id, ...size2, x: block.x + (block.w - size2.w) / 2, y: block.y + (block.h - size2.h) / 2 };
@@ -39370,6 +39371,9 @@ function autoArrange(doc2) {
     if (attribute.ownerId) fans.set(attribute.ownerId, (fans.get(attribute.ownerId) ?? 0) + 1);
   }
   const compactGraph = doc2.view !== "crowfoot" && (doc2.entities.length >= DENSE_ENTITY_COUNT || fans.size > 0 && Math.max(...fans.values()) <= COMPACT_FAN_CAPACITY);
+  const widest = fans.size ? Math.max(...fans.values()) : 0;
+  const nearLimit = doc2.view !== "crowfoot" && widest > COMPACT_FAN_CAPACITY && widest <= COMPACT_FAN_CAPACITY + 1;
+  const useCompact = compactGraph || nearLimit && doc2.entities.length >= 8;
   while (remaining.size) {
     const graph = /* @__PURE__ */ new Map();
     const queue = [[...remaining.keys()].sort()[0]];
@@ -39385,7 +39389,7 @@ function autoArrange(doc2) {
       components.push(arrangeGridComponent(graph, layoutSizes, void 0, true));
       continue;
     }
-    if (compactGraph && doc2.entities.some((entity) => graph.has(entity.id))) {
+    if (useCompact && doc2.entities.some((entity) => graph.has(entity.id))) {
       for (const id2 of graph.keys()) layoutSizes.set(id2, attributeSpace(doc2, id2, /* @__PURE__ */ new Set(), COMPACT_FAN_CAPACITY));
       components.push(arrangeChenComponent(doc2, graph, layoutSizes));
       for (const id2 of graph.keys()) compactOwners.add(id2);
