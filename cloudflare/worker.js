@@ -5,6 +5,7 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 
 const MAX_MESSAGE = 512 * 1024;
+const MAX_MESSAGES_PER_SECOND = 200;
 
 export default {
   async fetch(request, env) {
@@ -24,17 +25,26 @@ export class DiagramRoom {
     this.doc = new Y.Doc();
     this.presence = new awareness.Awareness(this.doc);
     this.presence.setLocalState(null);
+    /**
+     * Sockets this instance has handled a message from, with the awareness ids
+     * each one owns.
+     *
+     * A hibernating object drops all in-memory state when it sleeps, then runs
+     * the constructor again when a socket wakes it. `webSocketMessage`
+     * re-registers any socket that does, so this map recovers without the
+     * client noticing; per-connection state that must survive sleep lives in
+     * storage, not here.
+     */
     this.clients = new Map();
+    /** Per-socket counters for the message-rate limit. Same lifetime caveat. */
+    this.limits = new Map();
     /*
      * Rooms outlive their last connection.
      *
      * A share link names only the room, so whoever opens it expects the
      * diagram whether or not anybody else is online. Keeping the room in
-     * Durable Object storage is what makes that true: the object is evicted
-     * when idle, and without this the link opened onto an empty canvas.
-     *
-     * ponytail: one blob per room, written when the room empties. Add
-     * periodic writes if a deploy or crash must never lose the last edits.
+     * Durable Object storage is what makes that true: a hibernated object is
+     * out of memory, and without this the link opened onto an empty canvas.
      */
     this.ready = ctx.storage.get('doc').then((saved) => {
       if (saved) Y.applyUpdate(this.doc, new Uint8Array(saved));
@@ -63,18 +73,28 @@ export class DiagramRoom {
   }
 
   broadcast(message) {
-    for (const socket of this.clients.keys()) {
+    // getWebSockets includes sockets still attached to a sleeping object, so a
+    // room that is not resident still receives this. Sockets that are gone no
+    // matter how looked up are dropped on send.
+    for (const socket of this.liveSockets()) {
       try { socket.send(message); } catch { this.close(socket); }
     }
+  }
+
+  liveSockets() {
+    return typeof this.ctx.getWebSockets === 'function' ? this.ctx.getWebSockets() : [...this.clients.keys()];
   }
 
   close(socket) {
     const ids = this.clients.get(socket);
     this.clients.delete(socket);
+    this.limits.delete(socket);
     if (ids) awareness.removeAwarenessStates(this.presence, [...ids], null);
     try { socket.close(); } catch { /* Already closed. */ }
     // The last client leaving is the moment the room would otherwise be lost.
-    if (this.clients.size === 0) this.save();
+    // Filtered: webSocketClose may fire just before the runtime drops the
+    // socket from getWebSockets, so the count would otherwise still see it.
+    if (this.liveSockets().filter(s => s !== socket).length === 0) this.save();
   }
 
   save() {
@@ -92,13 +112,15 @@ export class DiagramRoom {
    * Saving only on the last disconnect assumes the object lives forever, but a
    * relay object can be evicted with a hibernated socket still nominally
    * attached — a client that never sends a close event, or one that lost its
-   * last frame silently. Then `close()` runs, the room stays in memory, and an
-   * eviction loses every shape streamed into it. The room is what a watcher
+   * last frame silently. Then the room stays in memory only until eviction,
+   * which loses every shape streamed into it. The room is what a watcher
    * loads, so losing it is not just losing history: the watcher lands in an
    * empty room and cannot edit what is not there.
    *
    * Debounced because the AI streams many small writes in a burst, and
-   * encoding a whole state per write would dwarf the writes themselves.
+   * encoding a whole state per write would dwarf the writes themselves. The
+   * debounce timer is dropped when the object sleeps, which is what the alarm
+   * covers.
    */
   saveSoon() {
     if (this.saveTimer !== null) clearTimeout(this.saveTimer);
@@ -122,31 +144,14 @@ export class DiagramRoom {
 
   async fetch() {
     await this.ready;
-    if (this.clients.size >= 32) return new Response('Room full', { status: 429 });
+    if (this.liveSockets().length >= 32) return new Response('Room full', { status: 429 });
     const [client, socket] = Object.values(new WebSocketPair());
-    socket.accept();
-    this.clients.set(socket, new Set());
-    let count = 0, since = Date.now();
-    socket.addEventListener('message', event => {
-      try {
-        if (Date.now() - since > 1000) { count = 0; since = Date.now(); }
-        if (++count > 200 || !(event.data instanceof ArrayBuffer) || event.data.byteLength > MAX_MESSAGE) {
-          socket.close(1008, 'Message limit'); return;
-        }
-        const input = decoding.createDecoder(new Uint8Array(event.data));
-        const type = decoding.readVarUint(input);
-        if (type === 0) {
-          const out = encoding.createEncoder();
-          encoding.writeVarUint(out, 0);
-          sync.readSyncMessage(input, out, this.doc, socket);
-          if (encoding.length(out) > 1) socket.send(encoding.toUint8Array(out));
-        } else if (type === 1) {
-          awareness.applyAwarenessUpdate(this.presence, decoding.readVarUint8Array(input), socket);
-        } else throw new Error('Unknown message');
-      } catch { socket.close(1008, 'Invalid message'); }
-    });
-    socket.addEventListener('close', () => this.close(socket));
-    socket.addEventListener('error', () => this.close(socket));
+    // acceptWebSocket, not accept(): a socket accepted with the standard
+    // listener pattern keeps the object resident for the whole session, and an
+    // occupied room bills Durable Object duration around the clock — the
+    // free-tier budget this relay exhausted. Hibernation keeps the connection
+    // open at the network layer while the object sleeps, and bills nothing.
+    this.ctx.acceptWebSocket(socket);
     const initial = encoding.createEncoder();
     encoding.writeVarUint(initial, 0);
     sync.writeSyncStep1(initial, this.doc);
@@ -157,4 +162,36 @@ export class DiagramRoom {
     socket.send(encoding.toUint8Array(present));
     return new Response(null, { status: 101, webSocket: client });
   }
+
+  /**
+   * A socket sent a frame.
+   *
+   * This method is the only reason the object is resident at all, and the
+   * reason `this.clients` may be empty when it runs: a socket attached before
+   * the object last slept wakes it here. Re-register first, so awareness is
+   * cleaned up correctly when the socket later leaves.
+   */
+  webSocketMessage(socket, message) {
+    try {
+      if (!this.clients.has(socket)) this.clients.set(socket, new Set());
+      if (Date.now() - (this.limits.get(socket)?.since ?? 0) > 1000) this.limits.set(socket, { count: 0, since: Date.now() });
+      const limit = this.limits.get(socket);
+      if ((limit.count += 1) > MAX_MESSAGES_PER_SECOND || !(message instanceof ArrayBuffer) || message.byteLength > MAX_MESSAGE) {
+        socket.close(1008, 'Message limit'); return;
+      }
+      const input = decoding.createDecoder(new Uint8Array(message));
+      const type = decoding.readVarUint(input);
+      if (type === 0) {
+        const out = encoding.createEncoder();
+        encoding.writeVarUint(out, 0);
+        sync.readSyncMessage(input, out, this.doc, socket);
+        if (encoding.length(out) > 1) socket.send(encoding.toUint8Array(out));
+      } else if (type === 1) {
+        awareness.applyAwarenessUpdate(this.presence, decoding.readVarUint8Array(input), socket);
+      } else throw new Error('Unknown message');
+    } catch { socket.close(1008, 'Invalid message'); }
+  }
+
+  webSocketClose(socket) { this.close(socket); }
+  webSocketError(socket) { this.close(socket); }
 }

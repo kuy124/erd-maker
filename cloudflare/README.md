@@ -2,9 +2,10 @@
 
 Users only open a share link. You, the app owner, do this setup once.
 
-1. Create a Cloudflare account. Review current Workers / Durable Objects free-tier
-   limits; this backend uses an active Durable Object per open room, not WebSocket
-   hibernation. Long-lived rooms consume duration quota. Free is not unlimited.
+1. Create a Cloudflare account. Review current Workers / Durable Objects
+   free-tier limits. This backend uses WebSocket Hibernation: a room's object
+   sleeps while its connections sit idle and is woken by the next frame, so
+   duration quota is billed for activity, not for rooms being occupied.
 2. In `cloudflare/wrangler.jsonc`, set `ALLOWED_ORIGINS` to your exact frontend
    origin, e.g. `https://YOUR-NAME.github.io` (no repository path or trailing slash).
    Multiple origins are comma-separated.
@@ -36,10 +37,11 @@ Users only open a share link. You, the app owner, do this setup once.
   not authentication. Do not use this deployment for sensitive diagrams.
 - Unlike the old encrypted P2P transport, the sync server can read diagrams.
   Traffic is encrypted in transit using TLS, not end-to-end encrypted.
-- Room content lives in server memory while active, and is written to Durable
-  Object storage when the last collaborator leaves, so a share link opens with
-  nobody online. Nothing expires it yet: an abandoned room occupies storage
-  until the worker is cleared. This is still not a backup or version history.
+- Room content lives in Durable Object storage, not just memory: writes are
+  debounced while a session streams and flushed when it empties or the object
+  sleeps, so a share link opens with nobody online. Nothing expires it yet: an
+  abandoned room occupies storage until the worker is cleared. This is still
+  not a backup or version history.
 - Limits: 32 connections/room, 512 KiB/message, 200 messages/second/connection.
   Oversized diagrams may need these limits raised and a chunked protocol.
 - All collaborators must use the rebuilt frontend with the same sync URL.

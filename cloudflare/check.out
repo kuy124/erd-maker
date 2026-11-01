@@ -1,0 +1,2 @@
+PASS: a room survives with nobody connected
+PASS: bidirectional sync, awareness, origin restrictions

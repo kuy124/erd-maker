@@ -5,6 +5,7 @@ const Y = require('yjs');
 const { WebsocketProvider } = require('y-websocket');
 const WebSocket = require('ws');
 const { Awareness, removeAwarenessStates } = require('y-protocols/awareness');
+import { DiagramRoom } from './worker.js';
 
 /*
  * A room has to outlive its last connection.
