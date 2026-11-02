@@ -50147,13 +50147,14 @@ var LiveRoom = class _LiveRoom {
    */
   moveTo(target, typing, mode = "click") {
     if (this.route) return;
-    if (!target) {
+    if (!target || this.watching === 0) {
       this.stopMotion();
+      this.cursor = target ? { x: target.x, y: target.y } : null;
+      this.cursorSelection = target ? this.pendingSelection ?? this.cursorSelection : [];
       this.clearGesture();
-      this.cursor = null;
       this.publishPresence({
-        cursor: null,
-        selectedIds: [],
+        cursor: this.cursor,
+        selectedIds: this.cursorSelection,
         view: this.cursorView,
         typing: false,
         pressing: false
@@ -50649,7 +50650,7 @@ var LiveRoom = class _LiveRoom {
       if (this.typingGeneration !== generation || this.closed || this.route !== route) return Date.now() - began;
       const progress = travelEase(elapsed / span);
       this.cursor = { x: from2.x + (to.x - from2.x) * progress, y: from2.y + (to.y - from2.y) * progress };
-      this.intent = { kind: "drag", targetId: legs[1]?.toId ?? null };
+      this.intent = { kind: "drag", targetId: legs[1]?.toId };
       this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
       await pause(MOVE_FRAME_MS);
       elapsed += MOVE_FRAME_MS;

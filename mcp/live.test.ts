@@ -431,13 +431,14 @@ describe('live diffs', () => {
  * would receive.
  */
 describe('intent choreography', () => {
-  function headless(): { live: LiveRoom; local: () => Record<string, any>; awareness: Awareness } {
+  function headless(watched = true): { live: LiveRoom; local: () => Record<string, any>; awareness: Awareness } {
     const ydoc = new Y.Doc();
     const awareness = new Awareness(ydoc);
     const transport = { on: () => {}, off: () => {}, connect: () => {}, destroy: () => {} };
     const live = new LiveRoom(
       'room1234', ydoc, transport as never, awareness, 'wss://relay.test', 'https://app.test',
     );
+    if (watched) awareness.getStates().set(4242, { name: 'Faris' });
     return { live, local: () => (awareness.getLocalState() ?? {}) as Record<string, any>, awareness };
   }
 
@@ -450,6 +451,27 @@ describe('intent choreography', () => {
     vi.useRealTimers();
   });
 
+  it('lands immediately without animation timers when nobody is watching', async () => {
+    const { live, local, awareness } = headless(false);
+    const doc = sampleDoc();
+    const timers = vi.getTimerCount();
+    let published = 0;
+    awareness.on('update', () => { published += 1; });
+    Object.assign(live, { cursor: { x: 0, y: 0 } });
+
+    await live.glideTo(doc, 'ent_order', true);
+
+    expect(local().cursor).toEqual(presenceAt(doc, 'ent_order', doc.view).cursor);
+    expect(local().selectedIds).toEqual(['ent_order']);
+    expect(local().typing).toBe(false);
+    expect(local().pressing).toBe(false);
+    expect(published).toBe(1);
+    expect(vi.getTimerCount()).toBe(timers);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(published).toBe(1);
+    live.close();
+  });
+
   it('publishes positional frames at 20fps, but arrivals immediately', async () => {
     const { live, awareness } = headless();
     // Count every awareness write the room emits: these are the messages the
@@ -457,7 +479,7 @@ describe('intent choreography', () => {
     let published = 0;
     awareness.on('update', () => { published += 1; });
 
-    live.cursor = { x: 0, y: 0 };
+    Object.assign(live, { cursor: { x: 0, y: 0 } });
     const doc = sampleDoc();
     const gliding = live.glideTo(doc, 'ent_order');
     // A hop of this length at 16ms frames would publish ~35 mid-move frames.
@@ -551,12 +573,12 @@ describe('intent choreography', () => {
     // One frame per character, with the typing indicator up the whole time.
     const name = 'Customer';
     for (let at = 1; at <= name.length; at++) {
-      expect(live.ydoc.getMap('entities').get('ent_customer')?.get('name')).toBe(name.slice(0, at));
+      expect(live.ydoc.getMap<Y.Map<unknown>>('entities').get('ent_customer')?.get('name')).toBe(name.slice(0, at));
       expect(local().typing).toBe(true);
       await vi.advanceTimersByTimeAsync(TYPE_CHAR_MS);
     }
     await typing;
-    expect(live.ydoc.getMap('entities').get('ent_customer')?.get('name')).toBe('Customer');
+    expect(live.ydoc.getMap<Y.Map<unknown>>('entities').get('ent_customer')?.get('name')).toBe('Customer');
     // The indicator holds for a beat after the last character.
     await vi.advanceTimersByTimeAsync(TYPING_MS - TYPE_CHAR_MS - 2);
     expect(local().typing).toBe(true);
@@ -565,12 +587,12 @@ describe('intent choreography', () => {
   });
 
   it('skips the typed replay when nobody is watching', async () => {
-    const { live } = headless();
+    const { live } = headless(false);
     const doc = sampleDoc();
     upsertEntity(live.ydoc, doc.entities[0]!);
     expect(live.watching).toBe(0);
     await live.typeName(doc, { id: 'ent_customer', kind: 'entity' });
-    expect(live.ydoc.getMap('entities').get('ent_customer')?.get('name')).toBe('Customer');
+    expect(live.ydoc.getMap<Y.Map<unknown>>('entities').get('ent_customer')?.get('name')).toBe('Customer');
   });
 
   it('drags a connection between its two shapes before the line inks in', async () => {

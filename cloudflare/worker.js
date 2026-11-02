@@ -25,19 +25,30 @@ export class DiagramRoom {
     this.doc = new Y.Doc();
     this.presence = new awareness.Awareness(this.doc);
     this.presence.setLocalState(null);
-    /**
-     * Sockets this instance has handled a message from, with the awareness ids
-     * each one owns.
-     *
-     * A hibernating object drops all in-memory state when it sleeps, then runs
-     * the constructor again when a socket wakes it. `webSocketMessage`
-     * re-registers any socket that does, so this map recovers without the
-     * client noticing; per-connection state that must survive sleep lives in
-     * storage, not here.
-     */
+    // Socket attachments preserve ownership and throttling across hibernation.
     this.clients = new Map();
-    /** Per-socket counters for the message-rate limit. Same lifetime caveat. */
     this.limits = new Map();
+    this.unpersisted = new Set();
+    this.hibernating = typeof ctx.acceptWebSocket === 'function';
+    this.dirty = false;
+    this.saving = null;
+    this.retryDelay = null;
+    // Awareness's interval prevents Durable Object hibernation.
+    if (this.hibernating) {
+      for (const socket of this.liveSockets()) {
+        const saved = socket.deserializeAttachment();
+        if (!saved) continue;
+        this.clients.set(socket, new Set(saved.ids));
+        if (saved.limit) this.limits.set(socket, saved.limit);
+        awareness.applyAwarenessUpdate(this.presence, saved.awareness, this);
+        for (const [id, lastUpdated] of saved.updatedAt) {
+          const meta = this.presence.meta.get(id);
+          if (meta) meta.lastUpdated = lastUpdated;
+        }
+      }
+      this.expirePresence();
+      this.updateHibernation();
+    }
     /*
      * Rooms outlive their last connection.
      *
@@ -55,8 +66,9 @@ export class DiagramRoom {
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 0);
       sync.writeUpdate(out, update);
-      this.broadcast(encoding.toUint8Array(out));
+      this.dirty = true;
       this.saveSoon();
+      this.broadcast(encoding.toUint8Array(out), origin);
     });
 
     // Debounced-save timer; see `saveSoon` below.
@@ -70,15 +82,55 @@ export class DiagramRoom {
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 1);
       encoding.writeVarUint8Array(out, awareness.encodeAwarenessUpdate(this.presence, [...added, ...updated, ...removed]));
-      this.broadcast(encoding.toUint8Array(out));
+      this.broadcast(encoding.toUint8Array(out), origin);
     });
   }
 
-  broadcast(message) {
+  expirePresence() {
+    const now = Date.now();
+    const expired = [...this.presence.meta]
+      .filter(([id, meta]) => id !== this.doc.clientID && this.presence.states.has(id) && now - meta.lastUpdated >= awareness.outdatedTimeout)
+      .map(([id]) => id);
+    if (expired.length) {
+      awareness.removeAwarenessStates(this.presence, expired, null);
+      for (const socket of this.unpersisted) this.rememberSocket(socket);
+    }
+  }
+
+  updateHibernation() {
+    if (!this.hibernating) return;
+    if (this.unpersisted.size && this.presence._checkInterval == null) {
+      // ponytail: presence above the 2 KiB attachment limit keeps the room awake; compact it if common.
+      this.presence._checkInterval = setInterval(() => this.expirePresence(), 3000);
+    } else if (!this.unpersisted.size && this.presence._checkInterval != null) {
+      clearInterval(this.presence._checkInterval);
+      this.presence._checkInterval = null;
+    }
+  }
+
+  rememberSocket(socket) {
+    if (!this.hibernating) return;
+    try {
+      const ids = [...this.clients.get(socket)];
+      socket.serializeAttachment({
+        ids,
+        limit: this.limits.get(socket),
+        awareness: awareness.encodeAwarenessUpdate(this.presence, ids),
+        updatedAt: ids.map(id => [id, this.presence.meta.get(id).lastUpdated]),
+      });
+      this.unpersisted.delete(socket);
+    } catch {
+      this.unpersisted.add(socket);
+    }
+    this.updateHibernation();
+  }
+
+  broadcast(message, except) {
     // getWebSockets includes sockets still attached to a sleeping object, so a
     // room that is not resident still receives this. Sockets that are gone no
     // matter how looked up are dropped on send.
     for (const socket of this.liveSockets()) {
+      if (socket === except) continue;
       try { socket.send(message); } catch { this.close(socket); }
     }
   }
@@ -91,7 +143,9 @@ export class DiagramRoom {
     const ids = this.clients.get(socket);
     this.clients.delete(socket);
     this.limits.delete(socket);
-    if (ids) awareness.removeAwarenessStates(this.presence, [...ids], null);
+    this.unpersisted.delete(socket);
+    this.updateHibernation();
+    if (ids) awareness.removeAwarenessStates(this.presence, [...ids], socket);
     try { socket.close(); } catch { /* Already closed. */ }
     // The last client leaving is the moment the room would otherwise be lost.
     // Filtered: webSocketClose may fire just before the runtime drops the
@@ -104,47 +158,56 @@ export class DiagramRoom {
   save() {
     clearTimeout(this.saveTimer);
     this.saveTimer = null;
-    const written = this.ctx.storage.put('doc', Y.encodeStateAsUpdate(this.doc));
+    let written;
+    if (this.saving) {
+      written = this.saving.then(() => this.save());
+    } else {
+      if (!this.dirty) return Promise.resolve();
+      const snapshot = Y.encodeStateAsUpdate(this.doc);
+      this.dirty = false;
+      written = Promise.resolve()
+        .then(() => this.ctx.storage.put('doc', snapshot))
+        .then(async () => {
+          this.retryDelay = null;
+          if (!this.dirty && this.alarmArmed && this.ctx.storage.deleteAlarm) {
+            this.alarmArmed = false;
+            await this.ctx.storage.deleteAlarm();
+          }
+        })
+        .catch(error => {
+          this.dirty = true;
+          this.retryDelay = Math.min((this.retryDelay ?? 500) * 2, 30_000);
+          this.saveSoon();
+          throw error;
+        })
+        .finally(() => { this.saving = null; });
+      this.saving = written;
+    }
     // Keep the object alive until the write lands; eviction right after the
     // last disconnect is exactly when this matters. Returned so a plain Node
     // host can await it on shutdown.
     try { this.ctx.waitUntil(written); } catch { /* No waitUntil outside a handler. */ }
     return written;
   }
-  /**
-   * Records the room without waiting for it to empty out.
-   *
-   * Saving only on the last disconnect assumes the object lives forever, but a
-   * relay object can be evicted with a hibernated socket still nominally
-   * attached — a client that never sends a close event, or one that lost its
-   * last frame silently. Then the room stays in memory only until eviction,
-   * which loses every shape streamed into it. The room is what a watcher
-   * loads, so losing it is not just losing history: the watcher lands in an
-   * empty room and cannot edit what is not there.
-   *
-   * Debounced because the AI streams many small writes in a burst, and
-   * encoding a whole state per write would dwarf the writes themselves. The
-   * debounce timer is dropped when the object sleeps, which is what the alarm
-   * covers.
-   */
+  /** Coalesce edits; the timer keeps unsaved state alive until storage finishes. */
   saveSoon() {
     if (this.saveTimer !== null) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this.save(), 500);
-    // Storage writes outside a request context (the debounce timer, a close
-    // event that arrives silently) are not guaranteed to be flushed by the
-    // time the object goes idle. An alarm wakes the object with a full
-    // context, away from the last message, so the write is not lost.
+    this.saveTimer = setTimeout(() => this.save().catch(error => console.error('Room save failed', error)), this.retryDelay ?? 500);
+    // The alarm caps the debounce window during a continuous stream of edits.
     try {
-      if (!this.ctx.storage.getAlarm) return;
+      if (this.retryDelay || !this.ctx.storage.getAlarm) return;
       if (this.alarmArmed) return;
       this.alarmArmed = true;
-      this.ctx.storage.setAlarm(Date.now() + 2000);
-    } catch { /* Alarms unsupported; the debounce still runs. */ }
+      Promise.resolve(this.ctx.storage.setAlarm(Date.now() + 2000)).catch(error => {
+        this.alarmArmed = false;
+        console.error('Room alarm failed', error);
+      });
+    } catch { this.alarmArmed = false; /* Alarms unsupported; the debounce still runs. */ }
   }
 
   async alarm() {
     this.alarmArmed = false;
-    this.save();
+    await this.save();
   }
 
   async fetch() {
@@ -169,6 +232,7 @@ export class DiagramRoom {
    * one piece both transports share.
    */
   sendState(socket) {
+    if (this.hibernating) this.expirePresence();
     const initial = encoding.createEncoder();
     encoding.writeVarUint(initial, 0);
     sync.writeSyncStep1(initial, this.doc);
@@ -189,8 +253,9 @@ export class DiagramRoom {
    */
   webSocketMessage(socket, message) {
     try {
+      if (this.hibernating) this.expirePresence();
       if (!this.clients.has(socket)) this.clients.set(socket, new Set());
-      if (Date.now() - (this.limits.get(socket)?.since ?? 0) > 1000) this.limits.set(socket, { count: 0, since: Date.now() });
+      if (!this.limits.has(socket) || Date.now() - this.limits.get(socket).since > 1000) this.limits.set(socket, { count: 0, since: Date.now() });
       const limit = this.limits.get(socket);
       if ((limit.count += 1) > MAX_MESSAGES_PER_SECOND || !(message instanceof ArrayBuffer) || message.byteLength > MAX_MESSAGE) {
         socket.close(1008, 'Message limit'); return;
@@ -205,6 +270,7 @@ export class DiagramRoom {
       } else if (type === 1) {
         awareness.applyAwarenessUpdate(this.presence, decoding.readVarUint8Array(input), socket);
       } else throw new Error('Unknown message');
+      this.rememberSocket(socket);
     } catch { socket.close(1008, 'Invalid message'); }
   }
 

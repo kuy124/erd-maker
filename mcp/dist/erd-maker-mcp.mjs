@@ -41330,7 +41330,7 @@ function clearAttributeSlot(doc, owner, count, bounds) {
   for (const a of doc.attributes) if (a.ownerId) add(segmentBetween(doc, a.ownerId, a.id));
   const candidates2 = [];
   const radius = attributeRadius(doc, owner.id, count, bounds ? COMPACT_FAN_CAPACITY : 8);
-  const samples = Math.max(24, count * 4);
+  const samples = Math.max(48, count * 8);
   for (let ring = 0; ring < 4; ring++) {
     for (let i = 0; i < samples; i++) {
       const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
@@ -41374,7 +41374,7 @@ function clearAttributeSlot(doc, owner, count, bounds) {
   }
   return best.point;
 }
-function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
+function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false, verticalGap = V_GAP) {
   const ids = [...graph.keys()].sort();
   const edges = ids.flatMap((id2) => graph.get(id2).neighbors.filter((next) => id2 < next).map((next) => [id2, next]));
   const average = {
@@ -41382,7 +41382,7 @@ function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
     h: ids.reduce((sum, id2) => sum + sizes.get(id2).h, 0) / ids.length
   };
   const gap = horizontalGap ?? Math.max(144, 72 + Math.ceil(Math.max(...[...graph.values()].map((node2) => node2.neighbors.length)) / 2) * 18);
-  const ideal = Math.max(1, Math.min(ids.length, Math.round(Math.sqrt(ids.length * 1.6 * (average.h + V_GAP) / (average.w + gap)))));
+  const ideal = Math.max(1, Math.min(ids.length, Math.round(Math.sqrt(ids.length * 1.6 * (average.h + verticalGap) / (average.w + gap)))));
   const candidates2 = [];
   for (let columns = Math.max(1, ideal - 1); columns <= Math.min(ids.length, ideal + 1); columns++) {
     const order = [...ids];
@@ -41390,7 +41390,7 @@ function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
       order.splice(start, columns, ...order.slice(start, start + columns).reverse());
     }
     const cell = new Map(order.map((id2, index) => [id2, index]));
-    const distance = (a, b) => Math.abs(a % columns - b % columns) * (average.w + gap) + Math.abs(Math.floor(a / columns) - Math.floor(b / columns)) * (average.h + V_GAP);
+    const distance = (a, b) => Math.abs(a % columns - b % columns) * (average.w + gap) + Math.abs(Math.floor(a / columns) - Math.floor(b / columns)) * (average.h + verticalGap);
     const cost = (id2) => graph.get(id2).neighbors.reduce((sum, next) => sum + distance(cell.get(id2), cell.get(next)), 0);
     for (let sweep = 0; sweep < 4; sweep++) {
       let changed = false;
@@ -41422,11 +41422,11 @@ function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false) {
         id: id2,
         ...size2,
         x: widths.slice(0, column).reduce((sum, w) => sum + w + gap, 0) + (widths[column] - size2.w) / 2,
-        y: heights.slice(0, row).reduce((sum, h) => sum + h + V_GAP, 0) + (alignTop ? 0 : (heights[row] - size2.h) / 2)
+        y: heights.slice(0, row).reduce((sum, h) => sum + h + verticalGap, 0) + (alignTop ? 0 : (heights[row] - size2.h) / 2)
       };
     });
     const width = widths.reduce((sum, w) => sum + w, 0) + (columns - 1) * gap;
-    const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * V_GAP;
+    const height = heights.reduce((sum, h) => sum + h, 0) + (heights.length - 1) * verticalGap;
     const length2 = order.reduce((sum, id2) => sum + cost(id2), 0) / Math.max(1, order.length);
     const byId = new Map(boxes.map((box) => [box.id, box]));
     const segments = edges.map(([from2, to]) => {
@@ -41461,8 +41461,8 @@ function arrangeChenComponent(doc, graph, sizes) {
     return [...found].sort();
   };
   const linked = new Map([...anchors].map((id2) => [id2, { id: id2, neighbors: neighbours(id2) }]));
-  const gap = NODE_SIZE.relationship.w + 40;
-  const grid = arrangeGridComponent(linked, sizes, gap);
+  const gap = NODE_SIZE.relationship.w + 20;
+  const grid = arrangeGridComponent(linked, sizes, gap, false, DENSE_ROW_GAP);
   const coreBox = (block) => {
     const size2 = sizeFor(doc, block.id);
     return { id: block.id, ...size2, x: block.x + (block.w - size2.w) / 2, y: block.y + (block.h - size2.h) / 2 };
@@ -41539,6 +41539,9 @@ function autoArrange(doc) {
     if (attribute.ownerId) fans.set(attribute.ownerId, (fans.get(attribute.ownerId) ?? 0) + 1);
   }
   const compactGraph = doc.view !== "crowfoot" && (doc.entities.length >= DENSE_ENTITY_COUNT || fans.size > 0 && Math.max(...fans.values()) <= COMPACT_FAN_CAPACITY);
+  const widest = fans.size ? Math.max(...fans.values()) : 0;
+  const nearLimit = doc.view !== "crowfoot" && widest > COMPACT_FAN_CAPACITY && widest <= COMPACT_FAN_CAPACITY + 1;
+  const useCompact = compactGraph || nearLimit && doc.entities.length >= 8;
   while (remaining.size) {
     const graph = /* @__PURE__ */ new Map();
     const queue = [[...remaining.keys()].sort()[0]];
@@ -41554,7 +41557,7 @@ function autoArrange(doc) {
       components.push(arrangeGridComponent(graph, layoutSizes, void 0, true));
       continue;
     }
-    if (compactGraph && doc.entities.some((entity) => graph.has(entity.id))) {
+    if (useCompact && doc.entities.some((entity) => graph.has(entity.id))) {
       for (const id2 of graph.keys()) layoutSizes.set(id2, attributeSpace(doc, id2, /* @__PURE__ */ new Set(), COMPACT_FAN_CAPACITY));
       components.push(arrangeChenComponent(doc, graph, layoutSizes));
       for (const id2 of graph.keys()) compactOwners.add(id2);
@@ -41766,7 +41769,7 @@ function applyLayout(doc) {
     attributes: doc.attributes.map((attr) => placedAttributes.get(attr.id) ?? attr)
   };
 }
-var V_GAP, LAYER_GAP, COMPACT_FAN_CAPACITY, DENSE_ENTITY_COUNT;
+var V_GAP, LAYER_GAP, DENSE_ROW_GAP, COMPACT_FAN_CAPACITY, DENSE_ENTITY_COUNT;
 var init_layout = __esm({
   "src/model/layout.ts"() {
     "use strict";
@@ -41775,8 +41778,9 @@ var init_layout = __esm({
     init_attributes();
     init_placement();
     init_geometry();
-    V_GAP = 105;
-    LAYER_GAP = 105;
+    V_GAP = 70;
+    LAYER_GAP = 70;
+    DENSE_ROW_GAP = 24;
     COMPACT_FAN_CAPACITY = 6;
     DENSE_ENTITY_COUNT = 25;
   }
@@ -51906,6 +51910,12 @@ function liveSteps(doc) {
   }
   return steps;
 }
+function shapeNameAt(doc, step) {
+  if (step.kind === "entity") return doc.entities.find((candidate) => candidate.id === step.id)?.name ?? "";
+  if (step.kind === "attribute") return doc.attributes.find((candidate) => candidate.id === step.id)?.name ?? "";
+  if (step.kind === "relationship") return doc.relationships.find((candidate) => candidate.id === step.id)?.name ?? "";
+  return "";
+}
 function presenceAt(doc, focusId, view) {
   const cursor = focusId ? focusPoint({ ...doc, view }, focusId) : null;
   return { view, cursor, selectedIds: focusId && cursor ? [focusId] : [] };
@@ -52104,7 +52114,7 @@ function lassoTrail(loop, distance) {
   points.push(loopPoint(loop, walked));
   return points;
 }
-var FALLBACK_RELAY, FALLBACK_ORIGIN, AI_USER_ID, AI_COLOR, ROOM_PATTERN, MOVE_FRAME_MS, MOVE_MIN_MS, MOVE_MAX_MS, MOVE_MS_PER_PX, MOVE_BOW_FROM_PX, MOVE_BOW_RATIO, MOVE_BOW_MAX_PX, MOVE_BOW_SPREAD, SETTLE_RATIO, SETTLE_FROM_T, CARRY_MIN_PX_PER_MS, CARRY_RATIO, ROUTE_EASE_BLEND, FAREWELL_MS, HOVER_MS, PRESS_MS, TYPING_MS, THINK_MS, ENTRANCE_OFFSET, makeSocket, LiveRoom, LASSO_PAD_PX, LASSO_STEP_PX, LASSO_MIN_MS, LASSO_MAX_MS, LASSO_MS_PER_PX;
+var FALLBACK_RELAY, FALLBACK_ORIGIN, AI_USER_ID, AI_COLOR, ROOM_PATTERN, MOVE_FRAME_MS, PRESENCE_FRAME_MS, MOVE_MIN_MS, MOVE_MAX_MS, MOVE_MS_PER_PX, MOVE_BOW_FROM_PX, MOVE_BOW_RATIO, MOVE_BOW_MAX_PX, MOVE_BOW_SPREAD, SETTLE_RATIO, SETTLE_FROM_T, CARRY_MIN_PX_PER_MS, CARRY_RATIO, ROUTE_EASE_BLEND, FAREWELL_MS, HOVER_MS, PRESS_MS, TYPING_MS, TYPE_CHAR_MS, THINK_MS, ENTRANCE_OFFSET, makeSocket, LiveRoom, LASSO_PAD_PX, LASSO_STEP_PX, LASSO_MIN_MS, LASSO_MAX_MS, LASSO_MS_PER_PX;
 var init_live = __esm({
   "mcp/live.ts"() {
     "use strict";
@@ -52123,6 +52133,7 @@ var init_live = __esm({
     AI_COLOR = "#6B3FA0";
     ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
     MOVE_FRAME_MS = 16;
+    PRESENCE_FRAME_MS = 50;
     MOVE_MIN_MS = 320;
     MOVE_MAX_MS = 1250;
     MOVE_MS_PER_PX = 0.95;
@@ -52139,6 +52150,7 @@ var init_live = __esm({
     HOVER_MS = 90;
     PRESS_MS = 380;
     TYPING_MS = 900;
+    TYPE_CHAR_MS = 55;
     THINK_MS = 900;
     ENTRANCE_OFFSET = 320;
     makeSocket = null;
@@ -52150,6 +52162,12 @@ var init_live = __esm({
       provider;
       awareness;
       typingTimer;
+      /**
+       * Bumped by `clearTyping` to cancel an in-flight name or connection gesture.
+       * A new stream or a goodbye must not leave the old one typing into a room the
+       * pointer has already left.
+       */
+      typingGeneration = 0;
       hoverTimer;
       pressTimer;
       thinkTimer;
@@ -52164,6 +52182,8 @@ var init_live = __esm({
       cursorView = "chen";
       cursorSelection = [];
       moveTimer;
+      /** Timestamp of the last purely positional publish, for `PRESENCE_FRAME_MS`. */
+      lastCursorPublishAt = 0;
       travel = null;
       typingOnArrival = false;
       /** Resolves whoever awaits the landing click: a glide, a drop, a lasso. */
@@ -52209,14 +52229,15 @@ var init_live = __esm({
         live.publishPresence({ cursor: live.cursor, selectedIds: [], view: "chen", typing: false });
         try {
           await live.waitForSync(options.timeoutMs ?? 12e3);
-        } catch {
+        } catch (cause) {
           live.close();
+          const reason = cause instanceof Error ? cause.message : String(cause);
           throw new Error(
-            `Could not join room "${room}" through ${relayUrl}. Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`
+            `Could not join room "${room}" through ${relayUrl}: ${reason} Check the relay is running and that ${relayOrigin} is in its ALLOWED_ORIGINS.`
           );
         }
         if (options.seed && live.isEmpty()) {
-          live.writeAll(options.seed);
+          await live.replace(options.seed, true);
           live.seededRoom = true;
         }
         await pause(150);
@@ -52448,13 +52469,17 @@ var init_live = __esm({
         this.cursor = { x: here.x, y: here.y };
         this.intent = { kind: "lasso", lasso: points };
         if (!done) {
-          this.publishPresence({
-            cursor: this.cursor,
-            selectedIds: [],
-            view: this.cursorView,
-            typing: false,
-            pressing: false
-          });
+          const now = Date.now();
+          if (now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+            this.lastCursorPublishAt = now;
+            this.publishPresence({
+              cursor: this.cursor,
+              selectedIds: [],
+              view: this.cursorView,
+              typing: false,
+              pressing: false
+            });
+          }
           return;
         }
         this.cursorSelection = [...state.ids];
@@ -52480,13 +52505,14 @@ var init_live = __esm({
        */
       moveTo(target, typing, mode = "click") {
         if (this.route) return;
-        if (!target) {
+        if (!target || this.watching === 0) {
           this.stopMotion();
+          this.cursor = target ? { x: target.x, y: target.y } : null;
+          this.cursorSelection = target ? this.pendingSelection ?? this.cursorSelection : [];
           this.clearGesture();
-          this.cursor = null;
           this.publishPresence({
-            cursor: null,
-            selectedIds: [],
+            cursor: this.cursor,
+            selectedIds: this.cursorSelection,
             view: this.cursorView,
             typing: false,
             pressing: false
@@ -52577,6 +52603,9 @@ var init_live = __esm({
           }
           return;
         }
+        const now = Date.now();
+        if (now - this.lastCursorPublishAt < PRESENCE_FRAME_MS) return;
+        this.lastCursorPublishAt = now;
         this.publishPresence({
           cursor: this.cursor,
           selectedIds: this.cursorSelection,
@@ -52624,7 +52653,7 @@ var init_live = __esm({
         const reaches = [0];
         for (const duration3 of routeDurationsMs(knots)) reaches.push(reaches[reaches.length - 1] + duration3);
         return new Promise((resolve2) => {
-          this.route = { doc, steps, knots, reaches, started: Date.now(), written: 0, arming: false, resolve: resolve2 };
+          this.route = { doc, steps, knots, reaches, started: Date.now(), written: 0, arming: false, paused: false, resolve: resolve2 };
           this.advanceRoute();
           this.routeTimer = setInterval(() => this.advanceRoute(), MOVE_FRAME_MS);
         });
@@ -52633,7 +52662,9 @@ var init_live = __esm({
       async travelEach(doc, steps) {
         for (const step of steps) {
           await this.glideTo(doc, step.id);
+          if (step.kind === "relationship") await this.drawLink(doc, step);
           this.writeStep(doc, step);
+          void this.typeName(doc, step);
         }
       }
       /** Publishes the next frame of the route, clicking every knot it crosses. */
@@ -52643,6 +52674,7 @@ var init_live = __esm({
           this.stopRoute();
           return;
         }
+        if (route.paused) return;
         const elapsed = Date.now() - route.started;
         const last2 = route.knots.length - 1;
         let leg = 0;
@@ -52661,7 +52693,11 @@ var init_live = __esm({
           return;
         }
         if (route.written >= crossed) {
-          this.publishRoute(false);
+          const now = Date.now();
+          if (now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+            this.lastCursorPublishAt = now;
+            this.publishRoute(false);
+          }
           return;
         }
         if (route.arming) {
@@ -52670,7 +52706,19 @@ var init_live = __esm({
           route.written += 1;
           this.focusId = step.id;
           this.cursorSelection = [step.id];
+          if (step.kind === "relationship") {
+            void this.drawLink(route.doc, step).then((dragged) => {
+              if (this.route !== route) return;
+              route.started += dragged;
+              route.paused = false;
+              this.writeStep(route.doc, step);
+              void this.typeName(route.doc, step);
+              this.publishRoute(true);
+            });
+            return;
+          }
           this.writeStep(route.doc, step);
+          void this.typeName(route.doc, step);
           this.publishRoute(true);
           return;
         }
@@ -52786,6 +52834,16 @@ var init_live = __esm({
       /** Holds the typing indicator up for TYPING_MS, then lets it go. */
       beginTyping() {
         this.clearTyping();
+        this.refreshTyping();
+      }
+      /**
+       * Resets the typing window without cancelling a replay in flight.
+       *
+       * `typeName` calls this per character; calling `beginTyping` instead would
+       * bump the generation it checks to know whether to keep going.
+       */
+      refreshTyping() {
+        if (this.typingTimer) clearTimeout(this.typingTimer);
         this.typingTimer = setTimeout(() => {
           this.typingTimer = void 0;
           this.publishPresence({ typing: false });
@@ -52827,6 +52885,7 @@ var init_live = __esm({
       clearTyping() {
         if (this.typingTimer) clearTimeout(this.typingTimer);
         this.typingTimer = void 0;
+        this.typingGeneration += 1;
       }
       clearHover() {
         if (this.hoverTimer) clearTimeout(this.hoverTimer);
@@ -52912,6 +52971,77 @@ var init_live = __esm({
           }
         });
       }
+      /**
+       * Drags a connection from one of its shapes to the other.
+       *
+       * The line does not exist while this runs, so nothing on the watcher's side
+       * tracks it — the gesture is carried by presence alone: a press on the first
+       * end, the pointer travelling to the second with the finger still down, the
+       * intent shifting from the shape it left to the one it is heading for. The
+       * caller writes the relationship once this resolves, so the line inks in as
+       * the drag lands rather than ahead of it.
+       *
+       * Returns how long the drag took, so the route's clock can absorb the pause.
+       */
+      async drawLink(doc, step) {
+        const view = this.cursorView;
+        const relationship = doc.relationships.find((candidate) => candidate.id === step.id);
+        const legs = relationship ? doc.legs.filter((leg) => leg.fromId === relationship.id) : [];
+        const ends = legs.map((leg) => presenceAt(doc, leg.toId, view).cursor).filter((cursor) => cursor !== null);
+        const route = this.route;
+        if (!relationship || ends.length < 2) return 0;
+        const generation = this.typingGeneration;
+        if (route) route.paused = true;
+        const began = Date.now();
+        const from2 = ends[0];
+        const to = ends[1];
+        this.focusId = legs[0]?.toId ?? null;
+        this.cursorSelection = this.focusId ? [this.focusId] : [];
+        this.intent = { kind: "press", targetId: this.focusId };
+        this.cursor = { ...from2 };
+        this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+        await pause(PRESS_MS);
+        if (this.typingGeneration !== generation || this.closed || this.route !== route) return Date.now() - began;
+        const span = Math.min(620, 160 + Math.hypot(to.x - from2.x, to.y - from2.y) / 4);
+        let elapsed = 0;
+        while (elapsed < span) {
+          if (this.typingGeneration !== generation || this.closed || this.route !== route) return Date.now() - began;
+          const progress = travelEase(elapsed / span);
+          this.cursor = { x: from2.x + (to.x - from2.x) * progress, y: from2.y + (to.y - from2.y) * progress };
+          this.intent = { kind: "drag", targetId: legs[1]?.toId };
+          this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+          await pause(MOVE_FRAME_MS);
+          elapsed += MOVE_FRAME_MS;
+        }
+        this.cursor = { ...to };
+        return Date.now() - began;
+      }
+      /**
+       * Types a shape's name out after the shape lands.
+       *
+       * `writeStep` writes the whole shape at once, so the name is already correct;
+       * this rewrites it a character at a time purely for the watcher, publishing
+       * `typing` on every keystroke for the indicator under the cursor. A shape
+       * arrives as a person makes it — drawn first, then named. Skipped when nobody
+       * is watching and for names too short to be worth replaying.
+       */
+      async typeName(doc, step) {
+        if (this.watching === 0 || this.closed) return;
+        const name = shapeNameAt(doc, step);
+        if (name.length < 4) return;
+        const mapName = step.kind === "entity" ? ENTITIES : step.kind === "attribute" ? ATTRIBUTES : step.kind === "relationship" ? RELATIONSHIPS : null;
+        const map3 = mapName ? this.ydoc.getMap(mapName).get(step.id) : void 0;
+        if (!map3) return;
+        const generation = this.typingGeneration;
+        this.refreshTyping();
+        for (let at = 1; at <= name.length; at++) {
+          if (this.typingGeneration !== generation || this.closed) return;
+          map3.set("name", name.slice(0, at));
+          this.refreshTyping();
+          this.publishPresence({ typing: true });
+          await pause(TYPE_CHAR_MS);
+        }
+      }
       /** Where the pointer is right now, for a caller that means to come back. */
       get pointer() {
         return this.cursor ? { x: this.cursor.x, y: this.cursor.y } : null;
@@ -52945,13 +53075,6 @@ var init_live = __esm({
         this.provider.destroy();
         this.awareness.destroy();
         this.ydoc.destroy();
-      }
-      writeAll(source) {
-        const doc = normalizeDocument(source);
-        this.ydoc.transact(() => {
-          setMeta(this.ydoc, { name: doc.name, view: doc.view });
-          writeCollections(this.ydoc, doc);
-        });
       }
       publishPresence(patch) {
         const base = {

@@ -62,7 +62,10 @@ try {
   await wait(() => [...providers[1].awareness.getStates().values()].some(s => s.name === 'Alice'));
   const status = await new Promise((resolve, reject) => {
     const socket = new WebSocket('ws://127.0.0.1:8787/' + room, { origin: 'https://untrusted.example' });
-    socket.on('unexpected-response', (_, response) => { response.resume(); resolve(response.statusCode); });
+    socket.on('unexpected-response', (_, response) => {
+      response.on('end', () => { socket.terminate(); resolve(response.statusCode); });
+      response.resume();
+    });
     socket.on('open', () => { socket.close(); reject(new Error('Untrusted origin accepted')); });
     socket.on('error', reject);
   });
@@ -71,5 +74,5 @@ try {
 } finally {
   providers.forEach(p => p.destroy());
   legacyPresence.destroy();
-  docs.forEach(doc => doc.destroy());
+  [...docs, source, early.doc, later.doc].forEach(doc => doc.destroy());
 }

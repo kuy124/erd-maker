@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './check-room.mjs';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
