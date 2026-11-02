@@ -49651,6 +49651,7 @@ var AI_USER_ID = "erd-mcp";
 var AI_COLOR = "#6B3FA0";
 var ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 var MOVE_FRAME_MS = 16;
+var PRESENCE_FRAME_MS = 50;
 var MOVE_MIN_MS = 320;
 var MOVE_MAX_MS = 1250;
 var MOVE_MS_PER_PX = 0.95;
@@ -49823,6 +49824,8 @@ var LiveRoom = class _LiveRoom {
   cursorView = "chen";
   cursorSelection = [];
   moveTimer;
+  /** Timestamp of the last purely positional publish, for `PRESENCE_FRAME_MS`. */
+  lastCursorPublishAt = 0;
   travel = null;
   typingOnArrival = false;
   /** Resolves whoever awaits the landing click: a glide, a drop, a lasso. */
@@ -50108,13 +50111,17 @@ var LiveRoom = class _LiveRoom {
     this.cursor = { x: here.x, y: here.y };
     this.intent = { kind: "lasso", lasso: points };
     if (!done) {
-      this.publishPresence({
-        cursor: this.cursor,
-        selectedIds: [],
-        view: this.cursorView,
-        typing: false,
-        pressing: false
-      });
+      const now = Date.now();
+      if (now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+        this.lastCursorPublishAt = now;
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: [],
+          view: this.cursorView,
+          typing: false,
+          pressing: false
+        });
+      }
       return;
     }
     this.cursorSelection = [...state.ids];
@@ -50237,6 +50244,9 @@ var LiveRoom = class _LiveRoom {
       }
       return;
     }
+    const now = Date.now();
+    if (now - this.lastCursorPublishAt < PRESENCE_FRAME_MS) return;
+    this.lastCursorPublishAt = now;
     this.publishPresence({
       cursor: this.cursor,
       selectedIds: this.cursorSelection,
@@ -50324,7 +50334,11 @@ var LiveRoom = class _LiveRoom {
       return;
     }
     if (route.written >= crossed) {
-      this.publishRoute(false);
+      const now = Date.now();
+      if (now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+        this.lastCursorPublishAt = now;
+        this.publishRoute(false);
+      }
       return;
     }
     if (route.arming) {

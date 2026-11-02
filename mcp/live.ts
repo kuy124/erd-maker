@@ -51,6 +51,18 @@ const ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
  * only needs the awareness field it already reads.
  */
 const MOVE_FRAME_MS = 16;
+/**
+ * How often a purely positional awareness update goes out.
+ *
+ * The relay is a Durable Object billed by duration: every published frame
+ * wakes it, so a stream of animation frames at the full 60fps is the one
+ * traffic pattern that can exhaust the free tier during a long session.
+ * The pointer position is the only thing these mid-move frames carry —
+ * every state change (hover, press, drag, typing, arrival) publishes
+ * immediately, outside this gate — so a watcher sees the same gesture at
+ * one third of the messages.
+ */
+const PRESENCE_FRAME_MS = 50;
 const MOVE_MIN_MS = 320;
 const MOVE_MAX_MS = 1250;
 const MOVE_MS_PER_PX = 0.95;
@@ -463,6 +475,8 @@ export class LiveRoom {
   private cursorView: ErdDocument['view'] = 'chen';
   private cursorSelection: string[] = [];
   private moveTimer: ReturnType<typeof setInterval> | undefined;
+  /** Timestamp of the last purely positional publish, for `PRESENCE_FRAME_MS`. */
+  private lastCursorPublishAt = 0;
   private travel: Travel | null = null;
   private typingOnArrival = false;
   /** Resolves whoever awaits the landing click: a glide, a drop, a lasso. */
@@ -791,13 +805,17 @@ export class LiveRoom {
     this.cursor = { x: here.x, y: here.y };
     this.intent = { kind: 'lasso', lasso: points };
     if (!done) {
-      this.publishPresence({
-        cursor: this.cursor,
-        selectedIds: [],
-        view: this.cursorView,
-        typing: false,
-        pressing: false,
-      });
+      const now = Date.now();
+      if (now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+        this.lastCursorPublishAt = now;
+        this.publishPresence({
+          cursor: this.cursor,
+          selectedIds: [],
+          view: this.cursorView,
+          typing: false,
+          pressing: false,
+        });
+      }
       return;
     }
     this.cursorSelection = [...state.ids];
@@ -936,6 +954,12 @@ export class LiveRoom {
       }
       return;
     }
+    // Mid-move frames carry only the cursor, so they are throttled to keep the
+    // relay from waking on every animation step. The arrival frame below is
+    // outside this gate and always lands.
+    const now = Date.now();
+    if (now - this.lastCursorPublishAt < PRESENCE_FRAME_MS) return;
+    this.lastCursorPublishAt = now;
     this.publishPresence({
       cursor: this.cursor,
       selectedIds: this.cursorSelection,
@@ -1035,7 +1059,13 @@ export class LiveRoom {
       return;
     }
     if (route.written >= crossed) {
-      this.publishRoute(false);
+      // Between knots only the cursor moves; keep the relay asleep for most
+      // of the hop. Press and arrival frames publish without the gate.
+      const now = Date.now();
+      if (now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+        this.lastCursorPublishAt = now;
+        this.publishRoute(false);
+      }
       return;
     }
     if (route.arming) {

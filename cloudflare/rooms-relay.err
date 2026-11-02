@@ -1,0 +1,58 @@
+connect /persistroom2
+sent-state
+msg 5
+msg 14
+connect /persistroom2
+sent-state
+msg 4
+msg 12
+msg 5
+msg 14
+connect /test-1fa0f4d0-e7c4-4462-bf1d-fc7b7194604c
+sent-state
+connect /test-1fa0f4d0-e7c4-4462-bf1d-fc7b7194604c
+sent-state
+msg 4
+msg 12
+msg 5
+msg 4
+msg 12
+msg 5
+msg 38
+doc-update
+msg 37
+doc-update
+msg 14
+msg 14
+connect /test-1fa0f4d0-e7c4-4462-bf1d-fc7b7194604c
+sent-state
+msg 4
+msg 12
+msg 5
+msg 40
+doc-update
+msg 14
+connect /test-fdf05004-0679-41e2-b1c5-8436536425f2
+sent-state
+connect /test-fdf05004-0679-41e2-b1c5-8436536425f2
+sent-state
+msg 4
+msg 12
+msg 5
+msg 4
+msg 12
+msg 5
+msg 38
+doc-update
+msg 37
+doc-update
+msg 14
+msg 14
+connect /test-fdf05004-0679-41e2-b1c5-8436536425f2
+sent-state
+msg 4
+msg 12
+msg 5
+msg 40
+doc-update
+msg 14

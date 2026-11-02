@@ -450,6 +450,26 @@ describe('intent choreography', () => {
     vi.useRealTimers();
   });
 
+  it('publishes positional frames at 20fps, but arrivals immediately', async () => {
+    const { live, awareness } = headless();
+    // Count every awareness write the room emits: these are the messages the
+    // relay is billed for, and the point of the throttle is their count.
+    let published = 0;
+    awareness.on('update', () => { published += 1; });
+
+    live.cursor = { x: 0, y: 0 };
+    const doc = sampleDoc();
+    const gliding = live.glideTo(doc, 'ent_order');
+    // A hop of this length at 16ms frames would publish ~35 mid-move frames.
+    await vi.advanceTimersByTimeAsync(600);
+    await gliding;
+
+    // At one positional frame per 50ms plus the arrival, the hop costs about
+    // a third of the ungated stream — never more than this ceiling.
+    expect(published).toBeLessThan(16);
+    expect(published).toBeGreaterThan(1);
+  });
+
   it('hovers before it presses, and releases the click afterwards', async () => {
     const { live, local } = headless();
     live.flash(sampleDoc(), 'ent_customer');

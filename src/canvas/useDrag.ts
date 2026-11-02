@@ -20,10 +20,11 @@ import type { Point } from './geometry';
  * Awareness re-broadcasts on every field write, and a pointermove fires far
  * faster than any link can usefully carry — the same reason dragging commits
  * to Yjs only on pointer up. Twenty a second is smooth to the eye and a small
- * fraction of the traffic. Raising this is the first thing to try if a room of
- * many peers ever makes presence feel heavy.
+ * fraction of the traffic. It is also the rate of the AI's own cursor frames
+ * (see PRESENCE_FRAME_MS in the MCP), because the live relay is billed by how
+ * long the Durable Object stays awake: every published cursor frame wakes it.
  */
-const CURSOR_INTERVAL_MS = 16;
+const CURSOR_INTERVAL_MS = 50;
 
 /**
  * Publishes the local pointer into awareness so peers watch the cursor move.

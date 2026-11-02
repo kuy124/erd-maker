@@ -102,10 +102,11 @@ export class DiagramRoom {
     this.saveTimer = null;
     const written = this.ctx.storage.put('doc', Y.encodeStateAsUpdate(this.doc));
     // Keep the object alive until the write lands; eviction right after the
-    // last disconnect is exactly when this matters.
+    // last disconnect is exactly when this matters. Returned so a plain Node
+    // host can await it on shutdown.
     try { this.ctx.waitUntil(written); } catch { /* No waitUntil outside a handler. */ }
+    return written;
   }
-
   /**
    * Records the room without waiting for it to empty out.
    *
@@ -151,7 +152,19 @@ export class DiagramRoom {
     // occupied room bills Durable Object duration around the clock — the
     // free-tier budget this relay exhausted. Hibernation keeps the connection
     // open at the network layer while the object sleeps, and bills nothing.
-    this.ctx.acceptWebSocket(socket);
+    this.ctx.acceptWebSocket?.(socket);
+    this.sendState(socket);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * The initial sync a new socket needs: the room's state, then who is in it.
+   *
+   * Kept apart from `fetch` because a plain Node host runs the same room
+   * without a WebSocketPair — see `relay-node.mjs` — and the handshake is the
+   * one piece both transports share.
+   */
+  sendState(socket) {
     const initial = encoding.createEncoder();
     encoding.writeVarUint(initial, 0);
     sync.writeSyncStep1(initial, this.doc);
@@ -160,7 +173,6 @@ export class DiagramRoom {
     encoding.writeVarUint(present, 1);
     encoding.writeVarUint8Array(present, awareness.encodeAwarenessUpdate(this.presence, [...this.presence.getStates().keys()]));
     socket.send(encoding.toUint8Array(present));
-    return new Response(null, { status: 101, webSocket: client });
   }
 
   /**
