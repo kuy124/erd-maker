@@ -47,9 +47,11 @@ export class DiagramRoom {
      * out of memory, and without this the link opened onto an empty canvas.
      */
     this.ready = ctx.storage.get('doc').then((saved) => {
-      if (saved) Y.applyUpdate(this.doc, new Uint8Array(saved));
+      if (saved) Y.applyUpdate(this.doc, new Uint8Array(saved), this);
     });
-    this.doc.on('update', update => {
+    this.doc.on('update', (update, origin) => {
+      // Loading a snapshot is not an edit; do not broadcast or save it again.
+      if (origin === this) return;
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 0);
       sync.writeUpdate(out, update);
@@ -94,7 +96,9 @@ export class DiagramRoom {
     // The last client leaving is the moment the room would otherwise be lost.
     // Filtered: webSocketClose may fire just before the runtime drops the
     // socket from getWebSockets, so the count would otherwise still see it.
-    if (this.liveSockets().filter(s => s !== socket).length === 0) this.save();
+    // The save is returned: a Node host that is about to be killed can await
+    // it, otherwise a hard shutdown truncates the write and the room is lost.
+    if (this.liveSockets().filter(s => s !== socket).length === 0) return this.save();
   }
 
   save() {
@@ -204,6 +208,6 @@ export class DiagramRoom {
     } catch { socket.close(1008, 'Invalid message'); }
   }
 
-  webSocketClose(socket) { this.close(socket); }
-  webSocketError(socket) { this.close(socket); }
+  webSocketClose(socket) { return this.close(socket); }
+  webSocketError(socket) { return this.close(socket); }
 }

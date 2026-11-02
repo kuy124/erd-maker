@@ -1,59 +1,95 @@
-# Cloudflare sync + GitHub Pages
+# Sync relay
 
-Users only open a share link. You, the app owner, do this setup once.
+## Node relay without Cloudflare
 
-1. Create a Cloudflare account. Review current Workers / Durable Objects
-   free-tier limits. This backend uses WebSocket Hibernation: a room's object
-   sleeps while its connections sit idle and is woken by the next frame, so
-   duration quota is billed for activity, not for rooms being occupied.
-2. In `cloudflare/wrangler.jsonc`, set `ALLOWED_ORIGINS` to your exact frontend
-   origin, e.g. `https://YOUR-NAME.github.io` (no repository path or trailing slash).
-   Multiple origins are comma-separated.
-3. In this directory run:
+The Node relay reuses `DiagramRoom` from `worker.js`. It uses one WebSocket per
+client, makes no Cloudflare requests, and reloads disconnected rooms from disk.
+Run it on your own computer or a Node host. It requires Node 20 or newer.
 
-   ```sh
-   npm install
-   npx wrangler login
-   npm run deploy
-   ```
+```sh
+cd cloudflare
+npm ci
+npm start
+```
 
-4. Copy the printed Worker URL, change `https://` to `wss://`, and set the
-   frontend build variable `VITE_SYNC_URL`, for example:
+Set these environment variables before starting:
 
-   ```dotenv
-   VITE_SYNC_URL=wss://erd-sync.YOUR-SUBDOMAIN.workers.dev
-   ```
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `8080` | Listening port; hosts may supply their own |
+| `ALLOWED_ORIGINS` | `http://localhost:5173` | Comma-separated app origins, without paths |
+| `RELAY_DATA_DIR` | `cloudflare/rooms` | Room files; use persistent storage for durable links |
 
-   For local testing put this in the root `.env.local` and restart Vite.
-   For GitHub Pages add it to the build step's `env` in your Actions workflow,
-   then rebuild/redeploy. This URL is public; no Cloudflare API token belongs
-   in frontend code. Without it the app continues using its old P2P transport.
+For the hosted ERD Maker app, set `ALLOWED_ORIGINS=https://kuy124.github.io`.
+Use a TLS-enabled host to obtain a `wss://` URL for that HTTPS app. Both clients
+must use the same relay:
 
-## Limits and privacy
+```dotenv
+# Frontend build environment; rebuild the app after changing it.
+VITE_SYNC_URL=wss://YOUR-RELAY-HOST
 
-- HTTPS WebSockets replace direct peer connections; TURN is not required.
-- Rooms are accessible to anyone with the room ID/share link. There are no
-  accounts or per-user authorization. Allowed origins are a browser safeguard,
-  not authentication. Do not use this deployment for sensitive diagrams.
-- Unlike the old encrypted P2P transport, the sync server can read diagrams.
-  Traffic is encrypted in transit using TLS, not end-to-end encrypted.
-- Room content lives in Durable Object storage, not just memory: writes are
-  debounced while a session streams and flushed when it empties or the object
-  sleeps, so a share link opens with nobody online. Nothing expires it yet: an
-  abandoned room occupies storage until the worker is cleared. This is still
-  not a backup or version history.
-- Limits: 32 connections/room, 512 KiB/message, 200 messages/second/connection.
-  Oversized diagrams may need these limits raised and a chunked protocol.
-- All collaborators must use the rebuilt frontend with the same sync URL.
+# MCP environment; restart the MCP after changing it.
+ERD_MCP_RELAY_URL=wss://YOUR-RELAY-HOST
+ERD_MCP_RELAY_ORIGIN=https://kuy124.github.io
+```
 
-## Local check
+For local testing, both URLs can be `ws://localhost:8080`, with
+`ERD_MCP_RELAY_ORIGIN=http://localhost:5173`. Run the app locally, not the HTTPS
+GitHub Pages site, when using an unencrypted local WebSocket.
 
-`node cloudflare/check-room.mjs` (from the repository root) needs no server: it
-drives the room object with a stand-in for Durable Object storage and proves a
-room still opens after everyone has left. Run `npm install` in this directory
-first.
+To avoid Cloudflare entirely, also run the existing Node/stdio MCP instead of
+the Cloudflare-hosted MCP. See [the MCP instructions](../mcp/README.md).
 
-With `npm run dev` running here, `node cloudflare/check.mjs` from the repository
-root opens two independent Yjs clients, verifies a document update reaches the
-other client, and checks the origin allowlist. It does not test the public
-Cloudflare deployment or cross-network availability.
+### Free hosting limitations
+
+For [Render Free](https://render.com/docs/free), use a Web Service with root
+directory `cloudflare`, build command `npm ci --omit=dev`, start command
+`npm start`, and instance type **Free**. Set the allowed app origin as above.
+No account or service has been created by these instructions.
+
+Render Free sleeps after inactivity and deletes local files on restart,
+redeploy, or sleep. It is suitable for live sessions, not guaranteed room
+persistence. Export your diagram before leaving; use your own disk if durable
+share links are required. Free plans have usage limits; avoid adding a payment
+method if you do not want automatic bandwidth overage charges.
+
+## Cloudflare relay and GitHub Pages
+
+Cloudflare free limits [reset daily at 00:00 UTC](https://developers.cloudflare.com/durable-objects/platform/pricing/).
+Incoming WebSocket messages count at 20:1 for compute request billing; outgoing
+messages do not count. Cursor updates are capped at 20 per second, while local
+animation still renders at 60 fps. This reduces traffic, not every source of
+duration or storage usage. Do not use artificial keep-alive HTTP polling.
+
+1. In `wrangler.jsonc`, set `ALLOWED_ORIGINS` to your exact frontend origin,
+   such as `https://YOUR-NAME.github.io`, without the repository path or a
+   trailing slash. Multiple origins are comma-separated.
+2. From `cloudflare`, run `npm ci`, `npx wrangler login`, then `npm run deploy`.
+3. Change the printed Worker URL from `https://` to `wss://`. Use it for both
+   `VITE_SYNC_URL` and `ERD_MCP_RELAY_URL`, as described above. For the hosted MCP,
+   set its Worker environment and redeploy it.
+4. Rebuild and redeploy the frontend. For GitHub Pages, set `VITE_SYNC_URL` in
+   the Actions build environment. For local Vite, use the root `.env.local`.
+
+The relay accepts only allowlisted origins and valid room IDs. Room IDs are
+bearer capabilities: do not enumerate rooms or use guessable names. Message
+size, rate, and per-room connection limits apply. Browser peers can still use
+the existing WebRTC transport without this relay, but the MCP needs a relay.
+
+## Verification
+
+From the repository root after installing its dependencies:
+
+```sh
+node cloudflare/check-node.mjs
+node cloudflare/check-room.mjs
+```
+
+The Node check covers origin and room validation, two-way sync, idle-room
+reload, and process restart. It uses temporary room files and cleans up only
+the processes it starts. The room check covers storage and the Worker handler
+contract without a Cloudflare account.
+
+With `npm run dev` running in `cloudflare`, `node cloudflare/check.mjs` from
+the repository root checks a local workerd instance. These checks do not
+verify public deployment availability or unused hosting quota.

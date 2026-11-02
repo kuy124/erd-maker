@@ -11,3 +11,20 @@ playwright-report/
 .wrangler/
 mcp/.dryrun/
 output/
+
+# Relay scratch: local room data, debug logs, stray health output
+cloudflare/rooms/
+cloudflare/rooms-test/
+rooms-manual/
+cloudflare/rooms-manual/
+cloudflare/rooms-relay.log
+cloudflare/rooms-relay.err
+cloudflare/check-full.log
+cloudflare/node-check.out
+check-full.log
+check-full.err
+coor.log
+cloudflare/relay.err
+cloudflare/relay.out
+cloudflare/rt.err
+cloudflare/rt.out

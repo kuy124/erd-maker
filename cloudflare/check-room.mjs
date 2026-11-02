@@ -34,8 +34,7 @@ await later.ready;
 assert.equal(later.doc.getMap('check').get('kept'), 'after everyone left',
   'A visitor arriving after everyone left got an empty room');
 
-// Awareness keeps a timer alive; the worker runtime does not care, Node does.
-// Debounce: a burst of writes savings to disk once, not once per write.
+// A read schedules no save; a burst of edits schedules one.
 const writes = [];
 {
   const burst = new DiagramRoom({
@@ -45,6 +44,7 @@ const writes = [];
     getWebSockets: () => [],
   });
   await burst.ready;
+  assert.equal(burst.saveTimer, null, 'Loading a saved room scheduled another save');
   for (let i = 0; i < 5; i++) burst.doc.getMap('check').set(`key${i}`, 'burst');
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(writes.length, 0, 'The debounce window wrote mid-burst');

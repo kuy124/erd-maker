@@ -5,118 +5,119 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { DiagramRoom } from './worker.js';
 
-/*
- * The relay, without Durable Objects.
- *
- * `worker.js` holds the protocol logic — room state, sync, awareness, saves —
- * and this file is only an adapter: a `ws` server in place of a WebSocketPair,
- * one file per room in place of Durable Object storage. A single Node process
- * is one room for every collaborator regardless of where they connect, which is
- * what Durable Objects were buying us on Workers — and what an idle Workers
- * isolate cannot give us for free.
- *
- * Run: PORT=8080 ALLOWED_ORIGINS=https://YOUR-FRONTEND node relay-node.mjs
- */
-
 const PORT = Number(process.env.PORT ?? 8080);
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',');
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.resolve(HERE, process.env.RELAY_DATA_DIR ?? 'rooms');
-
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',').map(origin => origin.trim());
+const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), process.env.RELAY_DATA_DIR ?? 'rooms');
 const ROOM_ID = /^\/[A-Za-z0-9_-]{8,128}$/;
-const MAX_SOCKETS_PER_ROOM = 32;
-
-/** One stored room per file, so a share link still means something after a restart. */
-const storageFor = (name) => {
-  const file = path.join(DATA_DIR, `${name.replace(/^\//, '')}.bin`);
-  return {
-    get: async () => { try { return await fs.readFile(file); } catch { return undefined; } },
-    put: async (_key, value) => { await fs.mkdir(DATA_DIR, { recursive: true }); await fs.writeFile(file, value); },
-  };
-};
-
-/** The ws library takes a Buffer; the room protocol speaks Uint8Array. */
-const toBuffer = (data) => (Buffer.isBuffer(data) ? data : Buffer.from(data));
-
 const rooms = new Map();
+let shuttingDown = false;
 
-const makeRoom = async (name) => {
-  const live = new Set();
-  let room;
-  const ctx = {
-    storage: storageFor(name),
-    waitUntil: (promise) => { promise.catch(() => {}); },
-    getWebSockets: () => [...live],
-    acceptWebSocket: (socket) => { live.add(socket); },
+function storageFor(name) {
+  const file = path.join(DATA_DIR, `${name.slice(1)}.bin`);
+  let writes = Promise.resolve();
+  return {
+    async get() {
+      try { return await fs.readFile(file); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+    },
+    put(_key, value) {
+      // Serialize atomic replacements so a close/save cannot overwrite a newer snapshot.
+      const written = writes.then(async () => {
+        await fs.writeFile(`${file}.tmp`, value);
+        await fs.rename(`${file}.tmp`, file);
+      });
+      writes = written.catch(() => {});
+      return written;
+    },
   };
-  room = new DiagramRoom(ctx);
+}
+
+async function makeRoom(name) {
+  const live = new Set();
+  const room = new DiagramRoom({
+    storage: storageFor(name),
+    waitUntil: promise => { void promise.catch(error => console.error('Room save failed:', error)); },
+    getWebSockets: () => [...live],
+  });
   await room.ready;
-  room.doc.on('update', () => console.error('doc-update'));
   return { room, live };
-};
+}
 
 const server = http.createServer((request, response) => {
-  if (request.url === '/health') {
-    response.writeHead(200, { 'content-type': 'text/plain' });
-    response.end('ok');
-    return;
+  response.writeHead(request.url === '/health' ? 200 : 426, { 'content-type': 'text/plain' });
+  response.end(request.url === '/health' ? 'ok' : 'WebSocket required');
+});
+const wss = new WebSocketServer({ noServer: true, maxPayload: 512 * 1024 });
+
+server.on('upgrade', async (request, socket, head) => {
+  const reject = status => socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  try {
+    if (shuttingDown) return reject('503 Service Unavailable');
+    if (!ALLOWED_ORIGINS.includes(request.headers.origin)) return reject('403 Forbidden');
+    const name = new URL(request.url, 'http://relay').pathname;
+    if (!ROOM_ID.test(name)) return reject('400 Bad Request');
+    let entry = rooms.get(name);
+    if (!entry) { entry = makeRoom(name); rooms.set(name, entry); }
+    // Complete disk loading before the client can send its initial sync frames.
+    const { room, live } = await entry;
+    if (socket.destroyed) return;
+    if (shuttingDown) return reject('503 Service Unavailable');
+    if (live.size >= 32) return reject('429 Too Many Requests');
+    wss.handleUpgrade(request, socket, head, ws => {
+      const client = {
+        send: data => ws.send(data),
+        close: (code, reason) => ws.close(code, reason),
+      };
+      live.add(client);
+      ws.on('message', (buffer, binary) => {
+        if (!binary) { ws.close(1008, 'Binary messages required'); return; }
+        room.webSocketMessage(client, buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+      });
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        live.delete(client);
+        const save = room.webSocketClose(client);
+        if (save) void save.then(() => {
+          if (live.size === 0 && rooms.get(name) === entry) {
+            rooms.delete(name);
+            room.doc.destroy();
+          }
+        }).catch(error => console.error('Room save failed:', error));
+      };
+      ws.on('close', close);
+      ws.on('error', close);
+      room.sendState(client);
+    });
+  } catch (error) {
+    console.error('Room connection failed:', error);
+    reject('503 Service Unavailable');
   }
-  response.writeHead(426, { 'content-type': 'text/plain' });
-  response.end('This relay speaks WebSocket only. Connect a y-websocket client.');
 });
 
-const wss = new WebSocketServer({ server });
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  try {
+    await Promise.all([...rooms.values()].map(async entry => (await entry).room.save()));
+    for (const ws of wss.clients) ws.terminate();
+    process.exit(0);
+  } catch (error) {
+    console.error('Shutdown save failed:', error);
+    process.exit(1);
+  }
+}
 
-wss.on('connection', async (ws, request) => {
-  const origin = request.headers.origin;
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) { ws.close(1008, 'Forbidden'); return; }
-  const pathname = decodeURIComponent(new URL(request.url, 'http://relay').pathname);
-  if (!ROOM_ID.test(pathname)) { ws.close(1008, 'Invalid room'); return; }
+process.on('SIGTERM', () => { void shutdown(); });
+process.on('SIGINT', () => { void shutdown(); });
+// IPC lets the Windows check request a graceful exit without a public HTTP endpoint.
+process.on('message', message => { if (message === 'shutdown') void shutdown(); });
 
-  let entry = rooms.get(pathname);
-  if (!entry) { entry = makeRoom(pathname); rooms.set(pathname, entry); }
-  const { room, live } = await entry;
-
-  if (live.size >= MAX_SOCKETS_PER_ROOM) { ws.close(1013, 'Room full'); return; }
-
-  // The room keys its per-socket state by identity, so every method below must
-  // receive this same object.
-  const socket = {
-    send: (data) => { try { console.error('out', data.byteLength ?? data.length); ws.send(toBuffer(data)); } catch { /* Already gone. */ } },
-    close: (code, reason) => { try { console.error('relay-close', code); ws.close(code, reason); } catch { /* Already closed. */ } },
-  };
-  live.add(socket);
-  console.error('connect', pathname);
-
-  ws.on('message', (buffer) => {
-    const frame = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-    room.webSocketMessage(socket, frame);
-  });
-  ws.on('close', () => {
-    live.delete(socket);
-    room.webSocketClose(socket);
-  });
-  ws.on('error', () => {
-    live.delete(socket);
-    room.webSocketError(socket);
-  });
-
-  room.sendState(socket);
-  console.error('sent-state');
+await fs.mkdir(DATA_DIR, { recursive: true });
+server.listen(PORT, () => {
+  const port = server.address().port;
+  console.log(`Relay listening on :${port}, rooms in ${DATA_DIR}`);
+  process.send?.({ port });
 });
-
-server.listen(PORT, async () => {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  console.log(`Relay listening on :${PORT}, rooms in ${DATA_DIR}`);
-});
-
-// Free hosts spin idle processes down on a timer; whatever was debounced when
-// the signal arrives should still land on disk.
-const flush = async (signal) => {
-  wss.close();
-  await Promise.all([...rooms.values()].map(async (entry) => (await entry).room.save()));
-  console.log(`Flushed on ${signal}`);
-  process.exit(0);
-};
-process.on('SIGTERM', () => flush('SIGTERM'));
-process.on('SIGINT', () => flush('SIGINT'));
