@@ -53,11 +53,10 @@ describe('diagram comments', () => {
     a.destroy(); b.destroy(); reloaded.destroy();
   });
 
-  it('keeps concurrent replies and attribution when the opening comment is deleted offline', () => {
+  it('removes the whole thread when the owner deletes the opening comment', () => {
     const a = new Y.Doc(), b = new Y.Doc();
     const alice = { userId: 'alice', name: 'Alice' }, bob = { userId: 'bob', name: 'Alice' };
     const root = addComment(a, alice, 'Opening comment', { view: 'chen', x: 50, y: -20 })!;
-    const original = snapshotFromYdoc(a);
     Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
     const firstReply = addComment(a, { ...alice, name: 'Renamed elsewhere' }, 'First reply', undefined, root)!;
     const secondReply = addComment(b, bob, 'Concurrent reply', undefined, root)!;
@@ -67,24 +66,36 @@ describe('diagram comments', () => {
     expect(removeComment(a, root, alice.userId)).toBe(true);
     Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
     Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    // A reply racing the delete stays hidden once the updates merge: it was
+    // written before the deletion, so the thread reads as deleted on both peers.
     expect(readComments(a)).toEqual(readComments(b));
-    const thread = commentThreads(readComments(a))[0]!;
-    expect(thread.comment).toMatchObject({ id: root, deleted: true, text: '', location: { view: 'chen', x: 50, y: -20 } });
-    expect(thread.replies).toHaveLength(2);
-    expect(thread.replies.find(reply => reply.id === firstReply)).toMatchObject({ authorId: 'alice', authorName: 'Renamed elsewhere', parentId: root });
+    expect(commentThreads(readComments(a))).toEqual([]);
+    expect(removeComment(a, root, alice.userId)).toBe(false);
     expect(removeComment(a, secondReply, alice.userId)).toBe(false);
-    const continued = addComment(a, bob, 'Continue the thread', undefined, root)!;
+    expect(addComment(a, bob, 'Continue the thread', undefined, root)).toBeNull();
+    a.destroy(); b.destroy();
+  });
+
+  it('retains solo deletions through snapshots and reloads', () => {
+    const a = new Y.Doc(), b = new Y.Doc();
+    const alice = { userId: 'alice', name: 'Alice' }, bob = { userId: 'bob', name: 'Bob' };
+    const root = addComment(a, alice, 'Opening comment', { view: 'chen', x: 50, y: -20 })!;
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const reply = addComment(b, bob, 'A reply', undefined, root)!;
+    expect(removeComment(a, reply, alice.userId)).toBe(false);
+    expect(removeComment(b, reply, bob.userId)).toBe(true);
+    Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const thread = commentThreads(readComments(a))[0]!;
+    expect(thread.comment).toMatchObject({ id: root });
+    expect(thread.comment.deleted).toBeUndefined();
+    expect(thread.replies).toEqual([]);
     const snapshot = snapshotFromYdoc(a);
-    const decoded = decodeSnapshot(encodeSnapshot(snapshot))!;
-    expect(decoded).toEqual(snapshot);
-    expect(normalizeDocument(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot);
+    expect(decodeSnapshot(encodeSnapshot(snapshot))).toEqual(snapshot);
     const reloaded = new Y.Doc();
-    seedDocument(reloaded, decoded);
-    seedDocument(reloaded, original);
+    seedDocument(reloaded, snapshot);
     expect(readComments(reloaded)).toEqual(readComments(a));
-    expect(removeComment(a, firstReply, alice.userId)).toBe(true);
-    expect(removeComment(a, secondReply, bob.userId)).toBe(true);
-    expect(removeComment(a, continued, bob.userId)).toBe(true);
+    expect(removeComment(a, root, alice.userId)).toBe(true);
     expect(commentThreads(readComments(a))).toEqual([]);
     a.destroy(); b.destroy(); reloaded.destroy();
   });

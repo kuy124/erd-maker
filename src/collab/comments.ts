@@ -11,7 +11,7 @@ export function readComments(ydoc: Y.Doc): DiagramComment[] {
 }
 
 export function addComment(ydoc: Y.Doc, identity: Pick<Identity, 'userId' | 'name'>, text: string, location?: CommentLocation, parentId?: string): string | null {
-  if (parentId !== undefined && !readComments(ydoc).some(comment => comment.id === parentId && !comment.parentId)) return null;
+  if (parentId !== undefined && !readComments(ydoc).some(comment => comment.id === parentId && !comment.parentId && comment.deleted === undefined)) return null;
   const [comment] = normalizeComments([{
     id: crypto.randomUUID(), authorId: identity.userId, authorName: identity.name, text, createdAt: Date.now(),
     ...(location === undefined ? {} : { location }),
@@ -25,8 +25,8 @@ export function addComment(ydoc: Y.Doc, identity: Pick<Identity, 'userId' | 'nam
 export function removeComment(ydoc: Y.Doc, id: string, authorId: string): boolean {
   const comments = ydoc.getMap<DiagramComment>(COMMENTS);
   const comment = readComments(ydoc).find(item => item.id === id);
-  if (!comment || comment.authorId !== authorId || comment.deleted) return false;
-  // Retain the anchor even when a concurrent reply has not reached this peer yet.
+  if (!comment || comment.authorId !== authorId || comment.deleted !== undefined) return false;
+  // Keep the tombstone so offline replies cannot resurrect a deleted thread.
   comments.set(id, { ...comment, text: '', deleted: true });
   return true;
 }

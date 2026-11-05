@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { colorFromSeed, initials, presenceInk } from '../collab/identity';
 import type { DiagramComment } from '../model/types';
 import type { EditorState } from '../state/useEditor';
+import { Modal } from './Modals';
 import { WorkspaceIcon } from './WorkspaceIcon';
 
 export function CommentAuthor({ state, comment, timestamp = false }: { state: EditorState; comment?: DiagramComment; timestamp?: boolean }) {
@@ -25,7 +27,10 @@ export function CommentsPanel({ state, open, hasDraft, onPlace, onLocate }: {
 }) {
   const [query, setQuery] = useState('');
   const [thisView, setThisView] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const comments = state.threads;
+  const deleting = comments.find(({ comment }) => comment.id === deletingId)?.comment;
   const search = query.trim().toLocaleLowerCase();
   const visible = comments.map(({ comment, replies }, index) => ({ comment, replies, number: index + 1, latest: replies[replies.length - 1] ?? comment }))
     .sort((a, b) => b.latest.createdAt - a.latest.createdAt || b.number - a.number).filter(({ comment, replies }) => {
@@ -63,7 +68,7 @@ export function CommentsPanel({ state, open, hasDraft, onPlace, onLocate }: {
         <button type="button" className="comment-card" aria-label={`Open comment ${number}: ${comment.deleted ? 'Deleted comment' : comment.text}${replies.length ? `, ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : ''}`}
           aria-pressed={state.selectedCommentId === comment.id} onClick={() => onLocate(comment)}>
           <CommentAuthor state={state} comment={comment} />
-          <p className={`comment-preview${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted ? 'Comment deleted by its author.' : comment.text}</p>
+          <p className={`comment-preview${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted ? 'Thread deleted by its author.' : comment.text}</p>
           {replies.length > 0 ? <p className="comment-latest-reply"><span>{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>{latest.text}</p> : null}
           <div className="comment-card__footer">
             <span><WorkspaceIcon name="pin" />{comment.location ? `Pin ${number} · ${comment.location.view === 'chen' ? 'Chen' : "Crow's-foot"}` : 'Diagram comment'}</span>
@@ -72,6 +77,9 @@ export function CommentsPanel({ state, open, hasDraft, onPlace, onLocate }: {
             </time>
           </div>
         </button>
+        {!comment.deleted && comment.authorId === state.identity.userId ? <button type="button" className="btn btn--ghost btn--icon comment-delete"
+          aria-label={`Delete thread ${number}`} title="Delete thread" onClick={() => { setDeleteError(null); setDeletingId(comment.id); }}>
+          <WorkspaceIcon name="trash" /></button> : null}
       </li>)}
     </ol> : <div className="comments-empty">
       <span className="comments-empty__icon" aria-hidden="true"><WorkspaceIcon name={comments.length ? 'search' : 'comments'} /></span>
@@ -80,5 +88,18 @@ export function CommentsPanel({ state, open, hasDraft, onPlace, onLocate }: {
       {comments.length ? <button type="button" className="btn btn--ghost" onClick={() => { setQuery(''); setThisView(false); }}>Clear filters</button> :
         <span className="comment-hint">Press M to place a comment.</span>}
     </div>}
+    {deleting ? createPortal(<Modal title="Delete thread?" onClose={() => setDeletingId(null)} footer={<>
+      <button type="button" className="btn btn--ghost" autoFocus onClick={() => setDeletingId(null)}>Cancel</button>
+      <button type="button" className="btn btn--danger" onClick={() => {
+        try {
+          if (state.removeComment(deleting.id)) setDeletingId(null);
+          else setDeleteError('Could not delete this thread. Please try again.');
+        } catch { setDeleteError('Could not delete this thread. Please try again.'); }
+      }}>Delete thread</button>
+    </>}>
+      <p>The whole thread and its replies are deleted for everyone.</p>
+      <blockquote className="comment-text">{deleting.text}</blockquote>
+      {deleteError ? <p role="alert">{deleteError}</p> : null}
+    </Modal>, document.body) : null}
   </section>;
 }

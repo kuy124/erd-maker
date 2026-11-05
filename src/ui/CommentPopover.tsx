@@ -153,7 +153,7 @@ export function CommentPopover({ state, svgRef, draft, setDraft, panel, canvasAr
             {comment ? <span>{state.identity.name}</span> : null}
           </div>
           <textarea ref={input} id={title + '-input'} className="field__input" placeholder={comment ? 'Write a reply…' : 'What would you like to point out?'} rows={comment ? 2 : 4}
-            required maxLength={MAX_COMMENT_LENGTH} value={value} disabled={!state.loaded}
+            required maxLength={MAX_COMMENT_LENGTH} value={value} disabled={!state.loaded || !!comment?.deleted}
             onChange={event => {
               if (comment) setReplyDrafts(current => ({ ...current, [comment.id]: event.target.value }));
               else setDraft(event.target.value);
@@ -167,23 +167,23 @@ export function CommentPopover({ state, svgRef, draft, setDraft, panel, canvasAr
           <div className="comment-compose__meta">
             {!comment ? <button type="button" className="btn btn--ghost" onClick={onPlace}><WorkspaceIcon name="pin" />Move pin</button> : null}
             <span className="comment-hint">{value.length > MAX_COMMENT_LENGTH - 500 ? `${value.length}/${MAX_COMMENT_LENGTH}` : 'Ctrl/⌘ + Enter to post'}</span>
-            {comment ? <button type="submit" className="btn btn--primary" disabled={!state.loaded || !value.trim()}>Reply</button> : null}
+            {comment ? <button type="submit" className="btn btn--primary" disabled={!state.loaded || !!comment.deleted || !value.trim()}>Reply</button> : null}
           </div>
           {error ? <p className="field__help field__help--error" role="alert">{error}</p> : null}
           {!comment ? <button type="submit" className="btn btn--primary comment-submit" disabled={!state.loaded || !value.trim()}>Post comment</button> : null}
         </form>
       <span className="visually-hidden" role="status">{announcement}</span>
     </div>
-    {deleting ? createPortal(<Modal title={deleting.parentId ? 'Delete reply?' : 'Delete comment?'} onClose={() => setDeletingId(null)} footer={<>
+    {deleting ? createPortal(<Modal title={deleting.parentId ? 'Delete reply?' : 'Delete thread?'} onClose={() => setDeletingId(null)} footer={<>
       <button type="button" className="btn btn--ghost" autoFocus onClick={() => setDeletingId(null)}>Cancel</button>
       <button type="button" className="btn btn--danger" onClick={() => {
         try {
           if (!state.removeComment(deleting.id)) { setError('Could not delete this message. Please try again.'); return; }
           setDeletingId(null); setError(null); input.current?.focus({ preventScroll: true });
         } catch { setError('Could not delete this message. Please try again.'); }
-      }}>{deleting.parentId ? 'Delete reply' : 'Delete comment'}</button>
+      }}>{deleting.parentId ? 'Delete reply' : 'Delete thread'}</button>
     </>}>
-      <p>{deleting.parentId ? 'Your other messages stay in the thread.' : 'Replies stay in this thread.'}</p>
+      <p>{deleting.parentId ? 'Your other messages stay in the thread.' : 'The whole thread and its replies are deleted for everyone.'}</p>
       <blockquote className="comment-text">{deleting.text}</blockquote>
       {error ? <p className="field__help field__help--error" role="alert">{error}</p> : null}
     </Modal>, document.body) : null}
@@ -195,10 +195,12 @@ function CommentMessage({ state, comment, onDelete }: { state: EditorState; comm
     <header className="comment-message__header">
       <CommentAuthor state={state} comment={comment} timestamp />
       {!comment.deleted && comment.authorId === state.identity.userId ? <button type="button" className="btn btn--ghost btn--icon comment-delete"
-        aria-label={comment.parentId ? 'Delete reply' : 'Delete comment'} title={comment.parentId ? 'Delete reply' : 'Delete comment'}
+        aria-label={comment.parentId ? 'Delete reply' : 'Delete thread'} title={comment.parentId ? 'Delete reply' : 'Delete thread'}
         onClick={() => onDelete(comment.id)}><WorkspaceIcon name="trash" /></button> : null}
     </header>
-    <p className={`comment-text${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted ? 'Comment deleted by its author.' : comment.text}</p>
+    <p className={`comment-text${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted
+      ? comment.parentId ? 'Reply deleted by its author.' : 'Thread deleted by its author.'
+      : comment.text}</p>
     {!comment.deleted ? <details className="comment-attribution"><summary>Author details</summary>
       <p>Posted as <strong>{comment.authorName}</strong></p>
       <code title={`Author ID: ${comment.authorId}`}>#{comment.authorId}</code>

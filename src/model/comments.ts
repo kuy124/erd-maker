@@ -35,16 +35,19 @@ export function normalizeComments(input: unknown): DiagramComment[] {
 }
 
 export function commentThreads(comments: readonly DiagramComment[]) {
+  const live = (comment: DiagramComment) => !comment.deleted;
+  const byId = new Map(comments.map(comment => [comment.id, comment]));
   const replies = new Map<string, DiagramComment[]>();
   for (const comment of comments) {
-    if (!comment.parentId || comment.deleted) continue;
+    if (!comment.parentId || !live(comment)) continue;
+    const root = byId.get(comment.parentId);
+    if (!root || !live(root)) continue;
     const thread = replies.get(comment.parentId) ?? [];
     thread.push(comment);
     replies.set(comment.parentId, thread);
   }
   return comments.flatMap(comment => {
-    if (comment.parentId) return [];
-    const messages = replies.get(comment.id) ?? [];
-    return comment.deleted && messages.length === 0 ? [] : [{ comment, replies: messages }];
+    if (comment.parentId || !live(comment)) return [];
+    return [{ comment, replies: replies.get(comment.id) ?? [] }];
   });
 }
