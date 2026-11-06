@@ -1020,6 +1020,11 @@ export async function openRoom(options: OpenRoomOptions = {}): Promise<OpenRoomR
   // always there.
   const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id ?? null;
   next.enter(session.doc, focus);
+  next.onIdle = () => {
+    if (session?.live !== next) return;
+    lastPointer = next.pointer;
+    session = { ...session, doc: next.snapshot(), live: null };
+  };
   const summary = summarizeDocument(session.doc, session.filePath);
   return {
     room,

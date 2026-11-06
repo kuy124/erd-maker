@@ -110,7 +110,8 @@ Prefer `create_diagram` with `text` for a first draft. Reach for the `add_*` /
 
 `open_room` joins a collaborative session so a human watches edits stream into
 their browser tab. Call it before `create_diagram` when someone wants to watch,
-and `leave_room` only when they say they are done — not when your turn ends.
+and `leave_room` after completing the requested edits, before ending your turn.
+Rejoin with `open_room` for the next task. Idle assistants disconnect after 60 seconds.
 
 ## Environment
 

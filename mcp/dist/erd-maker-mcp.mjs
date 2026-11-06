@@ -52196,6 +52196,8 @@ var init_live = __esm({
       lassoState = null;
       route = null;
       routeTimer;
+      idleTimer;
+      onIdle;
       constructor(room, ydoc, provider, awareness, relayUrl, relayOrigin) {
         this.room = room;
         this.ydoc = ydoc;
@@ -52203,6 +52205,7 @@ var init_live = __esm({
         this.awareness = awareness;
         this.relayUrl = relayUrl;
         this.relayOrigin = relayOrigin;
+        this.resetIdle();
       }
       /**
        * Connects before handing the room back, so a caller never writes into a
@@ -53062,6 +53065,7 @@ var init_live = __esm({
       }
       close() {
         if (this.closed) return;
+        clearTimeout(this.idleTimer);
         this.closed = true;
         this.stopMotion();
         this.stopLasso();
@@ -53076,7 +53080,19 @@ var init_live = __esm({
         this.awareness.destroy();
         this.ydoc.destroy();
       }
+      resetIdle() {
+        clearTimeout(this.idleTimer);
+        this.idleTimer = setTimeout(() => {
+          try {
+            this.onIdle?.();
+          } finally {
+            this.close();
+          }
+        }, 6e4);
+      }
       publishPresence(patch) {
+        if (this.closed) return;
+        this.resetIdle();
         const base = {
           userId: AI_USER_ID,
           name: (env("ERD_MCP_AI_NAME") ?? "AI assistant").trim() || "AI assistant",
@@ -53725,6 +53741,11 @@ async function openRoom(options = {}) {
   };
   const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id ?? null;
   next.enter(session.doc, focus);
+  next.onIdle = () => {
+    if (session?.live !== next) return;
+    lastPointer = next.pointer;
+    session = { ...session, doc: next.snapshot(), live: null };
+  };
   const summary = summarizeDocument(session.doc, session.filePath);
   return {
     room,
@@ -54208,8 +54229,8 @@ function createServer2() {
         "happen, with the AI's name, cursor, and selection, and no refresh. Omit the link to start a room, or pass the",
         "share link the person gave you to join theirs. A room that already has content wins; the open diagram only",
         "seeds an empty room. create_share_link returns the live room while one is open, otherwise a snapshot URL.",
-        "leave_room signs out with a visible farewell \u2014 call it only when the person says they are done or asks you to",
-        "leave, not when your turn ends."
+        "Call leave_room after completing the requested live edits, before ending your turn. Rejoin with open_room for the next task.",
+        "Idle assistants disconnect automatically after 60 seconds to save cloud resources."
       ].join("\n")
     }
   );
@@ -54497,7 +54518,7 @@ function createServer2() {
           "5. If the person wants to watch, call open_room BEFORE create_diagram: pass their share link to join their room, or omit it to start a new one. Every edit then streams into their open tab without a refresh.",
           "6. Call create_diagram once with the whole model \u2014 every entity with its attributes listed on it, every relationship, every specialization \u2014 then validate_diagram, and fix anything it reports.",
           "7. Run generate_sql and include the DDL, along with the share link from create_diagram.",
-          "8. Leave the room open while the person keeps working. Call leave_room when they say they are done, or ask you to leave \u2014 your turn ending is not them being done.",
+          "8. Call leave_room when the requested edits are complete, before ending your turn. Rejoin with open_room for the next task.",
           "9. Model specializations with add_isa: a parent entity and every subclass that inherits its keys and values, added after create_diagram.",
           view ? `Show the diagram in the ${view} view after creating it.` : "",
           "",

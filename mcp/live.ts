@@ -489,6 +489,8 @@ export class LiveRoom {
   private lassoState: LassoState | null = null;
   private route: StreamRoute | null = null;
   private routeTimer: ReturnType<typeof setInterval> | undefined;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  onIdle?: () => void;
 
   constructor(
     room: string,
@@ -504,6 +506,7 @@ export class LiveRoom {
     this.awareness = awareness;
     this.relayUrl = relayUrl;
     this.relayOrigin = relayOrigin;
+    this.resetIdle();
   }
 
   /**
@@ -1479,6 +1482,7 @@ export class LiveRoom {
 
   close(): void {
     if (this.closed) return;
+    clearTimeout(this.idleTimer);
     this.closed = true;
     this.stopMotion();
     this.stopLasso();
@@ -1495,7 +1499,17 @@ export class LiveRoom {
     this.ydoc.destroy();
   }
 
+  private resetIdle(): void {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      try { this.onIdle?.(); }
+      finally { this.close(); }
+    }, 60_000);
+  }
+
   private publishPresence(patch: Record<string, unknown>): void {
+    if (this.closed) return;
+    this.resetIdle();
     // Awareness starts at `{}`, not null, so the identity has to be merged in
     // on every publish: spreading only the state would send a leftover empty
     // one, and watchers would see "Peer 1234" instead of the AI's name.

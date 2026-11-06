@@ -26,6 +26,7 @@ import { needsReconnect } from './recovery';
 import { readIntent, type PeerIntent } from './presence';
 
 const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
+const idleProviders = new WeakSet<WebrtcProvider>();
 
 export interface PeerState {
   clientId: number;
@@ -239,6 +240,16 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   window.addEventListener('pagehide', announceLeave);
   let lastReconnect = 0;
   const reconnect = () => {
+    if (idleProviders.delete(provider)) {
+      presence.setLocalState(suspendedPresence);
+      suspendedPresence = null;
+      lastActivity = Date.now();
+      announceTransport(provider);
+    }
+    recover();
+  };
+  const recover = () => {
+    if (idleProviders.has(provider)) return;
     if (!connect || navigator.onLine === false) return;
     if (relay) {
       if (!relay.wsconnected && !relay.wsconnecting) relay.connect();
@@ -256,23 +267,40 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     announceTransport(provider);
   };
   let suspendedPresence: ReturnType<Awareness['getLocalState']> = null;
-  const rememberPresence = () => { suspendedPresence = presence.getLocalState(); };
+  let lastActivity = Date.now();
+  const activity = () => { if (!idleProviders.has(provider)) lastActivity = Date.now(); };
+  const activityEvents = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+  for (const event of activityEvents) window.addEventListener(event, activity, { passive: true });
+  const rememberPresence = () => {
+    if (!idleProviders.has(provider)) suspendedPresence = presence.getLocalState();
+  };
   // Capture before announceLeave clears presence on a bfcache navigation.
   window.addEventListener('pagehide', rememberPresence, true);
   const resume = () => {
+    if (idleProviders.has(provider)) return;
     if (suspendedPresence && !presence.getLocalState()) {
       presence.setLocalState(suspendedPresence);
       suspendedPresence = null;
     }
-    if (needsReconnect(transportState(provider), navigator.onLine !== false)) reconnect();
+    if (needsReconnect(transportState(provider), navigator.onLine !== false)) recover();
   };
   const onVisible = () => { if (document.visibilityState === 'visible') resume(); };
-  window.addEventListener('online', reconnect);
+  window.addEventListener('online', recover);
   window.addEventListener('pageshow', resume);
   document.addEventListener('visibilitychange', onVisible);
   // lib0 retries individual sockets; also refresh failed room introductions.
   const retry = window.setInterval(() => {
-    if (document.visibilityState === 'visible' && needsReconnect(transportState(provider), navigator.onLine !== false)) reconnect();
+    if (idleProviders.has(provider)) return;
+    if (connect && Date.now() - lastActivity >= 5 * 60_000) {
+      rememberPresence();
+      idleProviders.add(provider);
+      announceLeave();
+      relay?.disconnect();
+      provider.disconnect();
+      announceTransport(provider);
+      return;
+    }
+    if (document.visibilityState === 'visible' && needsReconnect(transportState(provider), navigator.onLine !== false)) recover();
   }, 15000);
 
   return {
@@ -286,7 +314,9 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     destroy: () => {
       window.removeEventListener('pagehide', announceLeave);
       window.removeEventListener('pagehide', rememberPresence, true);
-      window.removeEventListener('online', reconnect);
+      window.removeEventListener('online', recover);
+      for (const event of activityEvents) window.removeEventListener(event, activity);
+      idleProviders.delete(provider);
       window.removeEventListener('pageshow', resume);
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(retry);
@@ -368,6 +398,7 @@ export function connectedPeerCount(provider: WebrtcProvider): number {
 
 /** What the connection to the room is doing, so the app can explain it. */
 export interface TransportState {
+  idle?: boolean;
   /** The signalling server is reachable, so a peer in another device can be found. */
   signalling: boolean;
   /** Peers with an open direct connection. */
@@ -490,6 +521,7 @@ export function transportState(provider: WebrtcProvider): TransportState {
   }
   const downSince = signallingDownSince.get(provider);
   return {
+    idle: idleProviders.has(provider),
     signalling,
     direct,
     blocked,

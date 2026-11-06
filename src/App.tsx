@@ -923,7 +923,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
         {connection.fix ? (
           <>
             <button type="button" className="btn btn--ghost connection-fix" onClick={() => room.reconnect()}>
-              Reconnect
+              {state.transport.idle ? 'Rejoin room' : 'Reconnect'}
             </button>
             <button type="button" className="btn btn--ghost connection-fix" onClick={() => setDialog('share')}>
               Share a snapshot
@@ -1211,6 +1211,8 @@ function NameField({ state }: { state: EditorState }) {
  * do about it.
  */
 function connectionState(state: EditorState): { state: string; label: string; note: string; fix: boolean } {
+  if (state.transport.idle) return { state: 'offline', label: 'Disconnected (idle)', fix: true,
+    note: 'Disconnected after five minutes of inactivity to save cloud resources. Your edits stay saved in this browser. Rejoin to resume live sync.' };
   if (import.meta.env.VITE_SYNC_URL) {
     if (!state.transport.signalling) {
       if (state.transport.unreachable) return { state: 'offline', label: 'Offline', fix: true,
