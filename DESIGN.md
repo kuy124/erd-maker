@@ -154,4 +154,6 @@ that wants one of them needs a written reason here first, like `--shadow-menu`
 Comment composers and detail popovers use the same floating-surface shadow as context menus.
 Feedback is pinned by default: a compact composer sits beside its pin, with a bottom sheet on phones.
 
+Responsive controls occupy separate lanes: notation stays in the header flow on desktop, pairs with zoom below the header on phones, and zoom moves above the canvas at tablet widths. The welcome content scrolls inside the space between the top and bottom controls, so short landscape screens retain access to every action. Modal headers and footers stay outside the scrolling body.
+
 Comment threads use ENERGY 1 / RHYTHM 2 / MOTION 1. A single reading column and thin separators distinguish messages without nested cards or chat bubbles. Smaller reply avatars distinguish follow-up messages from the opening comment. Reply counts show actual thread activity on pins and in the index. The reply composer stays below the scrolling conversation, including with the phone keyboard open. There is no decorative motion.

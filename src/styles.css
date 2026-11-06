@@ -1431,7 +1431,7 @@ body {
    base, so the only visible difference is that lines no longer cross the copy. */
 .canvas-empty {
   position: absolute;
-  inset: 0;
+  inset: 80px 72px 80px;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -1445,6 +1445,10 @@ body {
   gap: var(--s3);
   text-align: center;
   max-width: 52ch;
+  min-width: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--s5) var(--s6);
   background: var(--paper);
   border: var(--hairline) solid var(--rule);
@@ -1770,6 +1774,7 @@ body {
 }
 
 .modal__header {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1785,11 +1790,14 @@ body {
 }
 
 .modal__body {
+  min-height: 0;
+  overflow-wrap: anywhere;
   padding: var(--s4);
   overflow-y: auto;
 }
 
 .modal__footer {
+  flex-shrink: 0;
   flex-wrap: wrap;
   display: flex;
   align-items: center;
@@ -1912,7 +1920,7 @@ body {
 .icon-control { padding: 0; justify-content: center; flex: none; width: 44px; }
 .workspace-icon { flex: none; }
 .drawing-tools .btn { flex-shrink: 0; }
-.notation { position: absolute; top: 4px; left: 50%; transform: translateX(-50%); width: 190px; }
+.notation { position: static; flex: 0 0 190px; width: 190px; }
 .history-tools { order: 1; border-left: 1px solid var(--rule); padding-left: var(--s2); }
 .tool-btn[aria-pressed='true'], .key-toggle[aria-pressed='true'] {
   background: var(--signal-quiet); color: var(--signal-strong); border-color: var(--signal);
@@ -2182,6 +2190,7 @@ kbd { font: 13px var(--font-mono); }
 
 /* Panels open over the canvas at every size; closing them never shifts it. */
 @media (max-width: 1099px) {
+  .viewport-tools { top: 80px; bottom: auto; }
   .document-title .docname { width: 19ch; }
   /* The avatars stay: a collaborator you cannot see is a collaborator who is
      not there. Only the name label, which needs the room, steps aside. */
@@ -2190,7 +2199,7 @@ kbd { font: 13px var(--font-mono); }
 
 /* Phones use scrollable sheets. Their height follows the visible viewport. */
 @media (max-width: 767px) {
-  .topbar { top: 8px; left: 8px; right: 8px; }
+  .topbar { top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); }
   /* The type row is a select and one or two number inputs; side by side they
      cannot fit at 320px without the numbers being a few characters wide. */
   .type-fields { flex-wrap: wrap; }
@@ -2212,7 +2221,8 @@ kbd { font: 13px var(--font-mono); }
   .document-title .docname { width: 100%; min-width: 0; padding: 6px; font-size: 16px; }
   .topbar__spacer, .header-export, .header-share { display: none; }
   .editor-toolbar { bottom: calc(8px + env(safe-area-inset-bottom)); gap: 4px; }
-  .notation { top: 64px; left: auto; right: 0; transform: none; }
+  .notation { position: absolute; top: 67px; left: 0; right: auto; width: 160px; transform: none; }
+  .notation .seg__btn { font-size: var(--text-xs); white-space: nowrap; }
   .history-tools { padding-left: 4px; }
   .drawing-tools { gap: 0; }
   .workspace-panel {
@@ -2247,15 +2257,15 @@ kbd { font: 13px var(--font-mono); }
   .field__input, .field__select, .field__input--mono { font-size: 16px; }
   .canvas-status { top: 124px; left: 8px; right: 8px; width: fit-content; max-width: calc(100% - 16px); flex-wrap: wrap; font: 13px var(--font-sans); gap: 4px; }
   .table-legend { flex-basis: 100%; }
-  .canvas-empty { padding: 12px; }
+  .canvas-empty { inset: calc(max(8px, env(safe-area-inset-top)) + 124px) 8px calc(132px + env(safe-area-inset-bottom)); padding: 0; place-content: normal; align-items: center; }
   .canvas-empty__card { padding: 20px 16px; gap: 12px; }
   .canvas-empty__hint { display: none; }
   .starter-actions { flex-direction: column; width: 100%; }
   .starter-actions .btn { justify-content: center; white-space: normal; }
-  .viewport-tools { right: 8px; top: 76px; bottom: auto; }
+  .viewport-tools { right: max(8px, env(safe-area-inset-right)); top: calc(max(8px, env(safe-area-inset-top)) + 68px); bottom: auto; }
   .viewport-tools .zoom-value { display: none; }
   .app:has(.workspace-panel[data-open='true']) .viewport-tools { display: none; }
-  .connection-guidance { top: 124px; max-width: calc(100% - 16px); font-size: 13px; }
+  .connection-guidance { top: 124px; max-width: calc(100% - 16px); font-size: 13px; white-space: normal; }
   .panel-navigation { top: auto; bottom: calc(64px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); flex-direction: row; width: min(360px, calc(100% - 16px)); }
   .panel-navigation .btn { flex: 1; width: auto; min-width: 0; min-height: 48px; flex-direction: column; gap: 2px; padding: 4px 0; }
   .panel-navigation__label { display: inline; font-size: 11px; }
