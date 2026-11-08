@@ -134,17 +134,17 @@ function connection() {
   return socket;
 }
 
-const sender = connection();
+let sender = connection();
 const observer = connection();
 const peerDoc = new Y.Doc();
 const peer = new awareness.Awareness(peerDoc);
 let room = new DiagramRoom(state);
 const realNow = Date.now;
-const sendPresence = () => {
+const sendPresence = (socket = sender) => {
   const out = encoding.createEncoder();
   encoding.writeVarUint(out, 1);
   encoding.writeVarUint8Array(out, awareness.encodeAwarenessUpdate(peer, [peerDoc.clientID]));
-  room.webSocketMessage(sender, encoding.toUint8Array(out).slice().buffer);
+  room.webSocketMessage(socket, encoding.toUint8Array(out).slice().buffer);
 };
 const wake = async () => {
   room.doc.destroy();
@@ -164,15 +164,17 @@ try {
   assert.equal(observer.sent.length, 1, 'other peers still receive presence');
 
   peer.setLocalState({ name: 'x'.repeat(4096) });
-  sendPresence();
-  assert.ok(room.presence._checkInterval, 'oversized presence must stay in memory, not be lost');
-  room.presence.meta.get(peerDoc.clientID).lastUpdated = realNow() - awareness.outdatedTimeout - 1;
-  room.expirePresence();
-  assert.equal(room.presence._checkInterval, null, 'expired oversized presence must not keep the room awake');
-  assert.equal(room.unpersisted.has(sender), false);
+  const oversized = sender;
+  sendPresence(oversized);
+  assert.equal(oversized.closed?.code, 1009, 'reject presence that cannot survive hibernation');
+  assert.equal(room.clients.has(oversized), false);
+  assert.equal(room.presence.getStates().has(peerDoc.clientID), false);
+  assert.equal(room.presence._checkInterval, null, 'oversized presence must not keep the room awake');
+  sender = connection();
   peer.setLocalState({ name: 'Faris' });
   sendPresence();
   assert.equal(room.presence._checkInterval, null);
+  assert.ok(room.clients.get(sender).has(peerDoc.clientID), 'reconnected presence must have an owner');
 
   const sentBeforeEdits = sender.sent.length;
   room.doc.transact(() => {

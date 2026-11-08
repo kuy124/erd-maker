@@ -61,6 +61,15 @@ messages do not count. Cursor updates are capped at 20 per second, while local
 animation still renders at 60 fps. This reduces traffic, not every source of
 duration or storage usage. Do not use artificial keep-alive HTTP polling.
 
+`Exceeded allowed duration in Durable Objects free tier` means the account's
+daily duration allowance is exhausted. The request can fail even when nested
+fetch/subrequest logs say `OK`; those are not proof of a successful WebSocket
+handshake. Deploying does not reset the allowance: wait until 00:00 UTC
+(07:00 Jakarta), use the Node relay, or upgrade the account if needed.
+The relay uses WebSocket hibernation and disconnects clients whose presence
+cannot fit Cloudflare's 2 KiB socket attachment limit (close code 1009), rather
+than keeping the room awake indefinitely. Keep presence payloads small.
+
 1. In `wrangler.jsonc`, set `ALLOWED_ORIGINS` to your exact frontend origin,
    such as `https://YOUR-NAME.github.io`, without the repository path or a
    trailing slash. Multiple origins are comma-separated.

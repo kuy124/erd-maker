@@ -28,13 +28,14 @@ export class DiagramRoom {
     // Socket attachments preserve ownership and throttling across hibernation.
     this.clients = new Map();
     this.limits = new Map();
-    this.unpersisted = new Set();
     this.hibernating = typeof ctx.acceptWebSocket === 'function';
     this.dirty = false;
     this.saving = null;
     this.retryDelay = null;
     // Awareness's interval prevents Durable Object hibernation.
     if (this.hibernating) {
+      clearInterval(this.presence._checkInterval);
+      this.presence._checkInterval = null;
       for (const socket of this.liveSockets()) {
         const saved = socket.deserializeAttachment();
         if (!saved) continue;
@@ -47,7 +48,6 @@ export class DiagramRoom {
         }
       }
       this.expirePresence();
-      this.updateHibernation();
     }
     /*
      * Rooms outlive their last connection.
@@ -77,7 +77,7 @@ export class DiagramRoom {
     this.alarmArmed = false;
     this.presence.on('update', ({ added, updated, removed }, origin) => {
       const ids = this.clients.get(origin);
-      for (const id of added) ids?.add(id);
+      for (const id of [...added, ...updated]) ids?.add(id);
       for (const id of removed) ids?.delete(id);
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 1);
@@ -93,18 +93,6 @@ export class DiagramRoom {
       .map(([id]) => id);
     if (expired.length) {
       awareness.removeAwarenessStates(this.presence, expired, null);
-      for (const socket of this.unpersisted) this.rememberSocket(socket);
-    }
-  }
-
-  updateHibernation() {
-    if (!this.hibernating) return;
-    if (this.unpersisted.size && this.presence._checkInterval == null) {
-      // ponytail: presence above the 2 KiB attachment limit keeps the room awake; compact it if common.
-      this.presence._checkInterval = setInterval(() => this.expirePresence(), 3000);
-    } else if (!this.unpersisted.size && this.presence._checkInterval != null) {
-      clearInterval(this.presence._checkInterval);
-      this.presence._checkInterval = null;
     }
   }
 
@@ -118,11 +106,10 @@ export class DiagramRoom {
         awareness: awareness.encodeAwarenessUpdate(this.presence, ids),
         updatedAt: ids.map(id => [id, this.presence.meta.get(id).lastUpdated]),
       });
-      this.unpersisted.delete(socket);
     } catch {
-      this.unpersisted.add(socket);
+      // Never keep a room resident because client presence exceeds 2 KiB.
+      this.close(socket, 1009, 'Presence exceeds attachment limit');
     }
-    this.updateHibernation();
   }
 
   broadcast(message, except) {
@@ -139,14 +126,12 @@ export class DiagramRoom {
     return typeof this.ctx.getWebSockets === 'function' ? this.ctx.getWebSockets() : [...this.clients.keys()];
   }
 
-  close(socket) {
+  close(socket, code, reason) {
     const ids = this.clients.get(socket);
     this.clients.delete(socket);
     this.limits.delete(socket);
-    this.unpersisted.delete(socket);
-    this.updateHibernation();
     if (ids) awareness.removeAwarenessStates(this.presence, [...ids], socket);
-    try { socket.close(); } catch { /* Already closed. */ }
+    try { socket.close(code, reason); } catch { /* Already closed. */ }
     // The last client leaving is the moment the room would otherwise be lost.
     // Filtered: webSocketClose may fire just before the runtime drops the
     // socket from getWebSockets, so the count would otherwise still see it.
