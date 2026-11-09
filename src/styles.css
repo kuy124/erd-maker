@@ -329,10 +329,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Focus is visible everywhere, never removed. */
+/* Interactive controls retain visible keyboard focus. */
 :focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;
+}
+
+/* The workspace receives focus for shortcuts, not as a selectable control. */
+.canvas:focus {
+  outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
