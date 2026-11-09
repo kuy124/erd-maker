@@ -297,6 +297,7 @@ async function readDocument(key: string): Promise<ErdDocument> {
     throw new Error(`${shown} is not valid JSON.`);
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+    !Object.hasOwn(parsed, 'entities') ||
     !Array.isArray((parsed as Record<string, unknown>).entities)) {
     throw new Error(`${shown} does not contain a diagram. Export a JSON file from ERD Maker.`);
   }

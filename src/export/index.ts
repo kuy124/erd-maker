@@ -262,7 +262,13 @@ export interface ParsedImport {
 export function parseJsonImport(text: string): ParsedImport {
   try {
     const parsed = JSON.parse(text) as unknown;
+    /*
+     * A property read walks the prototype chain, so a file whose only key is
+     * written `"__proto__": [...]` answers `Array.isArray` and passes as a
+     * diagram while carrying no entities at all. Own keys only, real arrays only.
+     */
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+        !Object.hasOwn(parsed, 'entities') ||
         !Array.isArray((parsed as Record<string, unknown>).entities)) {
       return { doc: null, error: 'That file does not contain a diagram. Choose a JSON export with an entities array.' };
     }

@@ -31,6 +31,18 @@ export class FileWorkspace implements Workspace {
 
   resolve(input: string): string {
     const trimmed = assertJsonPath(input);
+    /*
+     * The check below only compares path text, so two Windows forms reach a
+     * different file without it noticing: `..\secret.json:stream` (an
+     * alternate data stream hangs off the path, and the comparison stops at
+     * the colon) and device names such as `con.json`. Refuse both outright.
+     */
+    if (trimmed.replace(/^[A-Za-z]:/, '').includes(':')) {
+      throw new WorkspacePathError('Diagram paths cannot contain ":".');
+    }
+    if (trimmed.split(/[\\/]/).some((part) => /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(part))) {
+      throw new WorkspacePathError('That file name is reserved by the operating system.');
+    }
     const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(this.root, trimmed);
     const rel = relative(this.root, candidate);
     if (!rel || rel.startsWith('..') || isAbsolute(rel)) {

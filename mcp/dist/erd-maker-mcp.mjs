@@ -40508,19 +40508,33 @@ function pruneGroups(doc) {
   const groups = doc.groups.map((group) => ({ ...group, memberIds: group.memberIds.filter((id2) => live.has(id2)) })).filter((group) => group.memberIds.length > 1);
   return groups.length === doc.groups.length ? doc : { ...doc, groups };
 }
+function removalIds(doc, id2) {
+  const removed = /* @__PURE__ */ new Set([id2]);
+  if (doc.entities.some((entity) => entity.id === id2)) {
+    const relationships = new Set(doc.relationships.map((relationship) => relationship.id));
+    for (const leg of doc.legs) {
+      if (leg.fromId === id2 && relationships.has(leg.toId)) removed.add(leg.toId);
+      if (leg.toId === id2 && relationships.has(leg.fromId)) removed.add(leg.fromId);
+    }
+  }
+  for (const nodeId of [...removed]) {
+    for (const attributeId of descendantAttributeIds(doc, nodeId)) removed.add(attributeId);
+  }
+  return removed;
+}
 function removeNode(doc, id2) {
-  const orphanedAttributes = descendantAttributeIds(doc, id2);
+  const removed = removalIds(doc, id2);
   return pruneGroups({
     ...doc,
-    entities: doc.entities.filter((e) => e.id !== id2),
-    attributes: doc.attributes.filter((a) => a.id !== id2 && !orphanedAttributes.has(a.id)),
-    relationships: doc.relationships.filter((r) => r.id !== id2),
+    entities: doc.entities.filter((e) => !removed.has(e.id)),
+    attributes: doc.attributes.filter((a) => !removed.has(a.id)),
+    relationships: doc.relationships.filter((r) => !removed.has(r.id)),
     isas: doc.isas.filter((i) => i.id !== id2).map((i) => ({
       ...i,
       parentId: i.parentId === id2 ? null : i.parentId,
       childIds: i.childIds.filter((c) => c !== id2)
     })),
-    legs: doc.legs.filter((l) => l.fromId !== id2 && l.toId !== id2 && !orphanedAttributes.has(l.fromId) && !orphanedAttributes.has(l.toId))
+    legs: doc.legs.filter((l) => !removed.has(l.id) && !removed.has(l.fromId) && !removed.has(l.toId))
   });
 }
 var ENTITY_KINDS, ROUTE_SIDES, NODE_SIZE;
@@ -52114,7 +52128,7 @@ function lassoTrail(loop, distance) {
   points.push(loopPoint(loop, walked));
   return points;
 }
-var FALLBACK_RELAY, FALLBACK_ORIGIN, AI_USER_ID, AI_COLOR, ROOM_PATTERN, MOVE_FRAME_MS, PRESENCE_FRAME_MS, MOVE_MIN_MS, MOVE_MAX_MS, MOVE_MS_PER_PX, MOVE_BOW_FROM_PX, MOVE_BOW_RATIO, MOVE_BOW_MAX_PX, MOVE_BOW_SPREAD, SETTLE_RATIO, SETTLE_FROM_T, CARRY_MIN_PX_PER_MS, CARRY_RATIO, ROUTE_EASE_BLEND, FAREWELL_MS, HOVER_MS, PRESS_MS, TYPING_MS, TYPE_CHAR_MS, THINK_MS, ENTRANCE_OFFSET, makeSocket, LiveRoom, LASSO_PAD_PX, LASSO_STEP_PX, LASSO_MIN_MS, LASSO_MAX_MS, LASSO_MS_PER_PX;
+var FALLBACK_RELAY, FALLBACK_ORIGIN, AI_USER_ID, AI_COLOR, ROOM_PATTERN, MOVE_FRAME_MS, PRESENCE_FRAME_MS, MOVE_MIN_MS, MOVE_MAX_MS, MOVE_MS_PER_PX, MOVE_BOW_FROM_PX, MOVE_BOW_RATIO, MOVE_BOW_MAX_PX, MOVE_BOW_SPREAD, SETTLE_RATIO, SETTLE_FROM_T, CARRY_MIN_PX_PER_MS, CARRY_RATIO, ROUTE_EASE_BLEND, FAREWELL_MS, HOVER_MS, PRESS_MS, TYPING_MS, THINK_MS, ENTRANCE_OFFSET, makeSocket, LiveRoom, LASSO_PAD_PX, LASSO_STEP_PX, LASSO_MIN_MS, LASSO_MAX_MS, LASSO_MS_PER_PX;
 var init_live = __esm({
   "mcp/live.ts"() {
     "use strict";
@@ -52133,7 +52147,7 @@ var init_live = __esm({
     AI_COLOR = "#6B3FA0";
     ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
     MOVE_FRAME_MS = 16;
-    PRESENCE_FRAME_MS = 50;
+    PRESENCE_FRAME_MS = 200;
     MOVE_MIN_MS = 320;
     MOVE_MAX_MS = 1250;
     MOVE_MS_PER_PX = 0.95;
@@ -52150,7 +52164,6 @@ var init_live = __esm({
     HOVER_MS = 90;
     PRESS_MS = 380;
     TYPING_MS = 900;
-    TYPE_CHAR_MS = 55;
     THINK_MS = 900;
     ENTRANCE_OFFSET = 320;
     makeSocket = null;
@@ -53019,15 +53032,7 @@ var init_live = __esm({
         this.cursor = { ...to };
         return Date.now() - began;
       }
-      /**
-       * Types a shape's name out after the shape lands.
-       *
-       * `writeStep` writes the whole shape at once, so the name is already correct;
-       * this rewrites it a character at a time purely for the watcher, publishing
-       * `typing` on every keystroke for the indicator under the cursor. A shape
-       * arrives as a person makes it — drawn first, then named. Skipped when nobody
-       * is watching and for names too short to be worth replaying.
-       */
+      /** Keep the typing cue without rewriting an already committed name. */
       async typeName(doc, step) {
         if (this.watching === 0 || this.closed) return;
         const name = shapeNameAt(doc, step);
@@ -53035,15 +53040,8 @@ var init_live = __esm({
         const mapName = step.kind === "entity" ? ENTITIES : step.kind === "attribute" ? ATTRIBUTES : step.kind === "relationship" ? RELATIONSHIPS : null;
         const map3 = mapName ? this.ydoc.getMap(mapName).get(step.id) : void 0;
         if (!map3) return;
-        const generation = this.typingGeneration;
         this.refreshTyping();
-        for (let at = 1; at <= name.length; at++) {
-          if (this.typingGeneration !== generation || this.closed) return;
-          map3.set("name", name.slice(0, at));
-          this.refreshTyping();
-          this.publishPresence({ typing: true });
-          await pause(TYPE_CHAR_MS);
-        }
+        this.publishPresence({ typing: true });
       }
       /** Where the pointer is right now, for a caller that means to come back. */
       get pointer() {
@@ -53215,7 +53213,7 @@ async function readDocument(key) {
   } catch {
     throw new Error(`${shown} is not valid JSON.`);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.entities)) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Object.hasOwn(parsed, "entities") || !Array.isArray(parsed.entities)) {
     throw new Error(`${shown} does not contain a diagram. Export a JSON file from ERD Maker.`);
   }
   return normalizeDocument(parsed);
@@ -54219,6 +54217,23 @@ function createServer2() {
         "- For participation constraints or attributes on a relationship, use the structured form",
         "  (entities/relationships/isas) instead of text.",
         "",
+        "## Design before drawing",
+        "- Preserve supplied schema names, keys, types, nullability and relationship semantics. Do not invent",
+        "  requirements. Distinguish explicit constraints from assumptions; ask only when ambiguity changes the model.",
+        "- For new designs, identify entities, candidate keys and functional dependencies first. Prefer normalized",
+        "  relations; use junction entities for many-to-many relationships carrying attributes or lifecycle.",
+        "- Check both relationship directions: maximum cardinality and minimum participation are separate.",
+        "  A nullable FK does not imply that its parent must have children. Use role names for self-relations.",
+        "- Inspect generate_sql output as well as validate_diagram. Explain unsupported source constraints in your",
+        "  answer; never silently drop them or add a diagram comment unless requested.",
+        "",
+        "## Minimize work and context",
+        "- Prefer summarize_diagram over get_diagram; fetch full coordinates only for an explicit positioning task.",
+        "- Build a first draft in one create_diagram call with all attributes and relationships. For follow-ups,",
+        "  inspect once, then change only affected nodes; do not recreate the diagram or repeatedly arrange it.",
+        "- Validate after the batch, fix reported issues, then generate SQL once. Do not poll status or reread",
+        "  unchanged diagrams. Leave live rooms promptly when finished.",
+        "",
         "## One diagram at a time",
         "create_diagram or open_diagram makes a diagram current; add/update/remove tools edit it; every edit is written",
         "back to its file. list_diagrams shows what is saved. Use the add/update/remove tools for follow-ups, not for",
@@ -54235,7 +54250,7 @@ function createServer2() {
     }
   );
   function json3(value) {
-    return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+    return { content: [{ type: "text", text: JSON.stringify(value) }] };
   }
   const viewSchema = external_exports.enum(["chen", "crowfoot"]);
   const attributeKindSchema = external_exports.enum(["simple", "key", "unique", "multivalued", "derived", "composite"]);
@@ -54584,6 +54599,12 @@ var init_fileWorkspace = __esm({
       }
       resolve(input2) {
         const trimmed = assertJsonPath(input2);
+        if (trimmed.replace(/^[A-Za-z]:/, "").includes(":")) {
+          throw new WorkspacePathError('Diagram paths cannot contain ":".');
+        }
+        if (trimmed.split(/[\\/]/).some((part) => /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(part))) {
+          throw new WorkspacePathError("That file name is reserved by the operating system.");
+        }
         const candidate = isAbsolute(trimmed) ? resolve(trimmed) : resolve(this.root, trimmed);
         const rel = relative(this.root, candidate);
         if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
