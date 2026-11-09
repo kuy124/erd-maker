@@ -59,6 +59,42 @@ async function exported(page: Page, format: 'JSON' | 'SQL' | 'SVG') {
   return text;
 }
 
+test('edits attribute data types directly in Chen and preserves them in tables and SQL', async ({ page }) => {
+  // Chen uses attribute coordinates rather than table row positions.
+  // Spread the fixture's attributes so each oval can be selected directly.
+  const positions: [number, number][] = [[80, 270], [260, 270], [600, 270], [780, 270]];
+  const doc = schema();
+  doc.attributes.forEach((attribute, index) => {
+    [attribute.x, attribute.y] = positions[index]!;
+  });
+  await importDocument(page, doc);
+  await page.getByRole('button', { name: 'Chen', exact: true }).click();
+  await page.locator('[data-node-id="id"]').click();
+  await inspectSelection(page);
+  const type = page.getByLabel('Data type', { exact: true });
+  await expect(type).toBeVisible();
+  await type.selectOption('UUID');
+  await page.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(type).toHaveValue('');
+  await page.getByRole('toolbar').getByRole('button', { name: 'Redo', exact: true }).click();
+  await expect(type).toHaveValue('UUID');
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await page.locator('[data-node-id="buyer"]').click();
+  await inspectSelection(page);
+  await expect(type).toBeDisabled();
+  await expect(type.locator('option:checked')).toHaveText('UUID (inherited)');
+  await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+  await page.locator('[data-node-id="email"]').click();
+  await inspectSelection(page);
+  await type.selectOption('VARCHAR');
+  await page.locator('#attr-type-length').fill('64');
+  expect(await exported(page, 'SQL')).toContain('"contact_email_address" VARCHAR(64)');
+  await page.getByRole('button', { name: "Crow's-foot", exact: true }).click();
+  await expect(typeCell(page, 'id')).toHaveText('UUID');
+  await expect(typeCell(page, 'buyer')).toHaveText('UUID');
+  await expect(typeCell(page, 'email')).toHaveText('VARCHAR(64)');
+});
+
 test('edits table and SQL types, inherits FK types, and restores inference with Undo and Automatic', async ({ page }) => {
   await importDocument(page);
   await expect(typeCell(page, 'id')).toHaveText('INT');

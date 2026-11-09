@@ -12,6 +12,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      cleanup_only:
+        description: Clean deployment history without rebuilding the site
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,11 +26,12 @@ permissions:
 # One deployment at a time; a newer push supersedes an in-flight one rather
 # than racing it.
 concurrency:
-  group: pages
+  group: ${{ inputs.cleanup_only && 'pages-cleanup' || 'pages' }}
   cancel-in-progress: true
 
 jobs:
   build:
+    if: ${{ !inputs.cleanup_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,3 +66,19 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  cleanup:
+    needs: deploy
+    if: ${{ !cancelled() && (needs.deploy.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.cleanup_only)) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/cleanup-deployments.mjs
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { cleanupDeployments } = await import('${{ github.workspace }}/scripts/cleanup-deployments.mjs');
+            await cleanupDeployments(github, context.repo, core.info);

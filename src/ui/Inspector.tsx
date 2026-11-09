@@ -282,7 +282,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             </ul>
           )}
           <button type="button" className="btn attribute-add" onClick={() => state.addAttribute(entity.x, entity.y, entity.id)}>Add attribute</button>
-          {doc.view === 'crowfoot' ? <p className="field__help">Select an attribute to choose its SQL data type. Rows marked “FK” or “PK” with no attribute behind them are generated; foreign keys inherit the referenced type.</p> : null}
+          <p className="field__help">Select an attribute to choose its SQL data type. In Crow’s Foot, rows marked “FK” or “PK” with no attribute behind them are generated; foreign keys inherit the referenced type.</p>
         </div>
 
         <button type="button" className="btn btn--danger" onClick={() => state.remove([entity.id])}>
@@ -296,7 +296,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
     const owners = [...doc.entities, ...doc.relationships, ...doc.isas,
       ...doc.attributes.filter(a => a.kind === 'composite')]
       .filter(owner => canOwnAttribute(doc, attribute.id, owner.id));
-    const row = doc.view === 'crowfoot' ? deriveTables(doc).flatMap((table) => table.rows).find((r) => r.attributeId === attribute.id) : undefined;
+    const row = deriveTables(doc).flatMap((table) => table.rows).find((r) => r.attributeId === attribute.id);
     return (
       <aside className="inspector" aria-label="Properties">
         <h2 className="panel__title">Attribute</h2>
@@ -314,7 +314,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             autoComplete="off"
           />
         </div>
-        {doc.view === 'crowfoot' ? <div className="field">
+        <div className="field">
           <label className="field__label" htmlFor="attr-data-type">Data type</label>
           {/*
             A base and, for the bases that have one, its arguments — because
@@ -366,7 +366,7 @@ export function Inspector({ state, nameFocusReady = true }: Props) {
             splitDataType(attribute.dataType).base === 'ENUM' ?
               'Type the allowed values, separated by commas. Quotes are optional; each value is quoted in the exported SQL.' :
             'Automatic infers a type from the name. Choose a type to use it in tables and SQL.'}</p>
-        </div> : null}
+        </div>
         <div className="field">
           <span className="field__label" id="attr-kind-label">
             Kind
