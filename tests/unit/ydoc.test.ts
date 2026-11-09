@@ -15,7 +15,7 @@ import {
   upsertEntity,
   upsertLeg,
 } from '../../src/collab/ydoc';
-import { emptyDocument, type ErdDocument } from '../../src/model/types';
+import { emptyDocument, removeNode, type ErdDocument } from '../../src/model/types';
 
 function sample(): ErdDocument {
   const doc = emptyDocument('Library');
@@ -41,6 +41,42 @@ function sample(): ErdDocument {
 }
 
 describe('connecting nodes', () => {
+  it('cascades incoming and outgoing relationships in model and shared deletion, with undo', () => {
+    const doc = sample();
+    doc.relationships.push(
+      { id: 'r2', name: 'references', x: 0, y: 0, kind: 'strong' },
+      { id: 'r3', name: 'unrelated', x: 0, y: 0, kind: 'strong' },
+    );
+    doc.legs.push(
+      { id: 'l2', fromId: 'r1', toId: 'e2', cardinality: 'N', participation: { min: 0, max: 'N' } },
+      { id: 'l3', fromId: 'r2', toId: 'e1', cardinality: '1', participation: { min: 0, max: 1 } },
+      { id: 'l4', fromId: 'r3', toId: 'e2', cardinality: '1', participation: { min: 0, max: 1 } },
+    );
+    doc.attributes.push(
+      { id: 'ra', name: 'detail', x: 0, y: 0, kind: 'composite', ownerId: 'r1' },
+      { id: 'part', name: 'part', x: 0, y: 0, kind: 'simple', ownerId: 'ra' },
+    );
+    const ydoc = new Y.Doc();
+    seedDocument(ydoc, doc);
+    const before = snapshotFromYdoc(ydoc);
+    const undo = new Y.UndoManager([ENTITIES, ATTRIBUTES, RELATIONSHIPS, LEGS, 'isas'].map(key => ydoc.getMap(key)));
+    deleteNodeFromYdoc(ydoc, 'e1');
+    const result = snapshotFromYdoc(ydoc);
+    const expected = removeNode(before, 'e1');
+    expect(result.relationships.map(node => node.id)).toEqual(['r3']);
+    expect(result.legs.map(node => node.id)).toEqual(['l4']);
+    expect(result.attributes.map(node => node.id)).toEqual(['a2']);
+    expect(result.entities.map(node => node.id)).toEqual(['e2']);
+    for (const key of ['entities', 'relationships', 'attributes', 'legs', 'isas'] as const) {
+      expect(result[key]).toEqual(expected[key]);
+    }
+    expect(undo.undoStack).toHaveLength(1);
+    undo.undo();
+    expect(snapshotFromYdoc(ydoc)).toEqual(before);
+    undo.destroy();
+    ydoc.destroy();
+  });
+
   const ids = () => { let count = 0; return (kind: string) => kind + '_' + ++count; };
 
   it('creates one diamond and two participant legs in a single Undo action', () => {

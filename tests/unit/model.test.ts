@@ -94,7 +94,8 @@ describe('removeNode', () => {
     const next = removeNode(doc, 'e1');
     expect(next.entities.map((e) => e.id)).toEqual(['e2']);
     expect(next.attributes.map((a) => a.id)).toEqual(['a3']);
-    expect(next.legs.map((l) => l.id)).toEqual(['l2']);
+    expect(next.relationships).toEqual([]);
+    expect(next.legs).toEqual([]);
     expect(next.isas.find((i) => i.id === 'i1')?.parentId).toBeNull();
   });
 

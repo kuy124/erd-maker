@@ -94,6 +94,23 @@ export function createServer(): McpServer {
       '- For participation constraints or attributes on a relationship, use the structured form',
       '  (entities/relationships/isas) instead of text.',
       '',
+      '## Design before drawing',
+      '- Preserve supplied schema names, keys, types, nullability and relationship semantics. Do not invent',
+      '  requirements. Distinguish explicit constraints from assumptions; ask only when ambiguity changes the model.',
+      '- For new designs, identify entities, candidate keys and functional dependencies first. Prefer normalized',
+      '  relations; use junction entities for many-to-many relationships carrying attributes or lifecycle.',
+      '- Check both relationship directions: maximum cardinality and minimum participation are separate.',
+      '  A nullable FK does not imply that its parent must have children. Use role names for self-relations.',
+      '- Inspect generate_sql output as well as validate_diagram. Explain unsupported source constraints in your',
+      '  answer; never silently drop them or add a diagram comment unless requested.',
+      '',
+      '## Minimize work and context',
+      '- Prefer summarize_diagram over get_diagram; fetch full coordinates only for an explicit positioning task.',
+      '- Build a first draft in one create_diagram call with all attributes and relationships. For follow-ups,',
+      '  inspect once, then change only affected nodes; do not recreate the diagram or repeatedly arrange it.',
+      '- Validate after the batch, fix reported issues, then generate SQL once. Do not poll status or reread',
+      '  unchanged diagrams. Leave live rooms promptly when finished.',
+      '',
       '## One diagram at a time',
       'create_diagram or open_diagram makes a diagram current; add/update/remove tools edit it; every edit is written',
       'back to its file. list_diagrams shows what is saved. Use the add/update/remove tools for follow-ups, not for',
@@ -111,7 +128,7 @@ export function createServer(): McpServer {
 );
 
 function json(value: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(value, null, 2) }] };
+  return { content: [{ type: 'text', text: JSON.stringify(value) }] };
 }
 
 const viewSchema = z.enum(['chen', 'crowfoot']);

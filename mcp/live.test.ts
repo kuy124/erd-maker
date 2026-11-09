@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
-import { HOVER_MS, LiveRoom, PRESS_MS, THINK_MS, TYPE_CHAR_MS, TYPING_MS, legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
+import { HOVER_MS, LiveRoom, PRESS_MS, THINK_MS, TYPING_MS, legEase, liveSteps, presenceAt, roomFromLink, routeDurationsMs, routePoint, settleOffset, travelBow, travelControl, travelDurationMs, travelEase, travelPoint, writeDocumentDiff, type CursorPoint } from './live';
 import { buildShareUrl, normalizeDocument } from '../src/model/snapshot';
 import { emptyDocument, type Attribute, type ErdDocument, type Leg, type Relationship } from '../src/model/types';
 import { seedDocument, snapshotFromYdoc, upsertAttribute, upsertEntity } from '../src/collab/ydoc';
@@ -472,7 +472,7 @@ describe('intent choreography', () => {
     live.close();
   });
 
-  it('publishes positional frames at 20fps, but arrivals immediately', async () => {
+  it('publishes positional frames at 5fps, but arrivals immediately', async () => {
     const { live, awareness } = headless();
     // Count every awareness write the room emits: these are the messages the
     // relay is billed for, and the point of the throttle is their count.
@@ -486,9 +486,8 @@ describe('intent choreography', () => {
     await vi.advanceTimersByTimeAsync(600);
     await gliding;
 
-    // At one positional frame per 50ms plus the arrival, the hop costs about
-    // a third of the ungated stream — never more than this ceiling.
-    expect(published).toBeLessThan(16);
+    // One positional frame per 200ms, plus immediate gesture transitions.
+    expect(published).toBeLessThan(8);
     expect(published).toBeGreaterThan(1);
   });
 
@@ -562,28 +561,26 @@ describe('intent choreography', () => {
     expect(local().typing).toBe(false);
   });
 
-  it('writes each character of a name after the shape lands', async () => {
+  it('shows typing without document writes or overwriting a concurrent rename', async () => {
     const { live, local, awareness } = headless();
     const doc = sampleDoc();
     upsertEntity(live.ydoc, doc.entities[0]!);
     // A watcher in the room is what makes the replay worth doing.
     awareness.getStates().set(4242, { name: 'Faris' });
-    const typing = live.typeName(doc, { id: 'ent_customer', kind: 'entity' });
-
-    // One frame per character, with the typing indicator up the whole time.
-    const name = 'Customer';
-    for (let at = 1; at <= name.length; at++) {
-      expect(live.ydoc.getMap<Y.Map<unknown>>('entities').get('ent_customer')?.get('name')).toBe(name.slice(0, at));
-      expect(local().typing).toBe(true);
-      await vi.advanceTimersByTimeAsync(TYPE_CHAR_MS);
-    }
-    await typing;
-    expect(live.ydoc.getMap<Y.Map<unknown>>('entities').get('ent_customer')?.get('name')).toBe('Customer');
-    // The indicator holds for a beat after the last character.
-    await vi.advanceTimersByTimeAsync(TYPING_MS - TYPE_CHAR_MS - 2);
+    const updates = vi.fn();
+    live.ydoc.on('update', updates);
+    await live.typeName(doc, { id: 'ent_customer', kind: 'entity' });
+    const entity = live.ydoc.getMap<Y.Map<unknown>>('entities').get('ent_customer')!;
+    expect(entity.get('name')).toBe('Customer');
+    expect(updates).not.toHaveBeenCalled();
+    entity.set('name', 'Customer edited by peer');
+    updates.mockClear();
+    await vi.advanceTimersByTimeAsync(TYPING_MS - 2);
     expect(local().typing).toBe(true);
     await vi.advanceTimersByTimeAsync(2);
     expect(local().typing).toBe(false);
+    expect(entity.get('name')).toBe('Customer edited by peer');
+    expect(updates).not.toHaveBeenCalled();
   });
 
   it('skips the typed replay when nobody is watching', async () => {

@@ -319,13 +319,28 @@ export function pruneGroups(doc: ErdDocument): ErdDocument {
  * attributes, and any ISA links pointing at it. Returns a new document; the
  * input is not mutated.
  */
+export function removalIds(doc: ErdDocument, id: NodeId): Set<NodeId> {
+  const removed = new Set([id]);
+  if (doc.entities.some((entity) => entity.id === id)) {
+    const relationships = new Set(doc.relationships.map((relationship) => relationship.id));
+    for (const leg of doc.legs) {
+      if (leg.fromId === id && relationships.has(leg.toId)) removed.add(leg.toId);
+      if (leg.toId === id && relationships.has(leg.fromId)) removed.add(leg.fromId);
+    }
+  }
+  for (const nodeId of [...removed]) {
+    for (const attributeId of descendantAttributeIds(doc, nodeId)) removed.add(attributeId);
+  }
+  return removed;
+}
+
 export function removeNode(doc: ErdDocument, id: NodeId): ErdDocument {
-  const orphanedAttributes = descendantAttributeIds(doc, id);
+  const removed = removalIds(doc, id);
   return pruneGroups({
     ...doc,
-    entities: doc.entities.filter((e) => e.id !== id),
-    attributes: doc.attributes.filter((a) => a.id !== id && !orphanedAttributes.has(a.id)),
-    relationships: doc.relationships.filter((r) => r.id !== id),
+    entities: doc.entities.filter((e) => !removed.has(e.id)),
+    attributes: doc.attributes.filter((a) => !removed.has(a.id)),
+    relationships: doc.relationships.filter((r) => !removed.has(r.id)),
     isas: doc.isas
       .filter((i) => i.id !== id)
       .map((i) => ({
@@ -333,8 +348,7 @@ export function removeNode(doc: ErdDocument, id: NodeId): ErdDocument {
         parentId: i.parentId === id ? null : i.parentId,
         childIds: i.childIds.filter((c) => c !== id),
       })),
-    legs: doc.legs.filter((l) => l.fromId !== id && l.toId !== id &&
-      !orphanedAttributes.has(l.fromId) && !orphanedAttributes.has(l.toId)),
+    legs: doc.legs.filter((l) => !removed.has(l.id) && !removed.has(l.fromId) && !removed.has(l.toId)),
   });
 }
 

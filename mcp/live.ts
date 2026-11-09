@@ -115,8 +115,6 @@ export const HOVER_MS = 90;
 export const PRESS_MS = 380;
 /** How long a text edit keeps the typing indicator up. */
 export const TYPING_MS = 900;
-/** How long one character of a name takes while the AI writes it out. */
-export const TYPE_CHAR_MS = 55;
 /** How long a read-only call leaves the thinking ring up. */
 export const THINK_MS = 900;
 /** How far outside the first shape the pointer enters a room from. */
@@ -1430,15 +1428,7 @@ export class LiveRoom {
     return Date.now() - began;
   }
 
-  /**
-   * Types a shape's name out after the shape lands.
-   *
-   * `writeStep` writes the whole shape at once, so the name is already correct;
-   * this rewrites it a character at a time purely for the watcher, publishing
-   * `typing` on every keystroke for the indicator under the cursor. A shape
-   * arrives as a person makes it — drawn first, then named. Skipped when nobody
-   * is watching and for names too short to be worth replaying.
-   */
+  /** Keep the typing cue without rewriting an already committed name. */
   async typeName(doc: ErdDocument, step: LiveStep): Promise<void> {
     if (this.watching === 0 || this.closed) return;
     const name = shapeNameAt(doc, step);
@@ -1447,17 +1437,8 @@ export class LiveRoom {
       : step.kind === 'relationship' ? RELATIONSHIPS : null;
     const map = mapName ? this.ydoc.getMap(mapName).get(step.id) as Y.Map<unknown> | undefined : undefined;
     if (!map) return;
-    const generation = this.typingGeneration;
-    // The window opens before the first character so the indicator is up for
-    // the whole replay, not just after it.
     this.refreshTyping();
-    for (let at = 1; at <= name.length; at++) {
-      if (this.typingGeneration !== generation || this.closed) return;
-      map.set('name', name.slice(0, at));
-      this.refreshTyping();
-      this.publishPresence({ typing: true });
-      await pause(TYPE_CHAR_MS);
-    }
+    this.publishPresence({ typing: true });
   }
 
   /** Where the pointer is right now, for a caller that means to come back. */
@@ -1655,7 +1636,7 @@ export interface PresencePoint {
 }
 
 /** Turns a focused shape into awareness fields, resolved for one notation. */
-/** The name a streamed shape carries, which `typeName` replays. */
+/** The committed name of a streamed shape. */
 function shapeNameAt(doc: ErdDocument, step: LiveStep): string {
   if (step.kind === 'entity') return doc.entities.find((candidate) => candidate.id === step.id)?.name ?? '';
   if (step.kind === 'attribute') return doc.attributes.find((candidate) => candidate.id === step.id)?.name ?? '';

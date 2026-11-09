@@ -32,10 +32,10 @@ import type {
   Relationship,
   RouteSide,
 } from '../model/types';
-import { ENTITY_KINDS, ROUTE_SIDES } from '../model/types';
+import { ENTITY_KINDS, ROUTE_SIDES, removalIds } from '../model/types';
 import { emptyDocument } from '../model/types';
 import { normalizeDataType } from '../model/dataTypes';
-import { descendantAttributeIds, normalizeAttributeOwners } from '../model/attributes';
+import { normalizeAttributeOwners } from '../model/attributes';
 import { normalizeRoutePoints, type RoutePoint } from '../model/connectorRouting';
 import { canConnect, findRelationshipSlot } from '../model/placement';
 import { deriveTables, type ColumnEndpoint } from '../model/crowfoot';
@@ -308,8 +308,7 @@ export function connectColumns(
 /** Removes a node and the legs and attributes that depended on it. */
 export function deleteNodeFromYdoc(ydoc: Y.Doc, id: string): void {
   ydoc.transact(() => {
-    const removed = descendantAttributeIds(snapshotFromYdoc(ydoc), id);
-    removed.add(id);
+    const removed = removalIds(snapshotFromYdoc(ydoc), id);
     // Legs are nodes too. Without this a relationship line cannot be deleted on
     // its own: nothing below removes it, because a leg is never the `fromId` or
     // `toId` of another leg.
