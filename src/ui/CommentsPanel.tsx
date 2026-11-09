@@ -68,7 +68,7 @@ export function CommentsPanel({ state, open, hasDraft, onPlace, onLocate }: {
         <button type="button" className="comment-card" aria-label={`Open comment ${number}: ${comment.deleted ? 'Deleted comment' : comment.text}${replies.length ? `, ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : ''}`}
           aria-pressed={state.selectedCommentId === comment.id} onClick={() => onLocate(comment)}>
           <CommentAuthor state={state} comment={comment} />
-          <p className={`comment-preview${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted ? 'Thread deleted by its author.' : comment.text}</p>
+           <p className={`comment-preview${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted ? 'Thread deleted.' : comment.text}</p>
           {replies.length > 0 ? <p className="comment-latest-reply"><span>{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>{latest.text}</p> : null}
           <div className="comment-card__footer">
             <span><WorkspaceIcon name="pin" />{comment.location ? `Pin ${number} · ${comment.location.view === 'chen' ? 'Chen' : "Crow's-foot"}` : 'Diagram comment'}</span>
@@ -77,7 +77,7 @@ export function CommentsPanel({ state, open, hasDraft, onPlace, onLocate }: {
             </time>
           </div>
         </button>
-        {!comment.deleted && comment.authorId === state.identity.userId ? <button type="button" className="btn btn--ghost btn--icon comment-delete"
+        {!comment.deleted ? <button type="button" className="btn btn--ghost btn--icon comment-delete"
           aria-label={`Delete thread ${number}`} title="Delete thread" onClick={() => { setDeleteError(null); setDeletingId(comment.id); }}>
           <WorkspaceIcon name="trash" /></button> : null}
       </li>)}

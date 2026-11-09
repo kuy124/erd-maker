@@ -30,7 +30,7 @@ export function CommentPopover({ state, svgRef, draft, setDraft, panel, canvasAr
     item.id === state.selectedCommentId && !item.parentId && replyDrafts[item.id]?.trim());
   const replies = thread?.replies ?? [];
   const value = comment ? replyDrafts[comment.id] ?? '' : draft;
-  const deleting = state.doc.comments.find(item => item.id === deletingId && !item.deleted && item.authorId === state.identity.userId);
+  const deleting = state.doc.comments.find(item => item.id === deletingId && !item.deleted);
   const location = comment?.location ?? (!state.selectedCommentId ? state.commentLocation : null);
   const visible = !!(comment || location) && (!location || location.view === state.view) && state.tool !== 'comment';
   const number = thread ? state.threads.indexOf(thread) + 1 : null;
@@ -183,7 +183,7 @@ export function CommentPopover({ state, svgRef, draft, setDraft, panel, canvasAr
         } catch { setError('Could not delete this message. Please try again.'); }
       }}>{deleting.parentId ? 'Delete reply' : 'Delete thread'}</button>
     </>}>
-      <p>{deleting.parentId ? 'Your other messages stay in the thread.' : 'The whole thread and its replies are deleted for everyone.'}</p>
+      <p>{deleting.parentId ? 'Other messages stay in the thread.' : 'The whole thread and its replies are deleted for everyone.'}</p>
       <blockquote className="comment-text">{deleting.text}</blockquote>
       {error ? <p className="field__help field__help--error" role="alert">{error}</p> : null}
     </Modal>, document.body) : null}
@@ -194,12 +194,12 @@ function CommentMessage({ state, comment, onDelete }: { state: EditorState; comm
   return <article className="comment-message" data-message-id={comment.id} data-author-id={comment.authorId}>
     <header className="comment-message__header">
       <CommentAuthor state={state} comment={comment} timestamp />
-      {!comment.deleted && comment.authorId === state.identity.userId ? <button type="button" className="btn btn--ghost btn--icon comment-delete"
+      {!comment.deleted ? <button type="button" className="btn btn--ghost btn--icon comment-delete"
         aria-label={comment.parentId ? 'Delete reply' : 'Delete thread'} title={comment.parentId ? 'Delete reply' : 'Delete thread'}
         onClick={() => onDelete(comment.id)}><WorkspaceIcon name="trash" /></button> : null}
     </header>
     <p className={`comment-text${comment.deleted ? ' comment-removed' : ''}`}>{comment.deleted
-      ? comment.parentId ? 'Reply deleted by its author.' : 'Thread deleted by its author.'
+      ? comment.parentId ? 'Reply deleted.' : 'Thread deleted.'
       : comment.text}</p>
     {!comment.deleted ? <details className="comment-attribution"><summary>Author details</summary>
       <p>Posted as <strong>{comment.authorName}</strong></p>

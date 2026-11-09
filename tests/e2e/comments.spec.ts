@@ -5,7 +5,7 @@ import { parseShareHash } from '../../src/model/snapshot';
 const commentsButton = (page: Page) => page.getByRole('navigation', { name: 'Workspace panels' }).getByRole('button', { name: 'Comments', exact: true });
 const popover = (page: Page) => page.locator('.comment-popover');
 
-test('collaborators reply in one thread, retain drafts and identity, and delete only their own messages', async ({ browser }) => {
+test('collaborators reply in one thread, retain drafts and identity, and delete anyone’s messages', async ({ browser }) => {
   const owner = await signalingContext(browser), guest = await signalingContext(browser);
   try {
     const alice = await owner.newPage();
@@ -31,7 +31,7 @@ test('collaborators reply in one thread, retain drafts and identity, and delete 
     const remote = alice.locator('.comment-message').filter({ hasText: text });
     await expect(remote).toBeVisible({ timeout: 30_000 });
     await expect(remote.locator('script')).toHaveCount(0);
-    await expect(remote.getByRole('button', { name: 'Delete reply', exact: true })).toHaveCount(0);
+    await expect(remote.getByRole('button', { name: 'Delete reply', exact: true })).toBeVisible();
     const authorId = await remote.getAttribute('data-author-id');
     await expect(alice.locator('.comment-pin')).toHaveCount(1);
     await expect(alice.locator('.comment-pin__reply-count')).toHaveText('1');
@@ -66,12 +66,15 @@ test('collaborators reply in one thread, retain drafts and identity, and delete 
     await alice.locator(`.comment-pin[data-comment-id="${rootId}"]`).click();
     await expect(remote).toContainText('Posted as Morgan');
     await expect(remote).toHaveAttribute('data-author-id', authorId!);
-    await expect(remote.getByRole('button', { name: 'Delete reply', exact: true })).toHaveCount(0);
+    await remote.getByRole('button', { name: 'Delete reply', exact: true }).click();
+    await alice.getByRole('dialog', { name: 'Delete reply?', exact: true }).getByRole('button', { name: 'Delete reply', exact: true }).click();
+    await expect(bob.locator('.comment-message').filter({ hasText: text })).toHaveCount(0);
+    await expect(bob.locator('.comment-replies > li')).toHaveCount(2);
     await alice.locator(`.comment-pin[data-comment-id="${rootId}"]`).first().click();
     await expect(popover(alice)).toContainText('Review the customer email key.');
     await popover(alice).getByRole('button', { name: 'Delete thread', exact: true }).click();
     await alice.getByRole('dialog', { name: 'Delete thread?', exact: true }).getByRole('button', { name: 'Delete thread', exact: true }).click();
-    await expect(popover(bob)).toContainText('Thread deleted by its author.');
+    await expect(popover(bob)).toContainText('Thread deleted.');
     await expect(bob.locator('.comment-replies > li')).toHaveCount(0);
     await expect(bob.getByLabel('Reply', { exact: true })).toBeDisabled();
     await expect(bob.getByLabel('Reply', { exact: true })).toHaveValue('Draft for the email thread');
@@ -80,13 +83,13 @@ test('collaborators reply in one thread, retain drafts and identity, and delete 
     await expect(bob.locator(`.comment-pin[data-comment-id="${rootId}"]`)).toHaveCount(0);
     await commentsButton(bob).click();
     await expect(bob.locator('.comment-item')).toHaveCount(1);
-    await expect(bob.locator('.comment-item').getByRole('button', { name: /^Delete thread/ })).toHaveCount(0);
+    await expect(bob.locator('.comment-item').getByRole('button', { name: /^Delete thread/ })).toBeVisible();
     await commentsButton(alice).click();
     await alice.locator('.comment-item').getByRole('button', { name: /^Delete thread/ }).click();
     await alice.getByRole('dialog', { name: 'Delete thread?', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(alice.locator('.comment-item')).toHaveCount(1);
-    await alice.locator('.comment-item').getByRole('button', { name: /^Delete thread/ }).click();
-    await alice.getByRole('dialog', { name: 'Delete thread?', exact: true }).getByRole('button', { name: 'Delete thread', exact: true }).click();
+    await bob.locator('.comment-item').getByRole('button', { name: /^Delete thread/ }).click();
+    await bob.getByRole('dialog', { name: 'Delete thread?', exact: true }).getByRole('button', { name: 'Delete thread', exact: true }).click();
     await expect(bob.locator('.comment-pin')).toHaveCount(0);
     await bob.reload();
     await expect(bob.getByLabel('Diagram name')).toBeEnabled();
@@ -132,7 +135,7 @@ test('the default comment flow pins feedback and preserves authors through cross
     await commentsButton(bob).click();
     const remote = bob.locator('.comment-item').filter({ hasText: text });
     await remote.getByRole('button', { name: /^Open comment/ }).click();
-    await expect(popover(bob).getByRole('button', { name: 'Delete thread' })).toHaveCount(0);
+    await expect(popover(bob).getByRole('button', { name: 'Delete thread', exact: true })).toBeVisible();
     await expect(popover(bob).locator('script')).toHaveCount(0);
 
     const anotherDiagram = await owner.newPage();
@@ -154,7 +157,7 @@ test('the default comment flow pins feedback and preserves authors through cross
     await restored.getByRole('button', { name: /^Open comment/ }).click();
     await expect(popover(returned)).toContainText('Posted as Original name');
     await rename(bob, 'Changed before rejoining');
-    await expect(popover(bob).getByRole('button', { name: 'Delete thread' })).toHaveCount(0);
+    await expect(popover(bob).getByRole('button', { name: 'Delete thread', exact: true })).toBeVisible();
 
     const dialogs: string[] = [];
     returned.on('dialog', async dialog => { dialogs.push(dialog.type()); await dialog.dismiss(); });

@@ -22,10 +22,10 @@ export function addComment(ydoc: Y.Doc, identity: Pick<Identity, 'userId' | 'nam
   return comment.id;
 }
 
-export function removeComment(ydoc: Y.Doc, id: string, authorId: string): boolean {
+export function removeComment(ydoc: Y.Doc, id: string): boolean {
   const comments = ydoc.getMap<DiagramComment>(COMMENTS);
   const comment = readComments(ydoc).find(item => item.id === id);
-  if (!comment || comment.authorId !== authorId || comment.deleted !== undefined) return false;
+  if (!comment || comment.deleted !== undefined) return false;
   // Keep the tombstone so offline replies cannot resurrect a deleted thread.
   comments.set(id, { ...comment, text: '', deleted: true });
   return true;

@@ -378,7 +378,7 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     addReply: (commentId: string, text: string) => loaded &&
       postComment(room.ydoc, createLocalIdentity(room.ydoc.clientID), text, undefined, commentId) !== null,
     removeComment: (id: string) => {
-      if (!loaded || !deleteComment(room.ydoc, id, identity.userId)) return false;
+      if (!loaded || !deleteComment(room.ydoc, id)) return false;
       const remaining = commentThreads(readComments(room.ydoc));
       setSelectedCommentId(current => remaining.some(thread => thread.comment.id === current) ? current : null);
       return true;
