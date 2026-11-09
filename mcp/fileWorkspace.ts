@@ -8,7 +8,7 @@
  */
 
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { assertJsonPath, keyStem, WorkspacePathError, type Workspace, type WorkspaceEntry } from './workspace';
 
 export interface FileWorkspaceOptions {
@@ -31,6 +31,9 @@ export class FileWorkspace implements Workspace {
 
   resolve(input: string): string {
     const trimmed = assertJsonPath(input);
+    if (win32.isAbsolute(trimmed) && !isAbsolute(trimmed)) {
+      throw new WorkspacePathError('Windows absolute paths are not supported on this platform.');
+    }
     /*
      * The check below only compares path text, so two Windows forms reach a
      * different file without it noticing: `..\secret.json:stream` (an

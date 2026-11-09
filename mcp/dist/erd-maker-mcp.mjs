@@ -54716,7 +54716,7 @@ var init_workspace = __esm({
 
 // mcp/fileWorkspace.ts
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 var FileWorkspace;
 var init_fileWorkspace = __esm({
   "mcp/fileWorkspace.ts"() {
@@ -54733,6 +54733,9 @@ var init_fileWorkspace = __esm({
       }
       resolve(input2) {
         const trimmed = assertJsonPath(input2);
+        if (win32.isAbsolute(trimmed) && !isAbsolute(trimmed)) {
+          throw new WorkspacePathError("Windows absolute paths are not supported on this platform.");
+        }
         if (trimmed.replace(/^[A-Za-z]:/, "").includes(":")) {
           throw new WorkspacePathError('Diagram paths cannot contain ":".');
         }
