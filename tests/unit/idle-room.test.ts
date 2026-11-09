@@ -54,3 +54,23 @@ it('closes an idle assistant and preserves a snapshot before destroying it', () 
   live.close();
   expect(destroy).toHaveBeenCalledOnce();
 });
+
+it('disconnects a navigated-away room and does not recover before pageshow', () => {
+  vi.useFakeTimers();
+  const room = createRoom('pagehide-test-room', { persist: false, signalling: [] });
+  try {
+    room.awareness.setLocalState({ name: 'Human' });
+    const disconnect = vi.spyOn(room.provider, 'disconnect');
+    const connect = vi.spyOn(room.provider, 'connect');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(disconnect).toHaveBeenCalled();
+    window.dispatchEvent(new Event('online'));
+    vi.advanceTimersByTime(30_000);
+    expect(connect).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event('pageshow'));
+    expect(connect).toHaveBeenCalled();
+    expect(room.awareness.getLocalState()).toEqual({ name: 'Human' });
+  } finally {
+    room.destroy();
+  }
+});

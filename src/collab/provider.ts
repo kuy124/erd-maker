@@ -25,6 +25,7 @@ import { Awareness } from 'y-protocols/awareness';
 import { needsReconnect } from './recovery';
 import { readIntent, type PeerIntent } from './presence';
 import { bridgeRelayPresence, sendOnlyLocalPresence } from './relayPresence';
+import { limitRelayRetries } from './relayRetry';
 
 const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
 const idleProviders = new WeakSet<WebrtcProvider>();
@@ -207,10 +208,11 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   });
   watchPeers(provider);
   const relay = relayUrl ? new WebsocketProvider(relayUrl, room, ydoc, {
-    awareness: new Awareness(ydoc), connect, maxBackoffTime: 10000,
+    awareness: new Awareness(ydoc), connect, maxBackoffTime: 60000,
   }) : undefined;
   const presence = provider.awareness;
   if (relay) sendOnlyLocalPresence(relay);
+  const recoverRelay = relay ? limitRelayRetries(relay) : undefined;
   const stopPresenceBridge = relay ? bridgeRelayPresence(presence, relay.awareness) : undefined;
   if (relay) {
     relays.set(provider, relay);
@@ -238,10 +240,18 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
    * `pagehide` rather than `unload` because the latter blocks navigation and is
    * unreliable on mobile, and because a bfcache restore re-fires it.
    */
+  let pageSuspended = false;
   const announceLeave = () => presence.setLocalState(null);
+  const suspendPage = () => {
+    pageSuspended = true;
+    relay?.disconnect();
+    provider.disconnect();
+  };
   window.addEventListener('pagehide', announceLeave);
+  window.addEventListener('pagehide', suspendPage);
   let lastReconnect = 0;
   const reconnect = () => {
+    recoverRelay?.(true);
     if (idleProviders.delete(provider)) {
       presence.setLocalState(suspendedPresence);
       suspendedPresence = null;
@@ -251,11 +261,9 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     recover();
   };
   const recover = () => {
-    if (idleProviders.has(provider)) return;
+    if (idleProviders.has(provider) || pageSuspended || document.visibilityState !== 'visible') return;
     if (!connect || navigator.onLine === false) return;
-    if (relay) {
-      if (!relay.wsconnected && !relay.wsconnecting) relay.connect();
-    }
+    recoverRelay?.();
     if (directConnectionCount(provider) > 0 || Date.now() - lastReconnect < 10000) return;
     lastReconnect = Date.now();
     provider.disconnect();
@@ -277,6 +285,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   // Capture before announceLeave clears presence on a bfcache navigation.
   window.addEventListener('pagehide', rememberPresence, true);
   const resume = () => {
+    pageSuspended = false;
     if (idleProviders.has(provider)) return;
     if (suspendedPresence && !presence.getLocalState()) {
       presence.setLocalState(suspendedPresence);
@@ -284,7 +293,10 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     }
     recover();
   };
-  const onVisible = () => { if (document.visibilityState === 'visible') resume(); };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') resume();
+    else relay?.disconnect();
+  };
   window.addEventListener('online', recover);
   window.addEventListener('pageshow', resume);
   document.addEventListener('visibilitychange', onVisible);
@@ -319,6 +331,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     reconnect,
     destroy: () => {
       window.removeEventListener('pagehide', announceLeave);
+      window.removeEventListener('pagehide', suspendPage);
       window.removeEventListener('pagehide', rememberPresence, true);
       window.removeEventListener('online', recover);
       for (const event of activityEvents) window.removeEventListener(event, activity);
