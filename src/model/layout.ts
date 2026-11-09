@@ -17,7 +17,7 @@
  * for connector channels.
  */
 
-import { NODE_SIZE, type ErdDocument, type Positioned } from './types';
+import { NODE_SIZE, sizeOf, type ErdDocument, type Positioned } from './types';
 import { deriveLinks, deriveTables, tableHeight } from './crowfoot';
 import { descendantAttributeIds } from './attributes';
 import { overlaps, type Box } from './placement';
@@ -222,73 +222,213 @@ function lineHitsBox(a: Point, b: Point, box: Point & { w: number; h: number }):
 }
 
 function attributeRadius(doc: ErdDocument, ownerId: string, count: number, capacity = 8): Point {
-  const owner = sizeFor(doc, ownerId), size = NODE_SIZE.attribute;
+  const owner = sizeFor(doc, ownerId);
+  const children = doc.attributes.filter(a => a.ownerId === ownerId).map(a => sizeFor(doc, a.id));
+  const size = { w: Math.max(NODE_SIZE.attribute.w, ...children.map(s => s.w)),
+    h: Math.max(NODE_SIZE.attribute.h, ...children.map(s => s.h)) };
   const scale = Math.max(1, count / capacity);
   return { x: ((owner.w + size.w) / 2 + 60) * scale, y: ((owner.h + size.h) / 2 + 60) * scale };
 }
 
-function clearAttributeSlot(doc: ErdDocument, owner: Positioned, count: number, bounds?: Box): Point {
-  const size = NODE_SIZE.attribute, ownerSize = sizeFor(doc, owner.id);
+/**
+ * Places one attribute in the first slot that collides with nothing.
+ *
+ * The search widens rather than recursing: a reserved fan can be too small
+ * after a label grows, so the same ring walk is repeated without the `bounds`
+ * clamp at growing radii. The loop is bounded, so an owner boxed in on every
+ * side still returns a slot instead of searching forever.
+ */
+const nodeBoxes = new WeakMap<object, { id: string; w: number; h: number; x: number; y: number }>();
+
+function clearAttributeSlot(doc: ErdDocument, owner: Positioned, count: number, bounds?: Box, size = NODE_SIZE.attribute, connectorCache = new WeakMap<object, ReturnType<typeof segmentBetween> | null>()): Point {
+  const ownerSize = sizeFor(doc, owner.id);
   const ownerCenter = { x: owner.x + ownerSize.w / 2, y: owner.y + ownerSize.h / 2 };
   const ownerEdge = doc.attributes.some(a => a.id === owner.id) ? ellipseEdge
     : doc.relationships.some(r => r.id === owner.id) ? diamondEdge : rectEdge;
+  // Positions only change between passes, so the boxes of everything already
+  // arranged are read once and reused: rebuilding this list per attribute was
+  // half of the layout time on a dense diagram.
   const boxes = [...doc.entities, ...doc.relationships, ...doc.isas, ...doc.attributes]
-    .map(node => ({ ...node, ...sizeFor(doc, node.id) }));
+    .map(node => {
+      const cached = nodeBoxes.get(node);
+      if (cached && cached.x === node.x && cached.y === node.y) return cached;
+      const box = { ...node, ...sizeFor(doc, node.id) };
+      nodeBoxes.set(node, box);
+      return box;
+    });
+  /*
+   * Uniform grid over the boxes and over the connector segments.
+   *
+   * Every attribute costs ~200 candidates × a few hundred boxes and segments,
+   * which is what made a dense Chen view take seconds. A cell lookup turns that
+   * into "the handful of things actually near this point". Cells are addressed
+   * by an integer key and de-duplicated with a stamp array rather than a Map or
+   * Set allocated per candidate, because those allocations were most of the
+   * cost. ponytail: one fixed cell size; a quadtree only if schemas outgrow it.
+   */
+  const CELL = 512;
+  const key = (cx: number, cy: number) => (cx + 32768) * 65536 + (cy + 32768);
+  type Cell = { boxes: number[]; segments: number[] };
+  const cells = new Map<number, Cell>();
+  const cellFor = (k: number) => {
+    let cell = cells.get(k);
+    if (!cell) cells.set(k, cell = { boxes: [], segments: [] });
+    return cell;
+  };
+  boxes.forEach((box, index) => {
+    for (let cx = Math.floor(box.x / CELL); cx <= Math.floor((box.x + box.w) / CELL); cx++) {
+      for (let cy = Math.floor(box.y / CELL); cy <= Math.floor((box.y + box.h) / CELL); cy++) {
+        cellFor(key(cx, cy)).boxes.push(index);
+      }
+    }
+  });
   const segments: Array<[Point, Point]> = [];
   const add = (segment: ReturnType<typeof segmentBetween>) => {
     if (!segment) return;
     const points = segment.points ?? [segment.from, segment.to];
     for (let i = 1; i < points.length; i++) segments.push([points[i - 1]!, points[i]!]);
   };
+  // Every call used to recompute the connector of every attribute, which is
+  // quadratic in the number of attributes and was most of the layout time. A
+  // connector only depends on the two nodes' own positions, so it is memoised
+  // against the attribute object: an attribute that has not been placed yet
+  // keeps its original object, and one that has been placed is never revisited.
+  const connectorOf = (attribute: ErdDocument['attributes'][number]) => {
+    let cached = connectorCache.get(attribute);
+    if (cached === undefined) {
+      const found = attribute.ownerId ? segmentBetween(doc, attribute.ownerId, attribute.id) : null;
+      cached = found ?? null;
+      connectorCache.set(attribute, cached);
+    }
+    return cached;
+  };
   for (const leg of doc.legs) add(segmentForLeg(doc, leg));
   for (const isa of doc.isas) {
     for (const id of [isa.parentId, ...isa.childIds]) if (id) add(segmentBetween(doc, isa.id, id));
   }
-  for (const a of doc.attributes) if (a.ownerId) add(segmentBetween(doc, a.ownerId, a.id));
-  const candidates: Point[] = [];
-  // ponytail: bounded local search, not a global router; use global routing if dense graphs need it.
-  const radius = attributeRadius(doc, owner.id, count, bounds ? COMPACT_FAN_CAPACITY : 8);
-  const samples = Math.max(48, count * 8);
-  for (let ring = 0; ring < 4; ring++) {
-    for (let i = 0; i < samples; i++) {
-      const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
-      candidates.push({
-        x: owner.x + ownerSize.w / 2 - size.w / 2 + Math.cos(angle) * (radius.x + ring * 70),
-        y: owner.y + ownerSize.h / 2 - size.h / 2 + Math.sin(angle) * (radius.y + ring * 70),
-      });
+  for (const a of doc.attributes) add(connectorOf(a) ?? undefined);
+  segments.forEach(([a, b], index) => {
+    for (let cx = Math.floor(Math.min(a.x, b.x) / CELL); cx <= Math.floor(Math.max(a.x, b.x) / CELL); cx++) {
+      for (let cy = Math.floor(Math.min(a.y, b.y) / CELL); cy <= Math.floor(Math.max(a.y, b.y) / CELL); cy++) {
+        cellFor(key(cx, cy)).segments.push(index);
+      }
     }
-  }
+  });
+  // A stamp per query instead of clearing the marks: query n marks every index
+  // it has already seen with n, and a bucket holding it again is skipped.
+  const boxMark = new Int32Array(boxes.length).fill(-1);
+  const segmentMark = new Int32Array(segments.length).fill(-1);
+  const hitBoxes: (typeof boxes)[number][] = [];
+  const hitSegments: Array<[Point, Point]> = [];
+  // One counter for every query: each query takes the next value, and an index
+  // already carrying it has been seen. Cheaper than clearing the arrays.
+  let query = 0;
+  const nearBoxes = (x: number, y: number, w: number, h: number) => {
+    hitBoxes.length = 0;
+    const mark = (query += 1);
+    for (let cx = Math.floor(x / CELL); cx <= Math.floor((x + w) / CELL); cx++) {
+      for (let cy = Math.floor(y / CELL); cy <= Math.floor((y + h) / CELL); cy++) {
+        for (const index of cells.get(key(cx, cy))?.boxes ?? []) {
+          if (boxMark[index] === mark) continue;
+          boxMark[index] = mark;
+          hitBoxes.push(boxes[index]!);
+        }
+      }
+    }
+    return hitBoxes;
+  };
+  const nearSegments = (x: number, y: number, w: number, h: number) => {
+    hitSegments.length = 0;
+    const mark = (query += 1);
+    for (let cx = Math.floor(x / CELL); cx <= Math.floor((x + w) / CELL); cx++) {
+      for (let cy = Math.floor(y / CELL); cy <= Math.floor((y + h) / CELL); cy++) {
+        for (const index of cells.get(key(cx, cy))?.segments ?? []) {
+          if (segmentMark[index] === mark) continue;
+          segmentMark[index] = mark;
+          hitSegments.push(segments[index]!);
+        }
+      }
+    }
+    return hitSegments;
+  };
   const distance = (point: Point) => Math.hypot(point.x + size.w / 2 - ownerCenter.x,
     point.y + size.h / 2 - ownerCenter.y) / 20;
-  const score = (point: Point) => {
-    const center = { x: point.x + size.w / 2, y: point.y + size.h / 2 };
+  const score = (point: Point) => {    const center = { x: point.x + size.w / 2, y: point.y + size.h / 2 };
     const segment = { from: ownerEdge(ownerCenter, center, ownerSize.w / 2, ownerSize.h / 2),
       to: ellipseEdge(center, ownerCenter, size.w / 2, size.h / 2) };
     let cost = distance(point);
-    for (const box of boxes) {
+    let boxed = false, crossing = false;
+    const self = { ...point, ...size };
+    for (const box of nearBoxes(point.x - 12, point.y - 12, size.w + 24, size.h + 24)) {
       if (point.x < box.x + box.w + 12 && point.x + size.w + 12 > box.x &&
-        point.y < box.y + box.h + 12 && point.y + size.h + 12 > box.y) cost += 1000000;
-      if (box.id !== owner.id && lineHitsBox(segment.from, segment.to, box)) cost += 10000;
+        point.y < box.y + box.h + 12 && point.y + size.h + 12 > box.y) { boxed = true; break; }
     }
-    for (const [a, b] of segments) {
-      if (lineHitsBox(a, b, { ...point, ...size })) cost += 10000;
-      if (linesCross(a, b, segment.from, segment.to)) cost += 100;
+    // Cost is a sum, so the winner cannot depend on the order it is added up
+    // in: score once with the flags, then price them.
+    if (!boxed) {
+      // Cheap reject first: a box nowhere near the segment cannot be crossed by
+      // it, and lineHitsBox is the expensive test here.
+      const minX = Math.min(segment.from.x, segment.to.x), maxX = Math.max(segment.from.x, segment.to.x);
+      const minY = Math.min(segment.from.y, segment.to.y), maxY = Math.max(segment.from.y, segment.to.y);
+      for (const box of nearBoxes(minX, minY, maxX - minX, maxY - minY)) {
+        if (box.id === owner.id) continue;
+        if (box.x > maxX || box.x + box.w < minX || box.y > maxY || box.y + box.h < minY) continue;
+        if (lineHitsBox(segment.from, segment.to, box)) { crossing = true; break; }
+      }
+    }
+    // ponytail: the connector scan below is the expensive half of this function
+    // and runs for every candidate. A boxed or crossing candidate can never beat
+    // a clean one, so it is priced without the scan.
+    if (boxed || crossing) return cost + (boxed ? 1e6 : 0) + (crossing ? 1e4 : 0);
+    for (const pair of nearSegments(point.x, point.y, size.w, size.h)) {
+      if (lineHitsBox(pair[0], pair[1], self)) cost += 10000;
+      if (linesCross(pair[0], pair[1], segment.from, segment.to)) cost += 100;
     }
     return cost;
   };
-  const local = candidates.map(point => bounds ? {
-    x: Math.max(bounds.x, Math.min(bounds.x + bounds.w - size.w, point.x)),
-    y: Math.max(bounds.y, Math.min(bounds.y + bounds.h - size.h, point.y)),
-  } : point);
-  const ranked = local.map((point, i) => ({ point, i, minimum: distance(point) + i * 1e-6 }))
-    .sort((a, b) => a.minimum - b.minimum);
-  let best = { point: ranked[0]!.point, cost: Infinity };
-  for (const candidate of ranked) {
-    if (candidate.minimum >= best.cost) break;
-    const cost = score(candidate.point) + candidate.i * 1e-6;
-    if (cost < best.cost) best = { point: candidate.point, cost };
+  // Each pass widens the fan; the first clamps inside `bounds`, later ones do not.
+  let fallback = { x: owner.x, y: owner.y };
+  for (let pass = 0; pass < 6; pass++) {
+    const clamped = pass === 0 ? bounds : undefined;
+    const growth = pass === 0 ? 0 : (pass - 1) * 140;
+    const radius = attributeRadius(doc, owner.id, count, clamped ? COMPACT_FAN_CAPACITY : 8);
+    const samples = Math.max(48, count * 8);
+    const candidates: Point[] = [];
+    for (let r = 0; r < 4; r++) {
+      for (let i = 0; i < samples; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
+        candidates.push({
+          x: owner.x + ownerSize.w / 2 - size.w / 2 + Math.cos(angle) * (radius.x + r * 70 + growth),
+          y: owner.y + ownerSize.h / 2 - size.h / 2 + Math.sin(angle) * (radius.y + r * 70 + growth),
+        });
+      }
+    }
+    const local = candidates.map(point => clamped ? {
+      x: Math.max(clamped.x, Math.min(clamped.x + clamped.w - size.w, point.x)),
+      y: Math.max(clamped.y, Math.min(clamped.y + clamped.h - size.h, point.y)),
+    } : point);
+    // A clamped fan collapses many angles onto the border, so most of this list
+    // is duplicates of a handful of spots. Scoring each spot once is what keeps
+    // a dense diagram inside the frame budget.
+    const seen = new Set<string>();
+    const ranked = local.flatMap((point, i) => {
+      const key = `${Math.round(point.x)},${Math.round(point.y)}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ point, i, minimum: distance(point) + i * 1e-6 }];
+    }).sort((a, b) => a.minimum - b.minimum);
+    let best = { point: ranked[0]!.point, cost: Infinity };
+    for (const candidate of ranked) {
+      if (candidate.minimum >= best.cost) break;
+      const cost = score(candidate.point) + candidate.i * 1e-6;
+      if (cost < best.cost) best = { point: candidate.point, cost };
+    }
+    // Below 1e6 nothing overlaps: this is the slot.
+    if (best.cost < 1000000) return best.point;
+    fallback = best.point;
   }
-  return best.point;
+  // Nothing clean exists; the least-bad slot beats looping forever.
+  return fallback;
 }
 
 /**
@@ -641,11 +781,7 @@ function attributeSpace(doc: ErdDocument, id: string, seen = new Set<string>(), 
 }
 
 export function sizeFor(doc: ErdDocument, id: string): { w: number; h: number } {
-  if (doc.entities.some((e) => e.id === id)) return NODE_SIZE.entity;
-  if (doc.attributes.some((a) => a.id === id)) return NODE_SIZE.attribute;
-  if (doc.relationships.some((r) => r.id === id)) return NODE_SIZE.relationship;
-  if (doc.isas.some((i) => i.id === id)) return NODE_SIZE.isa;
-  return { w: 0, h: 0 };
+  return sizeOf(doc, id);
 }
 
 /**
@@ -693,6 +829,9 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     for (const id of descendantAttributeIds(doc, ownerId)) limits.set(id, bounds);
   }
   let placed: ErdDocument = { ...doc, entities: movedEntities, relationships: movedRelationships, isas: movedIsas };
+  // Scoped to this layout pass: connectors of moved attributes are current, and
+  // a later call starts empty rather than reusing stale geometry.
+  const connectorCache = new WeakMap<object, ReturnType<typeof segmentBetween> | null>();
   const visiting = new Set<string>();
   const placeAttribute = (attr: ErdDocument['attributes'][number]) => {
     if (placedAttributes.has(attr.id) || visiting.has(attr.id)) return;
@@ -713,7 +852,7 @@ export function applyLayout(doc: ErdDocument): ErdDocument {
     // Place against what has been arranged so far, so siblings spread rather
     // than each claiming the same slot.
     const count = doc.attributes.filter(a => a.ownerId === owner.id).length;
-    const next = { ...attr, ...clearAttributeSlot({ ...placed, attributes: movedAttributes }, owner, count, limits.get(attr.id)) };
+    const next = { ...attr, ...clearAttributeSlot({ ...placed, attributes: movedAttributes }, owner, count, limits.get(attr.id), sizeFor(doc, attr.id), connectorCache) };
     movedAttributes.push(next);
     placedAttributes.set(attr.id, next);
     placed = { ...placed, attributes: movedAttributes };

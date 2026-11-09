@@ -255,7 +255,39 @@ export const NODE_SIZE: Record<NodeKind, { w: number; h: number }> = {
 
 export function sizeOf(doc: ErdDocument, id: NodeId): { w: number; h: number } {
   const kind = nodeKind(doc, id);
-  return kind ? NODE_SIZE[kind] : { w: 0, h: 0 };
+  const node = findNode(doc, id);
+  return kind ? namedNodeSize(kind, node && 'name' in node && typeof node.name === 'string' ? node.name : '') : { w: 0, h: 0 };
+}
+
+/** Preserve every character, including long identifiers and Unicode names. */
+export function labelLines(name: string, limit = 24): string[] {
+  const lines: string[] = [];
+  let chars = Array.from(name);
+  while (chars.length > limit) {
+    const prefix = chars.slice(0, limit).join('');
+    const boundary = Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('_'));
+    const split = boundary >= limit / 2 ? Array.from(prefix.slice(0, boundary + 1)).length : limit;
+    lines.push(chars.slice(0, split).join(''));
+    chars = chars.slice(split);
+  }
+  lines.push(chars.join(''));
+  return lines;
+}
+
+/** Shared by rendering, routing, hit testing and automatic placement. */
+export function namedNodeSize(kind: NodeKind, name: string): { w: number; h: number } {
+  const base = NODE_SIZE[kind];
+  if (kind === 'isa') return base;
+  const nominalLimit = kind === 'relationship' ? 13 : kind === 'attribute' ? 16 : 20;
+  if (Array.from(name).length <= nominalLimit && /^[\u0000-\u024f]*$/u.test(name)) return base;
+  const lines = labelLines(name);
+  // ponytail: conservative font estimate; browser font metrics if typography becomes configurable.
+  const width = Math.max(...lines.map(line => Array.from(line).reduce((sum, char) =>
+    sum + (/[^\u0000-\u024f]/u.test(char) ? 14 : /[MW@%]/.test(char) ? 12 : 8), 0)));
+  const height = lines.length * 16;
+  const factor = kind === 'relationship' ? 2 : kind === 'attribute' ? 1.5 : 1;
+  return { w: Math.max(base.w, Math.ceil((width + 24) * factor)),
+    h: Math.max(base.h, Math.ceil((height + 16) * factor)) };
 }
 
 /**

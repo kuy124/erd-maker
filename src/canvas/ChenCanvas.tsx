@@ -20,7 +20,7 @@ import { attributeEdgeId, connectorIds, isaChildEdgeId, isaParentEdgeId } from '
 import { useDrag, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
 import { CommentPins, useCommentPlacement } from './CommentPins';
-import { allNodes, findNode, NODE_SIZE, type ErdDocument, type Positioned } from '../model/types';
+import { allNodes, findNode, NODE_SIZE, sizeOf, type ErdDocument, type Positioned } from '../model/types';
 import { canConnect } from '../model/placement';
 
 interface Props {
@@ -506,11 +506,11 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
   // shape under the carrier's cursor instead of staying at its old position.
   const boundsOf = useCallback((id: string) => {
     const entity = displayDoc.entities.find((e) => e.id === id);
-    if (entity) return { x: entity.x, y: entity.y, w: NODE_SIZE.entity.w, h: NODE_SIZE.entity.h };
+    if (entity) return { x: entity.x, y: entity.y, ...sizeOf(displayDoc, id) };
     const relationship = displayDoc.relationships.find((r) => r.id === id);
-    if (relationship) return { x: relationship.x, y: relationship.y, w: NODE_SIZE.relationship.w, h: NODE_SIZE.relationship.h };
+    if (relationship) return { x: relationship.x, y: relationship.y, ...sizeOf(displayDoc, id) };
     const attribute = displayDoc.attributes.find((a) => a.id === id);
-    if (attribute) return { x: attribute.x, y: attribute.y, w: NODE_SIZE.attribute.w, h: NODE_SIZE.attribute.h };
+    if (attribute) return { x: attribute.x, y: attribute.y, ...sizeOf(displayDoc, id) };
     const isa = displayDoc.isas.find((i) => i.id === id);
     if (isa) return { x: isa.x, y: isa.y, w: NODE_SIZE.isa.w, h: NODE_SIZE.isa.h };
     return null;

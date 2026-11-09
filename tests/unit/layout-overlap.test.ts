@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { autoArrange, applyLayout } from '../../src/model/layout';
 import { deriveTables, tableHeight } from '../../src/model/crowfoot';
-import { emptyDocument, type ErdDocument } from '../../src/model/types';
+import { emptyDocument, sizeOf, type ErdDocument } from '../../src/model/types';
 
 function schema(tables: number, attrs: number): ErdDocument {
   const doc = emptyDocument('Warehouse');
@@ -32,11 +32,9 @@ function boxes(doc: ErdDocument): Box[] {
     }
     return out;
   }
-  const NODE = { entity: { w: 130, h: 72 }, attribute: { w: 130, h: 42 }, relationship: { w: 150, h: 72 }, isa: { w: 90, h: 40 } };
-  for (const e of doc.entities) out.push({ id: e.id, x: e.x, y: e.y, ...NODE.entity });
-  for (const r of doc.relationships) out.push({ id: r.id, x: r.x, y: r.y, ...NODE.relationship });
-  for (const i of doc.isas) out.push({ id: i.id, x: i.x, y: i.y, ...NODE.isa });
-  for (const a of doc.attributes) out.push({ id: a.id, x: a.x, y: a.y, ...NODE.attribute });
+  for (const node of [...doc.entities, ...doc.relationships, ...doc.isas, ...doc.attributes]) {
+    out.push({ id: node.id, x: node.x, y: node.y, ...sizeOf(doc, node.id) });
+  }
   return out;
 }
 

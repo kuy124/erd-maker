@@ -7,12 +7,11 @@
  * and weak relationships are drawn as a second inset shape rather than a
  * thicker stroke, which is the actual convention.
  *
- * Long labels use two lines within the fixed shape. Full names remain in
- * accessible labels, titles, the outline, and properties.
+ * Labels wrap without truncation; model sizes keep shapes and routes in sync.
  */
 
 import { memo, useEffect, useRef } from 'react';
-import { NODE_SIZE, type Attribute, type Entity, type Isa, type Relationship } from '../model/types';
+import { NODE_SIZE, namedNodeSize, labelLines, type Attribute, type Entity, type Isa, type Relationship } from '../model/types';
 import type { PeerState } from '../collab/provider';
 import { groupFrame, type ErdDocument, type Group } from '../model/types';
 import { intentHalo, lassoPolygon, type ShapeBounds } from './peerIntents';
@@ -95,7 +94,7 @@ export const EntityShape = memo(function EntityShape({
   enter,
   depart,
 }: BaseProps & { entity: Entity }) {
-  const { w, h } = NODE_SIZE.entity;
+  const { w, h } = namedNodeSize('entity', entity.name);
   const weak = entity.kind === 'weak';
   return (
     <g
@@ -112,7 +111,7 @@ export const EntityShape = memo(function EntityShape({
         {weak ? <rect className="node__body" x={5} y={5} width={w - 10} height={h - 10} pathLength={1} /> : null}
         {entity.kind === 'associative' ? <polygon className="node__body entity-associative" pathLength={1}
           points={`${w / 2},5 ${w - 5},${h / 2} ${w / 2},${h - 5} 5,${h / 2}`} /> : null}
-        <ShapeLabel name={entity.name} x={w / 2} y={h / 2} limit={20} />
+        <ShapeLabel name={entity.name} x={w / 2} y={h / 2} />
         <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />
       </Ink>
     </g>
@@ -129,7 +128,7 @@ export const RelationshipShape = memo(function RelationshipShape({
   enter,
   depart,
 }: BaseProps & { relationship: Relationship }) {
-  const { w, h } = NODE_SIZE.relationship;
+  const { w, h } = namedNodeSize('relationship', relationship.name);
   const hw = w / 2;
   const hh = h / 2;
   const weak = relationship.kind === 'weak';
@@ -152,7 +151,7 @@ export const RelationshipShape = memo(function RelationshipShape({
             points={`${hw},6 ${w - 8},${hh} ${hw},${h - 6} 8,${hh}`}
           />
         ) : null}
-        <ShapeLabel name={relationship.name} x={hw} y={hh} limit={13} />
+        <ShapeLabel name={relationship.name} x={hw} y={hh} />
         <Outline selected={selected} peerColor={peerColor} x={0} y={0} w={w} h={h} />
       </Ink>
     </g>
@@ -169,7 +168,7 @@ export const AttributeShape = memo(function AttributeShape({
   enter,
   depart,
 }: BaseProps & { attribute: Attribute }) {
-  const { w, h } = NODE_SIZE.attribute;
+  const { w, h } = namedNodeSize('attribute', attribute.name);
   const rx = w / 2;
   const ry = h / 2;
   const key = attribute.kind === 'key';
@@ -202,7 +201,7 @@ export const AttributeShape = memo(function AttributeShape({
             style={{ strokeDasharray: '5 4' }}
           />
         ) : null}
-        <ShapeLabel name={attribute.name} x={rx} y={ry - ((key || unique) && attribute.name.length <= 16 ? 4 : 0)} limit={16}
+        <ShapeLabel name={attribute.name} x={rx} y={ry - ((key || unique) && attribute.name.length <= 16 ? 4 : 0)}
           underline={key && attribute.name.length > 16} />
         {/* Key attributes are underlined, the standard Chen convention. */}
         {key && attribute.name.length <= 16 ? (
@@ -249,16 +248,10 @@ function measureLabel(text: string): number {
   return Math.max(7, text.length * 6.6);
 }
 
-function ShapeLabel({ name, x, y, limit, underline = false }: {
-  name: string; x: number; y: number; limit: number; underline?: boolean;
+function ShapeLabel({ name, x, y, underline = false }: {
+  name: string; x: number; y: number; underline?: boolean;
 }) {
-  const chars = Array.from(name);
-  const prefix = chars.slice(0, limit).join('');
-  const breakAt = Math.max(prefix.lastIndexOf(' '), prefix.lastIndexOf('_'));
-  const split = breakAt >= limit / 2 ? breakAt + 1 : limit;
-  const remaining = chars.slice(split).join('').trimStart();
-  const lines = chars.length <= limit ? [name] : [chars.slice(0, split).join('').trimEnd(),
-    remaining.length > limit ? remaining.slice(0, limit - 1) + '…' : remaining];
+  const lines = labelLines(name);
   return <text className="node__label" x={x} y={y} style={underline ? { textDecoration: 'underline' } : undefined}>
     <title>{name + ' — full shape name'}</title>
     {lines.map((line, index) => <tspan key={index} x={x} y={y + (index - (lines.length - 1) / 2) * 16}>{line}</tspan>)}

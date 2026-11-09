@@ -45,9 +45,11 @@ it.each([['chain', 25], ['mesh', 30], ['hub', 40], ['groups', 30]] as const)(
       expect(box.y * viewport.zoom + viewport.y).toBeGreaterThanOrEqual(area.y - 1e-6);
       expect((box.y + box.h) * viewport.zoom + viewport.y).toBeLessThanOrEqual(area.y + area.height + 1e-6);
     }
-    for (let i = 0; i < boxes.length; i++) for (const other of boxes.slice(i + 1)) {
-      expect(overlaps(boxes[i]!, other, 0), `${boxes[i]!.id} overlaps ${other.id}`).toBe(false);
+    const collisions: string[] = [];
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      if (overlaps(boxes[i]!, boxes[j]!, 0)) collisions.push(`${boxes[i]!.id} overlaps ${boxes[j]!.id}`);
     }
+    expect(collisions).toEqual([]);
     const byId = new Map(boxes.map(box => [box.id, box]));
     for (const attribute of next.attributes) {
       const owner = byId.get(attribute.ownerId!)!;

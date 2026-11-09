@@ -40488,6 +40488,9 @@ function emptyDocument(name = "Untitled diagram") {
 function allNodes(doc) {
   return [...doc.entities, ...doc.attributes, ...doc.relationships, ...doc.isas];
 }
+function findNode(doc, id2) {
+  return allNodes(doc).find((n) => n.id === id2);
+}
 function nodeKind(doc, id2) {
   if (doc.entities.some((e) => e.id === id2)) return "entity";
   if (doc.attributes.some((a) => a.id === id2)) return "attribute";
@@ -40497,7 +40500,35 @@ function nodeKind(doc, id2) {
 }
 function sizeOf(doc, id2) {
   const kind = nodeKind(doc, id2);
-  return kind ? NODE_SIZE[kind] : { w: 0, h: 0 };
+  const node2 = findNode(doc, id2);
+  return kind ? namedNodeSize(kind, node2 && "name" in node2 && typeof node2.name === "string" ? node2.name : "") : { w: 0, h: 0 };
+}
+function labelLines(name, limit = 24) {
+  const lines = [];
+  let chars = Array.from(name);
+  while (chars.length > limit) {
+    const prefix = chars.slice(0, limit).join("");
+    const boundary = Math.max(prefix.lastIndexOf(" "), prefix.lastIndexOf("_"));
+    const split = boundary >= limit / 2 ? Array.from(prefix.slice(0, boundary + 1)).length : limit;
+    lines.push(chars.slice(0, split).join(""));
+    chars = chars.slice(split);
+  }
+  lines.push(chars.join(""));
+  return lines;
+}
+function namedNodeSize(kind, name) {
+  const base = NODE_SIZE[kind];
+  if (kind === "isa") return base;
+  const nominalLimit = kind === "relationship" ? 13 : kind === "attribute" ? 16 : 20;
+  if (Array.from(name).length <= nominalLimit && /^[\u0000-\u024f]*$/u.test(name)) return base;
+  const lines = labelLines(name);
+  const width = Math.max(...lines.map((line) => Array.from(line).reduce((sum, char) => sum + (/[^\u0000-\u024f]/u.test(char) ? 14 : /[MW@%]/.test(char) ? 12 : 8), 0)));
+  const height = lines.length * 16;
+  const factor = kind === "relationship" ? 2 : kind === "attribute" ? 1.5 : 1;
+  return {
+    w: Math.max(base.w, Math.ceil((width + 24) * factor)),
+    h: Math.max(base.h, Math.ceil((height + 16) * factor))
+  };
 }
 function legsFor(doc, id2) {
   return doc.legs.filter((l) => l.fromId === id2 || l.toId === id2);
@@ -41049,21 +41080,21 @@ function occupiedBoxes(doc) {
     return deriveTables(doc).map((table) => ({ x: table.x, y: table.y, w: table.width, h: tableHeight(table) }));
   }
   return [
-    ...doc.entities.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.entity })),
-    ...doc.attributes.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.attribute })),
-    ...doc.relationships.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.relationship })),
+    ...doc.entities.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc, n.id) })),
+    ...doc.attributes.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc, n.id) })),
+    ...doc.relationships.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc, n.id) })),
     ...doc.isas.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.isa }))
   ];
 }
 function ownerBox(doc, ownerId) {
   const entity = doc.entities.find((e) => e.id === ownerId);
-  if (entity) return { x: entity.x, y: entity.y, ...NODE_SIZE.entity };
+  if (entity) return { x: entity.x, y: entity.y, ...sizeOf(doc, entity.id) };
   const relationship = doc.relationships.find((r) => r.id === ownerId);
-  if (relationship) return { x: relationship.x, y: relationship.y, ...NODE_SIZE.relationship };
+  if (relationship) return { x: relationship.x, y: relationship.y, ...sizeOf(doc, relationship.id) };
   const isa = doc.isas.find((i) => i.id === ownerId);
   if (isa) return { x: isa.x, y: isa.y, ...NODE_SIZE.isa };
   const attr = doc.attributes.find((a) => a.id === ownerId && a.kind === "composite");
-  if (attr) return { x: attr.x, y: attr.y, ...NODE_SIZE.attribute };
+  if (attr) return { x: attr.x, y: attr.y, ...sizeOf(doc, attr.id) };
   return null;
 }
 function findAttributeSlot(doc, ownerId) {
@@ -41076,7 +41107,7 @@ function findAttributeSlot(doc, ownerId) {
   const columnX = Number.isFinite(x) ? x : box.x + box.w + COLUMN_GAP;
   let startY = box.y;
   for (const sibling of siblings) {
-    startY = Math.max(startY, sibling.y + size2.h + ROW_GAP);
+    startY = Math.max(startY, sibling.y + sizeOf(doc, sibling.id).h + ROW_GAP);
   }
   if (overlaps({ x: columnX, y: startY, ...size2 }, box, 0)) {
     startY = box.y + box.h + ROW_GAP;
@@ -41126,7 +41157,7 @@ function findRelationshipSlot(doc, fromId, toId) {
   const size2 = NODE_SIZE.relationship;
   if (fromId === toId) {
     const occupied2 = occupiedBoxes({ ...doc, view: "chen" });
-    const entity = { ...from2, ...NODE_SIZE.entity };
+    const entity = { ...from2, ...sizeOf(doc, from2.id) };
     const origin2 = { x: from2.x + (entity.w - size2.w) / 2, y: from2.y - size2.h - 64 };
     const blockers = occupied2.filter((box) => !(box.x === entity.x && box.y === entity.y && box.w === entity.w && box.h === entity.h));
     for (let ring = 0; ring < 48; ring++) {
@@ -41147,8 +41178,8 @@ function findRelationshipSlot(doc, fromId, toId) {
     return findFreeSlot(occupied2, origin2, size2);
   }
   const origin = {
-    x: (from2.x + to.x + NODE_SIZE.entity.w - size2.w) / 2,
-    y: (from2.y + to.y + NODE_SIZE.entity.h - size2.h) / 2
+    x: (from2.x + sizeOf(doc, from2.id).w / 2 + to.x + sizeOf(doc, to.id).w / 2 - size2.w) / 2,
+    y: (from2.y + sizeOf(doc, from2.id).h / 2 + to.y + sizeOf(doc, to.id).h / 2 - size2.h) / 2
   };
   const occupied = occupiedBoxes({ ...doc, view: "chen" });
   const reach = 16;
@@ -41322,38 +41353,101 @@ function lineHitsBox(a, b, box) {
   return true;
 }
 function attributeRadius(doc, ownerId, count, capacity = 8) {
-  const owner = sizeFor(doc, ownerId), size2 = NODE_SIZE.attribute;
+  const owner = sizeFor(doc, ownerId);
+  const children = doc.attributes.filter((a) => a.ownerId === ownerId).map((a) => sizeFor(doc, a.id));
+  const size2 = {
+    w: Math.max(NODE_SIZE.attribute.w, ...children.map((s) => s.w)),
+    h: Math.max(NODE_SIZE.attribute.h, ...children.map((s) => s.h))
+  };
   const scale = Math.max(1, count / capacity);
   return { x: ((owner.w + size2.w) / 2 + 60) * scale, y: ((owner.h + size2.h) / 2 + 60) * scale };
 }
-function clearAttributeSlot(doc, owner, count, bounds) {
-  const size2 = NODE_SIZE.attribute, ownerSize = sizeFor(doc, owner.id);
+function clearAttributeSlot(doc, owner, count, bounds, size2 = NODE_SIZE.attribute, connectorCache = /* @__PURE__ */ new WeakMap()) {
+  const ownerSize = sizeFor(doc, owner.id);
   const ownerCenter = { x: owner.x + ownerSize.w / 2, y: owner.y + ownerSize.h / 2 };
   const ownerEdge = doc.attributes.some((a) => a.id === owner.id) ? ellipseEdge : doc.relationships.some((r) => r.id === owner.id) ? diamondEdge : rectEdge;
-  const boxes = [...doc.entities, ...doc.relationships, ...doc.isas, ...doc.attributes].map((node2) => ({ ...node2, ...sizeFor(doc, node2.id) }));
+  const boxes = [...doc.entities, ...doc.relationships, ...doc.isas, ...doc.attributes].map((node2) => {
+    const cached2 = nodeBoxes.get(node2);
+    if (cached2 && cached2.x === node2.x && cached2.y === node2.y) return cached2;
+    const box = { ...node2, ...sizeFor(doc, node2.id) };
+    nodeBoxes.set(node2, box);
+    return box;
+  });
+  const CELL = 512;
+  const key = (cx, cy) => (cx + 32768) * 65536 + (cy + 32768);
+  const cells = /* @__PURE__ */ new Map();
+  const cellFor = (k) => {
+    let cell = cells.get(k);
+    if (!cell) cells.set(k, cell = { boxes: [], segments: [] });
+    return cell;
+  };
+  boxes.forEach((box, index) => {
+    for (let cx = Math.floor(box.x / CELL); cx <= Math.floor((box.x + box.w) / CELL); cx++) {
+      for (let cy = Math.floor(box.y / CELL); cy <= Math.floor((box.y + box.h) / CELL); cy++) {
+        cellFor(key(cx, cy)).boxes.push(index);
+      }
+    }
+  });
   const segments = [];
   const add = (segment) => {
     if (!segment) return;
     const points = segment.points ?? [segment.from, segment.to];
     for (let i = 1; i < points.length; i++) segments.push([points[i - 1], points[i]]);
   };
+  const connectorOf = (attribute) => {
+    let cached2 = connectorCache.get(attribute);
+    if (cached2 === void 0) {
+      const found = attribute.ownerId ? segmentBetween(doc, attribute.ownerId, attribute.id) : null;
+      cached2 = found ?? null;
+      connectorCache.set(attribute, cached2);
+    }
+    return cached2;
+  };
   for (const leg of doc.legs) add(segmentForLeg(doc, leg));
   for (const isa of doc.isas) {
     for (const id2 of [isa.parentId, ...isa.childIds]) if (id2) add(segmentBetween(doc, isa.id, id2));
   }
-  for (const a of doc.attributes) if (a.ownerId) add(segmentBetween(doc, a.ownerId, a.id));
-  const candidates2 = [];
-  const radius = attributeRadius(doc, owner.id, count, bounds ? COMPACT_FAN_CAPACITY : 8);
-  const samples = Math.max(48, count * 8);
-  for (let ring = 0; ring < 4; ring++) {
-    for (let i = 0; i < samples; i++) {
-      const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
-      candidates2.push({
-        x: owner.x + ownerSize.w / 2 - size2.w / 2 + Math.cos(angle) * (radius.x + ring * 70),
-        y: owner.y + ownerSize.h / 2 - size2.h / 2 + Math.sin(angle) * (radius.y + ring * 70)
-      });
+  for (const a of doc.attributes) add(connectorOf(a) ?? void 0);
+  segments.forEach(([a, b], index) => {
+    for (let cx = Math.floor(Math.min(a.x, b.x) / CELL); cx <= Math.floor(Math.max(a.x, b.x) / CELL); cx++) {
+      for (let cy = Math.floor(Math.min(a.y, b.y) / CELL); cy <= Math.floor(Math.max(a.y, b.y) / CELL); cy++) {
+        cellFor(key(cx, cy)).segments.push(index);
+      }
     }
-  }
+  });
+  const boxMark = new Int32Array(boxes.length).fill(-1);
+  const segmentMark = new Int32Array(segments.length).fill(-1);
+  const hitBoxes = [];
+  const hitSegments = [];
+  let query = 0;
+  const nearBoxes = (x, y, w, h) => {
+    hitBoxes.length = 0;
+    const mark = query += 1;
+    for (let cx = Math.floor(x / CELL); cx <= Math.floor((x + w) / CELL); cx++) {
+      for (let cy = Math.floor(y / CELL); cy <= Math.floor((y + h) / CELL); cy++) {
+        for (const index of cells.get(key(cx, cy))?.boxes ?? []) {
+          if (boxMark[index] === mark) continue;
+          boxMark[index] = mark;
+          hitBoxes.push(boxes[index]);
+        }
+      }
+    }
+    return hitBoxes;
+  };
+  const nearSegments = (x, y, w, h) => {
+    hitSegments.length = 0;
+    const mark = query += 1;
+    for (let cx = Math.floor(x / CELL); cx <= Math.floor((x + w) / CELL); cx++) {
+      for (let cy = Math.floor(y / CELL); cy <= Math.floor((y + h) / CELL); cy++) {
+        for (const index of cells.get(key(cx, cy))?.segments ?? []) {
+          if (segmentMark[index] === mark) continue;
+          segmentMark[index] = mark;
+          hitSegments.push(segments[index]);
+        }
+      }
+    }
+    return hitSegments;
+  };
   const distance = (point) => Math.hypot(
     point.x + size2.w / 2 - ownerCenter.x,
     point.y + size2.h / 2 - ownerCenter.y
@@ -41365,28 +41459,70 @@ function clearAttributeSlot(doc, owner, count, bounds) {
       to: ellipseEdge(center, ownerCenter, size2.w / 2, size2.h / 2)
     };
     let cost = distance(point);
-    for (const box of boxes) {
-      if (point.x < box.x + box.w + 12 && point.x + size2.w + 12 > box.x && point.y < box.y + box.h + 12 && point.y + size2.h + 12 > box.y) cost += 1e6;
-      if (box.id !== owner.id && lineHitsBox(segment.from, segment.to, box)) cost += 1e4;
+    let boxed = false, crossing = false;
+    const self = { ...point, ...size2 };
+    for (const box of nearBoxes(point.x - 12, point.y - 12, size2.w + 24, size2.h + 24)) {
+      if (point.x < box.x + box.w + 12 && point.x + size2.w + 12 > box.x && point.y < box.y + box.h + 12 && point.y + size2.h + 12 > box.y) {
+        boxed = true;
+        break;
+      }
     }
-    for (const [a, b] of segments) {
-      if (lineHitsBox(a, b, { ...point, ...size2 })) cost += 1e4;
-      if (linesCross(a, b, segment.from, segment.to)) cost += 100;
+    if (!boxed) {
+      const minX = Math.min(segment.from.x, segment.to.x), maxX = Math.max(segment.from.x, segment.to.x);
+      const minY = Math.min(segment.from.y, segment.to.y), maxY = Math.max(segment.from.y, segment.to.y);
+      for (const box of nearBoxes(minX, minY, maxX - minX, maxY - minY)) {
+        if (box.id === owner.id) continue;
+        if (box.x > maxX || box.x + box.w < minX || box.y > maxY || box.y + box.h < minY) continue;
+        if (lineHitsBox(segment.from, segment.to, box)) {
+          crossing = true;
+          break;
+        }
+      }
+    }
+    if (boxed || crossing) return cost + (boxed ? 1e6 : 0) + (crossing ? 1e4 : 0);
+    for (const pair of nearSegments(point.x, point.y, size2.w, size2.h)) {
+      if (lineHitsBox(pair[0], pair[1], self)) cost += 1e4;
+      if (linesCross(pair[0], pair[1], segment.from, segment.to)) cost += 100;
     }
     return cost;
   };
-  const local = candidates2.map((point) => bounds ? {
-    x: Math.max(bounds.x, Math.min(bounds.x + bounds.w - size2.w, point.x)),
-    y: Math.max(bounds.y, Math.min(bounds.y + bounds.h - size2.h, point.y))
-  } : point);
-  const ranked = local.map((point, i) => ({ point, i, minimum: distance(point) + i * 1e-6 })).sort((a, b) => a.minimum - b.minimum);
-  let best = { point: ranked[0].point, cost: Infinity };
-  for (const candidate of ranked) {
-    if (candidate.minimum >= best.cost) break;
-    const cost = score(candidate.point) + candidate.i * 1e-6;
-    if (cost < best.cost) best = { point: candidate.point, cost };
+  let fallback = { x: owner.x, y: owner.y };
+  for (let pass = 0; pass < 6; pass++) {
+    const clamped = pass === 0 ? bounds : void 0;
+    const growth = pass === 0 ? 0 : (pass - 1) * 140;
+    const radius = attributeRadius(doc, owner.id, count, clamped ? COMPACT_FAN_CAPACITY : 8);
+    const samples = Math.max(48, count * 8);
+    const candidates2 = [];
+    for (let r = 0; r < 4; r++) {
+      for (let i = 0; i < samples; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
+        candidates2.push({
+          x: owner.x + ownerSize.w / 2 - size2.w / 2 + Math.cos(angle) * (radius.x + r * 70 + growth),
+          y: owner.y + ownerSize.h / 2 - size2.h / 2 + Math.sin(angle) * (radius.y + r * 70 + growth)
+        });
+      }
+    }
+    const local = candidates2.map((point) => clamped ? {
+      x: Math.max(clamped.x, Math.min(clamped.x + clamped.w - size2.w, point.x)),
+      y: Math.max(clamped.y, Math.min(clamped.y + clamped.h - size2.h, point.y))
+    } : point);
+    const seen = /* @__PURE__ */ new Set();
+    const ranked = local.flatMap((point, i) => {
+      const key2 = `${Math.round(point.x)},${Math.round(point.y)}`;
+      if (seen.has(key2)) return [];
+      seen.add(key2);
+      return [{ point, i, minimum: distance(point) + i * 1e-6 }];
+    }).sort((a, b) => a.minimum - b.minimum);
+    let best = { point: ranked[0].point, cost: Infinity };
+    for (const candidate of ranked) {
+      if (candidate.minimum >= best.cost) break;
+      const cost = score(candidate.point) + candidate.i * 1e-6;
+      if (cost < best.cost) best = { point: candidate.point, cost };
+    }
+    if (best.cost < 1e6) return best.point;
+    fallback = best.point;
   }
-  return best.point;
+  return fallback;
 }
 function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false, verticalGap = V_GAP) {
   const ids = [...graph.keys()].sort();
@@ -41709,11 +41845,7 @@ function attributeSpace(doc, id2, seen = /* @__PURE__ */ new Set(), capacity = 8
   };
 }
 function sizeFor(doc, id2) {
-  if (doc.entities.some((e) => e.id === id2)) return NODE_SIZE.entity;
-  if (doc.attributes.some((a) => a.id === id2)) return NODE_SIZE.attribute;
-  if (doc.relationships.some((r) => r.id === id2)) return NODE_SIZE.relationship;
-  if (doc.isas.some((i) => i.id === id2)) return NODE_SIZE.isa;
-  return { w: 0, h: 0 };
+  return sizeOf(doc, id2);
 }
 function applyLayout(doc) {
   const { positions, attributeBounds } = autoArrange(doc);
@@ -41752,6 +41884,7 @@ function applyLayout(doc) {
     for (const id2 of descendantAttributeIds(doc, ownerId)) limits.set(id2, bounds);
   }
   let placed = { ...doc, entities: movedEntities, relationships: movedRelationships, isas: movedIsas };
+  const connectorCache = /* @__PURE__ */ new WeakMap();
   const visiting = /* @__PURE__ */ new Set();
   const placeAttribute2 = (attr) => {
     if (placedAttributes.has(attr.id) || visiting.has(attr.id)) return;
@@ -41769,7 +41902,7 @@ function applyLayout(doc) {
       return;
     }
     const count = doc.attributes.filter((a) => a.ownerId === owner.id).length;
-    const next = { ...attr, ...clearAttributeSlot({ ...placed, attributes: movedAttributes }, owner, count, limits.get(attr.id)) };
+    const next = { ...attr, ...clearAttributeSlot({ ...placed, attributes: movedAttributes }, owner, count, limits.get(attr.id), sizeFor(doc, attr.id), connectorCache) };
     movedAttributes.push(next);
     placedAttributes.set(attr.id, next);
     placed = { ...placed, attributes: movedAttributes };
@@ -41783,7 +41916,7 @@ function applyLayout(doc) {
     attributes: doc.attributes.map((attr) => placedAttributes.get(attr.id) ?? attr)
   };
 }
-var V_GAP, LAYER_GAP, DENSE_ROW_GAP, COMPACT_FAN_CAPACITY, DENSE_ENTITY_COUNT;
+var V_GAP, LAYER_GAP, DENSE_ROW_GAP, COMPACT_FAN_CAPACITY, DENSE_ENTITY_COUNT, nodeBoxes;
 var init_layout = __esm({
   "src/model/layout.ts"() {
     "use strict";
@@ -41797,6 +41930,7 @@ var init_layout = __esm({
     DENSE_ROW_GAP = 24;
     COMPACT_FAN_CAPACITY = 6;
     DENSE_ENTITY_COUNT = 25;
+    nodeBoxes = /* @__PURE__ */ new WeakMap();
   }
 });
 

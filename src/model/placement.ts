@@ -12,7 +12,7 @@
  * additions instead of drifting away from where the user is looking.
  */
 
-import { NODE_SIZE, type ErdDocument } from './types';
+import { NODE_SIZE, sizeOf, type ErdDocument } from './types';
 import type { RoutePoint } from './connectorRouting';
 import { deriveTables, tableHeight } from './crowfoot';
 import { segmentForLeg } from '../canvas/geometry';
@@ -110,9 +110,9 @@ export function occupiedBoxes(doc: ErdDocument): Box[] {
     return deriveTables(doc).map((table) => ({ x: table.x, y: table.y, w: table.width, h: tableHeight(table) }));
   }
   return [
-    ...doc.entities.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.entity })),
-    ...doc.attributes.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.attribute })),
-    ...doc.relationships.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.relationship })),
+    ...doc.entities.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc, n.id) })),
+    ...doc.attributes.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc, n.id) })),
+    ...doc.relationships.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc, n.id) })),
     ...doc.isas.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.isa })),
   ];
 }
@@ -120,13 +120,13 @@ export function occupiedBoxes(doc: ErdDocument): Box[] {
 /** The box of a shape that can own attributes, or null if it cannot. */
 function ownerBox(doc: ErdDocument, ownerId: string): Box | null {
   const entity = doc.entities.find((e) => e.id === ownerId);
-  if (entity) return { x: entity.x, y: entity.y, ...NODE_SIZE.entity };
+  if (entity) return { x: entity.x, y: entity.y, ...sizeOf(doc, entity.id) };
   const relationship = doc.relationships.find((r) => r.id === ownerId);
-  if (relationship) return { x: relationship.x, y: relationship.y, ...NODE_SIZE.relationship };
+  if (relationship) return { x: relationship.x, y: relationship.y, ...sizeOf(doc, relationship.id) };
   const isa = doc.isas.find((i) => i.id === ownerId);
   if (isa) return { x: isa.x, y: isa.y, ...NODE_SIZE.isa };
   const attr = doc.attributes.find((a) => a.id === ownerId && a.kind === 'composite');
-  if (attr) return { x: attr.x, y: attr.y, ...NODE_SIZE.attribute };
+  if (attr) return { x: attr.x, y: attr.y, ...sizeOf(doc, attr.id) };
   return null;
 }
 
@@ -175,7 +175,7 @@ export function findAttributeSlot(
   // Stack below the lowest thing already in the column.
   let startY = box.y;
   for (const sibling of siblings) {
-    startY = Math.max(startY, sibling.y + size.h + ROW_GAP);
+    startY = Math.max(startY, sibling.y + sizeOf(doc, sibling.id).h + ROW_GAP);
   }
 
   // Never land on top of the owner. A column the user dragged to the left of
@@ -244,7 +244,7 @@ export function findRelationshipSlot(doc: ErdDocument, fromId: string, toId: str
   const size = NODE_SIZE.relationship;
   if (fromId === toId) {
     const occupied = occupiedBoxes({ ...doc, view: 'chen' });
-    const entity = { ...from, ...NODE_SIZE.entity };
+    const entity = { ...from, ...sizeOf(doc, from.id) };
     const origin = { x: from.x + (entity.w - size.w) / 2, y: from.y - size.h - 64 };
     const blockers = occupied.filter(box => !(box.x === entity.x && box.y === entity.y && box.w === entity.w && box.h === entity.h));
     for (let ring = 0; ring < 48; ring++) {
@@ -263,8 +263,8 @@ export function findRelationshipSlot(doc: ErdDocument, fromId: string, toId: str
     return findFreeSlot(occupied, origin, size);
   }
   const origin = {
-    x: (from.x + to.x + NODE_SIZE.entity.w - size.w) / 2,
-    y: (from.y + to.y + NODE_SIZE.entity.h - size.h) / 2,
+    x: (from.x + sizeOf(doc, from.id).w / 2 + to.x + sizeOf(doc, to.id).w / 2 - size.w) / 2,
+    y: (from.y + sizeOf(doc, from.id).h / 2 + to.y + sizeOf(doc, to.id).h / 2 - size.h) / 2,
   };
   const occupied = occupiedBoxes({ ...doc, view: 'chen' });
   // Nearest free point around the midpoint, searched in two dimensions: a
