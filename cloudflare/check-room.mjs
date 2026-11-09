@@ -160,8 +160,12 @@ try {
 
   peer.setLocalState({ name: 'Faris' });
   sendPresence();
-  assert.equal(sender.sent.length, 0, 'do not echo presence to its sender');
+  assert.equal(sender.sent.length, 1, 'echo presence so y-websocket does not reconnect an idle socket');
   assert.equal(observer.sent.length, 1, 'other peers still receive presence');
+  const beforeHeartbeat = sender.sent.length;
+  peer.setLocalState(peer.getLocalState());
+  sendPresence();
+  assert.equal(sender.sent.length, beforeHeartbeat + 1, 'unchanged-state heartbeats must also be echoed');
 
   peer.setLocalState({ name: 'x'.repeat(4096) });
   const oversized = sender;

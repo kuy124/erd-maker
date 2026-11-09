@@ -60,9 +60,9 @@ const MOVE_FRAME_MS = 16;
  * The pointer position is the only thing these mid-move frames carry —
  * every state change (hover, press, drag, typing, arrival) publishes
  * immediately, outside this gate — so a watcher sees the same gesture at
- * one third of the messages.
+ * fewer messages while local animation stays at 60fps.
  */
-const PRESENCE_FRAME_MS = 50;
+const PRESENCE_FRAME_MS = 200;
 const MOVE_MIN_MS = 320;
 const MOVE_MAX_MS = 1250;
 const MOVE_MS_PER_PX = 0.95;

@@ -82,7 +82,8 @@ export class DiagramRoom {
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 1);
       encoding.writeVarUint8Array(out, awareness.encodeAwarenessUpdate(this.presence, [...added, ...updated, ...removed]));
-      this.broadcast(encoding.toUint8Array(out), origin);
+      // y-websocket needs its awareness heartbeat echoed or it reconnects after 30s.
+      this.broadcast(encoding.toUint8Array(out));
     });
   }
 

@@ -1,5 +1,14 @@
 # Sync relay
 
+Browser cursors and drag previews use WebRTC data channels, with local spring
+animation between samples. `VITE_SYNC_URL` carries durable document sync and
+identity heartbeats, not browser pointer frames. MCP/legacy presence still uses
+the relay (AI motion is capped at 5 updates/second).
+
+Configure `VITE_SIGNALING` with a reachable y-webrtc signaling server for
+cross-device cursors; `VITE_ICE_SERVERS` can supply TURN for restrictive networks.
+Without a direct connection, document sync still works but browser cursors do not.
+
 ## Node relay without Cloudflare
 
 The Node relay reuses `DiagramRoom` from `worker.js`. It uses one WebSocket per

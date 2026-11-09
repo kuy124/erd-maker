@@ -76,7 +76,7 @@ export function usePeerCursor(
     /**
      * Leading edge, plus the position the pointer actually stopped at.
      *
-     * A plain "skip anything within 50ms" throttle also throws away the last
+     * A plain "skip anything within the interval" throttle also throws away the last
      * event of a gesture, so the cursor froze wherever the pointer was when the
      * window closed rather than where it came to rest. Keeping the newest event
      * and sending it on the trailing edge costs one field write and makes the
