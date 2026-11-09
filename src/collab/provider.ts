@@ -24,7 +24,7 @@ import { WebsocketProvider } from 'y-websocket';
 import { Awareness } from 'y-protocols/awareness';
 import { needsReconnect } from './recovery';
 import { readIntent, type PeerIntent } from './presence';
-import { bridgeRelayPresence } from './relayPresence';
+import { bridgeRelayPresence, sendOnlyLocalPresence } from './relayPresence';
 
 const relays = new WeakMap<WebrtcProvider, WebsocketProvider>();
 const idleProviders = new WeakSet<WebrtcProvider>();
@@ -210,6 +210,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     awareness: new Awareness(ydoc), connect, maxBackoffTime: 10000,
   }) : undefined;
   const presence = provider.awareness;
+  if (relay) sendOnlyLocalPresence(relay);
   const stopPresenceBridge = relay ? bridgeRelayPresence(presence, relay.awareness) : undefined;
   if (relay) {
     relays.set(provider, relay);

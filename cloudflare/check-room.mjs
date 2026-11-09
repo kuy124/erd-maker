@@ -89,8 +89,11 @@ console.log('PASS: a room opens with nobody connected');
 {
   const room = new DiagramRoom(ctx());
   await room.ready;
-  const socket = { send: () => {}, close: () => {} };
-  room.webSocketMessage(socket, new ArrayBuffer(0));
+  const socket = { send: () => {}, close: () => {}, serializeAttachment: () => {} };
+  const initial = encoding.createEncoder();
+  encoding.writeVarUint(initial, 0);
+  sync.writeSyncStep1(initial, new Y.Doc());
+  room.webSocketMessage(socket, encoding.toUint8Array(initial).slice().buffer);
   assert.ok(room.clients.has(socket),
     'A socket that woke a hibernated room was not re-registered');
 }

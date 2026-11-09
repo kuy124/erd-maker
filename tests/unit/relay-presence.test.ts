@@ -1,7 +1,37 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
-import { bridgeRelayPresence } from '../../src/collab/relayPresence';
+import { bridgeRelayPresence, sendOnlyLocalPresence } from '../../src/collab/relayPresence';
+
+it('sends local presence and departures without echoing remote updates', () => {
+  const doc = new Y.Doc();
+  const remoteDoc = new Y.Doc();
+  const remote = new Awareness(remoteDoc);
+  const provider = new WebsocketProvider('wss://relay.test', 'room1234', doc, { connect: false });
+  const send = vi.fn(provider._awarenessUpdateHandler);
+  provider.awareness.off('update', provider._awarenessUpdateHandler);
+  provider._awarenessUpdateHandler = send;
+  provider.awareness.on('update', send);
+  sendOnlyLocalPresence(provider);
+  try {
+    remote.setLocalState({ name: 'Peer' });
+    applyAwarenessUpdate(provider.awareness, encodeAwarenessUpdate(remote, [remote.clientID]), provider);
+    expect(provider.awareness.getStates().get(remote.clientID)).toEqual({ name: 'Peer' });
+    expect(send).not.toHaveBeenCalled();
+    provider.awareness.setLocalState({ name: 'Me' });
+    expect(send).toHaveBeenCalledTimes(1);
+    provider.awareness.setLocalState(null);
+    expect(send).toHaveBeenCalledTimes(2);
+    remote.setLocalState(null);
+    applyAwarenessUpdate(provider.awareness, encodeAwarenessUpdate(remote, [remote.clientID]), provider);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(provider.awareness.getStates().has(remote.clientID)).toBe(false);
+  } finally {
+    provider.destroy(); provider.awareness.destroy(); remote.destroy();
+    doc.destroy(); remoteDoc.destroy();
+  }
+});
 
 it('keeps browser motion off the relay while receiving MCP presence and departures', () => {
   const doc = new Y.Doc();

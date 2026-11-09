@@ -4,7 +4,11 @@
   "main": "dist/worker.mjs",
   "compatibility_date": "2025-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true },
+  "observability": { "enabled": true, "head_sampling_rate": 0.01 },
+  "ratelimits": [
+    { "name": "REQUEST_LIMIT", "namespace_id": "1001", "simple": { "limit": 120, "period": 60 } },
+    { "name": "SESSION_LIMIT", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } }
+  ],
   "durable_objects": {
     "bindings": [{ "name": "ERD_MCP", "class_name": "ErdMcpServer" }]
   },

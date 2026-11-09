@@ -6,6 +6,7 @@ import * as decoding from 'lib0/decoding';
 
 const MAX_MESSAGE = 512 * 1024;
 const MAX_MESSAGES_PER_SECOND = 200;
+const MAX_BYTES_PER_SECOND = 2 * 1024 * 1024;
 
 export default {
   async fetch(request, env) {
@@ -15,6 +16,10 @@ export default {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
     // Room IDs are bearer capabilities. Never list them or use guessable names.
     if (!/^\/[A-Za-z0-9_-]{8,128}$/.test(url.pathname)) return new Response('Invalid room', { status: 400 });
+    if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+    if (!(await env.CONNECTION_LIMIT.limit({ key: request.headers.get('CF-Connecting-IP') ?? 'unknown' })).success) {
+      return new Response('Too many connections', { status: 429, headers: { 'Retry-After': '60' } });
+    }
     return env.ROOMS.get(env.ROOMS.idFromName(url.pathname)).fetch(request);
   },
 };
@@ -28,6 +33,7 @@ export class DiagramRoom {
     // Socket attachments preserve ownership and throttling across hibernation.
     this.clients = new Map();
     this.limits = new Map();
+    this.closedSockets = new WeakSet();
     this.hibernating = typeof ctx.acceptWebSocket === 'function';
     this.dirty = false;
     this.saving = null;
@@ -78,7 +84,7 @@ export class DiagramRoom {
     this.presence.on('update', ({ added, updated, removed }, origin) => {
       const ids = this.clients.get(origin);
       for (const id of [...added, ...updated]) ids?.add(id);
-      for (const id of removed) ids?.delete(id);
+      // Retain ownership until disconnect: removals must not reset the ID cap.
       const out = encoding.createEncoder();
       encoding.writeVarUint(out, 1);
       encoding.writeVarUint8Array(out, awareness.encodeAwarenessUpdate(this.presence, [...added, ...updated, ...removed]));
@@ -128,6 +134,8 @@ export class DiagramRoom {
   }
 
   close(socket, code, reason) {
+    if (this.closedSockets.has(socket)) return;
+    this.closedSockets.add(socket);
     const ids = this.clients.get(socket);
     this.clients.delete(socket);
     this.limits.delete(socket);
@@ -238,13 +246,15 @@ export class DiagramRoom {
    * cleaned up correctly when the socket later leaves.
    */
   webSocketMessage(socket, message) {
+    if (this.closedSockets.has(socket)) return;
     try {
       if (this.hibernating) this.expirePresence();
       if (!this.clients.has(socket)) this.clients.set(socket, new Set());
-      if (!this.limits.has(socket) || Date.now() - this.limits.get(socket).since > 1000) this.limits.set(socket, { count: 0, since: Date.now() });
+      if (!this.limits.has(socket) || Date.now() - this.limits.get(socket).since >= 1000) this.limits.set(socket, { count: 0, bytes: 0, since: Date.now() });
       const limit = this.limits.get(socket);
-      if ((limit.count += 1) > MAX_MESSAGES_PER_SECOND || !(message instanceof ArrayBuffer) || message.byteLength > MAX_MESSAGE) {
-        socket.close(1008, 'Message limit'); return;
+      limit.bytes = (limit.bytes ?? 0) + (message.byteLength ?? MAX_MESSAGE);
+      if ((limit.count += 1) > MAX_MESSAGES_PER_SECOND || limit.bytes > MAX_BYTES_PER_SECOND || !(message instanceof ArrayBuffer) || message.byteLength > MAX_MESSAGE) {
+        this.close(socket, 1008, 'Message limit'); return;
       }
       const input = decoding.createDecoder(new Uint8Array(message));
       const type = decoding.readVarUint(input);
@@ -254,10 +264,28 @@ export class DiagramRoom {
         sync.readSyncMessage(input, out, this.doc, socket);
         if (encoding.length(out) > 1) socket.send(encoding.toUint8Array(out));
       } else if (type === 1) {
-        awareness.applyAwarenessUpdate(this.presence, decoding.readVarUint8Array(input), socket);
+        const update = decoding.readVarUint8Array(input);
+        if (update.byteLength > 16 * 1024) throw new Error('Presence too large');
+        const presenceInput = decoding.createDecoder(update);
+        const count = decoding.readVarUint(presenceInput);
+        if (count > 16) throw new Error('Too many presence IDs');
+        const ids = new Set(this.clients.get(socket));
+        for (let i = 0; i < count; i++) {
+          const id = decoding.readVarUint(presenceInput);
+          decoding.readVarUint(presenceInput);
+          const state = JSON.parse(decoding.readVarString(presenceInput));
+          if (state !== null && (typeof state !== 'object' || Array.isArray(state))) throw new Error('Invalid presence');
+          if (id === this.doc.clientID || [...this.clients].some(([other, owned]) => other !== socket && owned.has(id))) {
+            throw new Error('Presence owned by another socket');
+          }
+          ids.add(id);
+        }
+        if (ids.size > 16) throw new Error('Too many presence IDs');
+        awareness.applyAwarenessUpdate(this.presence, update, socket);
+        this.clients.set(socket, ids);
       } else throw new Error('Unknown message');
       this.rememberSocket(socket);
-    } catch { socket.close(1008, 'Invalid message'); }
+    } catch { this.close(socket, 1008, 'Invalid message'); }
   }
 
   webSocketClose(socket) { return this.close(socket); }

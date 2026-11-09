@@ -12,6 +12,7 @@
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider } from 'y-websocket';
+import { sendOnlyLocalPresence } from '../src/collab/relayPresence';
 import { CROW_HEADER_HEIGHT, CROW_WIDTH, deriveTables, tableHeight } from '../src/model/crowfoot';
 import { normalizeDocument, parseShareHash } from '../src/model/snapshot';
 import { COMMENTS } from '../src/collab/comments';
@@ -527,6 +528,7 @@ export class LiveRoom {
       disableBc: true,
       maxBackoffTime: 10000,
     });
+    sendOnlyLocalPresence(provider);
     const live = new LiveRoom(room, ydoc, provider, awareness, relayUrl, relayOrigin);
     // Rejoining a room the assistant left keeps the pointer where it stopped:
     // arriving at a shape is a move, not a teleport onto the first one.
@@ -1420,7 +1422,11 @@ export class LiveRoom {
       const progress = travelEase(elapsed / span);
       this.cursor = { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress };
       this.intent = { kind: 'drag', targetId: legs[1]?.toId };
-      this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+      const now = Date.now();
+      if (elapsed === 0 || now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+        this.lastCursorPublishAt = now;
+        this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+      }
       await pause(MOVE_FRAME_MS);
       elapsed += MOVE_FRAME_MS;
     }

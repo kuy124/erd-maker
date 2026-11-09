@@ -38366,6 +38366,9 @@ function emptyDocument(name = "Untitled diagram") {
 function allNodes(doc2) {
   return [...doc2.entities, ...doc2.attributes, ...doc2.relationships, ...doc2.isas];
 }
+function findNode(doc2, id2) {
+  return allNodes(doc2).find((n) => n.id === id2);
+}
 function nodeKind(doc2, id2) {
   if (doc2.entities.some((e) => e.id === id2)) return "entity";
   if (doc2.attributes.some((a) => a.id === id2)) return "attribute";
@@ -38381,7 +38384,35 @@ var NODE_SIZE = {
 };
 function sizeOf(doc2, id2) {
   const kind = nodeKind(doc2, id2);
-  return kind ? NODE_SIZE[kind] : { w: 0, h: 0 };
+  const node2 = findNode(doc2, id2);
+  return kind ? namedNodeSize(kind, node2 && "name" in node2 && typeof node2.name === "string" ? node2.name : "") : { w: 0, h: 0 };
+}
+function labelLines(name, limit = 24) {
+  const lines = [];
+  let chars = Array.from(name);
+  while (chars.length > limit) {
+    const prefix = chars.slice(0, limit).join("");
+    const boundary = Math.max(prefix.lastIndexOf(" "), prefix.lastIndexOf("_"));
+    const split = boundary >= limit / 2 ? Array.from(prefix.slice(0, boundary + 1)).length : limit;
+    lines.push(chars.slice(0, split).join(""));
+    chars = chars.slice(split);
+  }
+  lines.push(chars.join(""));
+  return lines;
+}
+function namedNodeSize(kind, name) {
+  const base = NODE_SIZE[kind];
+  if (kind === "isa") return base;
+  const nominalLimit = kind === "relationship" ? 13 : kind === "attribute" ? 16 : 20;
+  if (Array.from(name).length <= nominalLimit && /^[\u0000-\u024f]*$/u.test(name)) return base;
+  const lines = labelLines(name);
+  const width = Math.max(...lines.map((line) => Array.from(line).reduce((sum, char) => sum + (/[^\u0000-\u024f]/u.test(char) ? 14 : /[MW@%]/.test(char) ? 12 : 8), 0)));
+  const height = lines.length * 16;
+  const factor = kind === "relationship" ? 2 : kind === "attribute" ? 1.5 : 1;
+  return {
+    w: Math.max(base.w, Math.ceil((width + 24) * factor)),
+    h: Math.max(base.h, Math.ceil((height + 16) * factor))
+  };
 }
 function legsFor(doc2, id2) {
   return doc2.legs.filter((l) => l.fromId === id2 || l.toId === id2);
@@ -38392,19 +38423,33 @@ function pruneGroups(doc2) {
   const groups = doc2.groups.map((group) => ({ ...group, memberIds: group.memberIds.filter((id2) => live.has(id2)) })).filter((group) => group.memberIds.length > 1);
   return groups.length === doc2.groups.length ? doc2 : { ...doc2, groups };
 }
+function removalIds(doc2, id2) {
+  const removed = /* @__PURE__ */ new Set([id2]);
+  if (doc2.entities.some((entity) => entity.id === id2)) {
+    const relationships = new Set(doc2.relationships.map((relationship) => relationship.id));
+    for (const leg of doc2.legs) {
+      if (leg.fromId === id2 && relationships.has(leg.toId)) removed.add(leg.toId);
+      if (leg.toId === id2 && relationships.has(leg.fromId)) removed.add(leg.fromId);
+    }
+  }
+  for (const nodeId of [...removed]) {
+    for (const attributeId of descendantAttributeIds(doc2, nodeId)) removed.add(attributeId);
+  }
+  return removed;
+}
 function removeNode(doc2, id2) {
-  const orphanedAttributes = descendantAttributeIds(doc2, id2);
+  const removed = removalIds(doc2, id2);
   return pruneGroups({
     ...doc2,
-    entities: doc2.entities.filter((e) => e.id !== id2),
-    attributes: doc2.attributes.filter((a) => a.id !== id2 && !orphanedAttributes.has(a.id)),
-    relationships: doc2.relationships.filter((r) => r.id !== id2),
+    entities: doc2.entities.filter((e) => !removed.has(e.id)),
+    attributes: doc2.attributes.filter((a) => !removed.has(a.id)),
+    relationships: doc2.relationships.filter((r) => !removed.has(r.id)),
     isas: doc2.isas.filter((i) => i.id !== id2).map((i) => ({
       ...i,
       parentId: i.parentId === id2 ? null : i.parentId,
       childIds: i.childIds.filter((c) => c !== id2)
     })),
-    legs: doc2.legs.filter((l) => l.fromId !== id2 && l.toId !== id2 && !orphanedAttributes.has(l.fromId) && !orphanedAttributes.has(l.toId))
+    legs: doc2.legs.filter((l) => !removed.has(l.id) && !removed.has(l.fromId) && !removed.has(l.toId))
   });
 }
 
@@ -38877,21 +38922,21 @@ function occupiedBoxes(doc2) {
     return deriveTables(doc2).map((table) => ({ x: table.x, y: table.y, w: table.width, h: tableHeight(table) }));
   }
   return [
-    ...doc2.entities.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.entity })),
-    ...doc2.attributes.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.attribute })),
-    ...doc2.relationships.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.relationship })),
+    ...doc2.entities.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc2, n.id) })),
+    ...doc2.attributes.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc2, n.id) })),
+    ...doc2.relationships.map((n) => ({ x: n.x, y: n.y, ...sizeOf(doc2, n.id) })),
     ...doc2.isas.map((n) => ({ x: n.x, y: n.y, ...NODE_SIZE.isa }))
   ];
 }
 function ownerBox(doc2, ownerId) {
   const entity = doc2.entities.find((e) => e.id === ownerId);
-  if (entity) return { x: entity.x, y: entity.y, ...NODE_SIZE.entity };
+  if (entity) return { x: entity.x, y: entity.y, ...sizeOf(doc2, entity.id) };
   const relationship = doc2.relationships.find((r) => r.id === ownerId);
-  if (relationship) return { x: relationship.x, y: relationship.y, ...NODE_SIZE.relationship };
+  if (relationship) return { x: relationship.x, y: relationship.y, ...sizeOf(doc2, relationship.id) };
   const isa = doc2.isas.find((i) => i.id === ownerId);
   if (isa) return { x: isa.x, y: isa.y, ...NODE_SIZE.isa };
   const attr = doc2.attributes.find((a) => a.id === ownerId && a.kind === "composite");
-  if (attr) return { x: attr.x, y: attr.y, ...NODE_SIZE.attribute };
+  if (attr) return { x: attr.x, y: attr.y, ...sizeOf(doc2, attr.id) };
   return null;
 }
 var ATTRIBUTE_ROW_GAP = 28;
@@ -38907,7 +38952,7 @@ function findAttributeSlot(doc2, ownerId) {
   const columnX = Number.isFinite(x) ? x : box.x + box.w + COLUMN_GAP;
   let startY = box.y;
   for (const sibling of siblings) {
-    startY = Math.max(startY, sibling.y + size2.h + ROW_GAP);
+    startY = Math.max(startY, sibling.y + sizeOf(doc2, sibling.id).h + ROW_GAP);
   }
   if (overlaps({ x: columnX, y: startY, ...size2 }, box, 0)) {
     startY = box.y + box.h + ROW_GAP;
@@ -38957,7 +39002,7 @@ function findRelationshipSlot(doc2, fromId, toId) {
   const size2 = NODE_SIZE.relationship;
   if (fromId === toId) {
     const occupied2 = occupiedBoxes({ ...doc2, view: "chen" });
-    const entity = { ...from2, ...NODE_SIZE.entity };
+    const entity = { ...from2, ...sizeOf(doc2, from2.id) };
     const origin2 = { x: from2.x + (entity.w - size2.w) / 2, y: from2.y - size2.h - 64 };
     const blockers = occupied2.filter((box) => !(box.x === entity.x && box.y === entity.y && box.w === entity.w && box.h === entity.h));
     for (let ring = 0; ring < 48; ring++) {
@@ -38978,8 +39023,8 @@ function findRelationshipSlot(doc2, fromId, toId) {
     return findFreeSlot(occupied2, origin2, size2);
   }
   const origin = {
-    x: (from2.x + to.x + NODE_SIZE.entity.w - size2.w) / 2,
-    y: (from2.y + to.y + NODE_SIZE.entity.h - size2.h) / 2
+    x: (from2.x + sizeOf(doc2, from2.id).w / 2 + to.x + sizeOf(doc2, to.id).w / 2 - size2.w) / 2,
+    y: (from2.y + sizeOf(doc2, from2.id).h / 2 + to.y + sizeOf(doc2, to.id).h / 2 - size2.h) / 2
   };
   const occupied = occupiedBoxes({ ...doc2, view: "chen" });
   const reach = 16;
@@ -39140,38 +39185,102 @@ function lineHitsBox(a, b, box) {
   return true;
 }
 function attributeRadius(doc2, ownerId, count, capacity = 8) {
-  const owner = sizeFor(doc2, ownerId), size2 = NODE_SIZE.attribute;
+  const owner = sizeFor(doc2, ownerId);
+  const children = doc2.attributes.filter((a) => a.ownerId === ownerId).map((a) => sizeFor(doc2, a.id));
+  const size2 = {
+    w: Math.max(NODE_SIZE.attribute.w, ...children.map((s) => s.w)),
+    h: Math.max(NODE_SIZE.attribute.h, ...children.map((s) => s.h))
+  };
   const scale = Math.max(1, count / capacity);
   return { x: ((owner.w + size2.w) / 2 + 60) * scale, y: ((owner.h + size2.h) / 2 + 60) * scale };
 }
-function clearAttributeSlot(doc2, owner, count, bounds) {
-  const size2 = NODE_SIZE.attribute, ownerSize = sizeFor(doc2, owner.id);
+var nodeBoxes = /* @__PURE__ */ new WeakMap();
+function clearAttributeSlot(doc2, owner, count, bounds, size2 = NODE_SIZE.attribute, connectorCache = /* @__PURE__ */ new WeakMap()) {
+  const ownerSize = sizeFor(doc2, owner.id);
   const ownerCenter = { x: owner.x + ownerSize.w / 2, y: owner.y + ownerSize.h / 2 };
   const ownerEdge = doc2.attributes.some((a) => a.id === owner.id) ? ellipseEdge : doc2.relationships.some((r) => r.id === owner.id) ? diamondEdge : rectEdge;
-  const boxes = [...doc2.entities, ...doc2.relationships, ...doc2.isas, ...doc2.attributes].map((node2) => ({ ...node2, ...sizeFor(doc2, node2.id) }));
+  const boxes = [...doc2.entities, ...doc2.relationships, ...doc2.isas, ...doc2.attributes].map((node2) => {
+    const cached2 = nodeBoxes.get(node2);
+    if (cached2 && cached2.x === node2.x && cached2.y === node2.y) return cached2;
+    const box = { ...node2, ...sizeFor(doc2, node2.id) };
+    nodeBoxes.set(node2, box);
+    return box;
+  });
+  const CELL = 512;
+  const key = (cx, cy) => (cx + 32768) * 65536 + (cy + 32768);
+  const cells = /* @__PURE__ */ new Map();
+  const cellFor = (k) => {
+    let cell = cells.get(k);
+    if (!cell) cells.set(k, cell = { boxes: [], segments: [] });
+    return cell;
+  };
+  boxes.forEach((box, index) => {
+    for (let cx = Math.floor(box.x / CELL); cx <= Math.floor((box.x + box.w) / CELL); cx++) {
+      for (let cy = Math.floor(box.y / CELL); cy <= Math.floor((box.y + box.h) / CELL); cy++) {
+        cellFor(key(cx, cy)).boxes.push(index);
+      }
+    }
+  });
   const segments = [];
   const add = (segment) => {
     if (!segment) return;
     const points = segment.points ?? [segment.from, segment.to];
     for (let i = 1; i < points.length; i++) segments.push([points[i - 1], points[i]]);
   };
+  const connectorOf = (attribute) => {
+    let cached2 = connectorCache.get(attribute);
+    if (cached2 === void 0) {
+      const found = attribute.ownerId ? segmentBetween(doc2, attribute.ownerId, attribute.id) : null;
+      cached2 = found ?? null;
+      connectorCache.set(attribute, cached2);
+    }
+    return cached2;
+  };
   for (const leg of doc2.legs) add(segmentForLeg(doc2, leg));
   for (const isa of doc2.isas) {
     for (const id2 of [isa.parentId, ...isa.childIds]) if (id2) add(segmentBetween(doc2, isa.id, id2));
   }
-  for (const a of doc2.attributes) if (a.ownerId) add(segmentBetween(doc2, a.ownerId, a.id));
-  const candidates2 = [];
-  const radius = attributeRadius(doc2, owner.id, count, bounds ? COMPACT_FAN_CAPACITY : 8);
-  const samples = Math.max(48, count * 8);
-  for (let ring = 0; ring < 4; ring++) {
-    for (let i = 0; i < samples; i++) {
-      const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
-      candidates2.push({
-        x: owner.x + ownerSize.w / 2 - size2.w / 2 + Math.cos(angle) * (radius.x + ring * 70),
-        y: owner.y + ownerSize.h / 2 - size2.h / 2 + Math.sin(angle) * (radius.y + ring * 70)
-      });
+  for (const a of doc2.attributes) add(connectorOf(a) ?? void 0);
+  segments.forEach(([a, b], index) => {
+    for (let cx = Math.floor(Math.min(a.x, b.x) / CELL); cx <= Math.floor(Math.max(a.x, b.x) / CELL); cx++) {
+      for (let cy = Math.floor(Math.min(a.y, b.y) / CELL); cy <= Math.floor(Math.max(a.y, b.y) / CELL); cy++) {
+        cellFor(key(cx, cy)).segments.push(index);
+      }
     }
-  }
+  });
+  const boxMark = new Int32Array(boxes.length).fill(-1);
+  const segmentMark = new Int32Array(segments.length).fill(-1);
+  const hitBoxes = [];
+  const hitSegments = [];
+  let query = 0;
+  const nearBoxes = (x, y, w, h) => {
+    hitBoxes.length = 0;
+    const mark = query += 1;
+    for (let cx = Math.floor(x / CELL); cx <= Math.floor((x + w) / CELL); cx++) {
+      for (let cy = Math.floor(y / CELL); cy <= Math.floor((y + h) / CELL); cy++) {
+        for (const index of cells.get(key(cx, cy))?.boxes ?? []) {
+          if (boxMark[index] === mark) continue;
+          boxMark[index] = mark;
+          hitBoxes.push(boxes[index]);
+        }
+      }
+    }
+    return hitBoxes;
+  };
+  const nearSegments = (x, y, w, h) => {
+    hitSegments.length = 0;
+    const mark = query += 1;
+    for (let cx = Math.floor(x / CELL); cx <= Math.floor((x + w) / CELL); cx++) {
+      for (let cy = Math.floor(y / CELL); cy <= Math.floor((y + h) / CELL); cy++) {
+        for (const index of cells.get(key(cx, cy))?.segments ?? []) {
+          if (segmentMark[index] === mark) continue;
+          segmentMark[index] = mark;
+          hitSegments.push(segments[index]);
+        }
+      }
+    }
+    return hitSegments;
+  };
   const distance = (point) => Math.hypot(
     point.x + size2.w / 2 - ownerCenter.x,
     point.y + size2.h / 2 - ownerCenter.y
@@ -39183,28 +39292,70 @@ function clearAttributeSlot(doc2, owner, count, bounds) {
       to: ellipseEdge(center, ownerCenter, size2.w / 2, size2.h / 2)
     };
     let cost = distance(point);
-    for (const box of boxes) {
-      if (point.x < box.x + box.w + 12 && point.x + size2.w + 12 > box.x && point.y < box.y + box.h + 12 && point.y + size2.h + 12 > box.y) cost += 1e6;
-      if (box.id !== owner.id && lineHitsBox(segment.from, segment.to, box)) cost += 1e4;
+    let boxed = false, crossing = false;
+    const self = { ...point, ...size2 };
+    for (const box of nearBoxes(point.x - 12, point.y - 12, size2.w + 24, size2.h + 24)) {
+      if (point.x < box.x + box.w + 12 && point.x + size2.w + 12 > box.x && point.y < box.y + box.h + 12 && point.y + size2.h + 12 > box.y) {
+        boxed = true;
+        break;
+      }
     }
-    for (const [a, b] of segments) {
-      if (lineHitsBox(a, b, { ...point, ...size2 })) cost += 1e4;
-      if (linesCross(a, b, segment.from, segment.to)) cost += 100;
+    if (!boxed) {
+      const minX = Math.min(segment.from.x, segment.to.x), maxX = Math.max(segment.from.x, segment.to.x);
+      const minY = Math.min(segment.from.y, segment.to.y), maxY = Math.max(segment.from.y, segment.to.y);
+      for (const box of nearBoxes(minX, minY, maxX - minX, maxY - minY)) {
+        if (box.id === owner.id) continue;
+        if (box.x > maxX || box.x + box.w < minX || box.y > maxY || box.y + box.h < minY) continue;
+        if (lineHitsBox(segment.from, segment.to, box)) {
+          crossing = true;
+          break;
+        }
+      }
+    }
+    if (boxed || crossing) return cost + (boxed ? 1e6 : 0) + (crossing ? 1e4 : 0);
+    for (const pair of nearSegments(point.x, point.y, size2.w, size2.h)) {
+      if (lineHitsBox(pair[0], pair[1], self)) cost += 1e4;
+      if (linesCross(pair[0], pair[1], segment.from, segment.to)) cost += 100;
     }
     return cost;
   };
-  const local = candidates2.map((point) => bounds ? {
-    x: Math.max(bounds.x, Math.min(bounds.x + bounds.w - size2.w, point.x)),
-    y: Math.max(bounds.y, Math.min(bounds.y + bounds.h - size2.h, point.y))
-  } : point);
-  const ranked = local.map((point, i) => ({ point, i, minimum: distance(point) + i * 1e-6 })).sort((a, b) => a.minimum - b.minimum);
-  let best = { point: ranked[0].point, cost: Infinity };
-  for (const candidate of ranked) {
-    if (candidate.minimum >= best.cost) break;
-    const cost = score(candidate.point) + candidate.i * 1e-6;
-    if (cost < best.cost) best = { point: candidate.point, cost };
+  let fallback = { x: owner.x, y: owner.y };
+  for (let pass = 0; pass < 6; pass++) {
+    const clamped = pass === 0 ? bounds : void 0;
+    const growth = pass === 0 ? 0 : (pass - 1) * 140;
+    const radius = attributeRadius(doc2, owner.id, count, clamped ? COMPACT_FAN_CAPACITY : 8);
+    const samples = Math.max(48, count * 8);
+    const candidates2 = [];
+    for (let r = 0; r < 4; r++) {
+      for (let i = 0; i < samples; i++) {
+        const angle = -Math.PI / 2 + i * Math.PI * 2 / samples;
+        candidates2.push({
+          x: owner.x + ownerSize.w / 2 - size2.w / 2 + Math.cos(angle) * (radius.x + r * 70 + growth),
+          y: owner.y + ownerSize.h / 2 - size2.h / 2 + Math.sin(angle) * (radius.y + r * 70 + growth)
+        });
+      }
+    }
+    const local = candidates2.map((point) => clamped ? {
+      x: Math.max(clamped.x, Math.min(clamped.x + clamped.w - size2.w, point.x)),
+      y: Math.max(clamped.y, Math.min(clamped.y + clamped.h - size2.h, point.y))
+    } : point);
+    const seen = /* @__PURE__ */ new Set();
+    const ranked = local.flatMap((point, i) => {
+      const key2 = `${Math.round(point.x)},${Math.round(point.y)}`;
+      if (seen.has(key2)) return [];
+      seen.add(key2);
+      return [{ point, i, minimum: distance(point) + i * 1e-6 }];
+    }).sort((a, b) => a.minimum - b.minimum);
+    let best = { point: ranked[0].point, cost: Infinity };
+    for (const candidate of ranked) {
+      if (candidate.minimum >= best.cost) break;
+      const cost = score(candidate.point) + candidate.i * 1e-6;
+      if (cost < best.cost) best = { point: candidate.point, cost };
+    }
+    if (best.cost < 1e6) return best.point;
+    fallback = best.point;
   }
-  return best.point;
+  return fallback;
 }
 function arrangeGridComponent(graph, sizes, horizontalGap, alignTop = false, verticalGap = V_GAP) {
   const ids = [...graph.keys()].sort();
@@ -39527,11 +39678,7 @@ function attributeSpace(doc2, id2, seen = /* @__PURE__ */ new Set(), capacity = 
   };
 }
 function sizeFor(doc2, id2) {
-  if (doc2.entities.some((e) => e.id === id2)) return NODE_SIZE.entity;
-  if (doc2.attributes.some((a) => a.id === id2)) return NODE_SIZE.attribute;
-  if (doc2.relationships.some((r) => r.id === id2)) return NODE_SIZE.relationship;
-  if (doc2.isas.some((i) => i.id === id2)) return NODE_SIZE.isa;
-  return { w: 0, h: 0 };
+  return sizeOf(doc2, id2);
 }
 function applyLayout(doc2) {
   const { positions, attributeBounds } = autoArrange(doc2);
@@ -39570,6 +39717,7 @@ function applyLayout(doc2) {
     for (const id2 of descendantAttributeIds(doc2, ownerId)) limits.set(id2, bounds);
   }
   let placed = { ...doc2, entities: movedEntities, relationships: movedRelationships, isas: movedIsas };
+  const connectorCache = /* @__PURE__ */ new WeakMap();
   const visiting = /* @__PURE__ */ new Set();
   const placeAttribute2 = (attr) => {
     if (placedAttributes.has(attr.id) || visiting.has(attr.id)) return;
@@ -39587,7 +39735,7 @@ function applyLayout(doc2) {
       return;
     }
     const count = doc2.attributes.filter((a) => a.ownerId === owner.id).length;
-    const next = { ...attr, ...clearAttributeSlot({ ...placed, attributes: movedAttributes }, owner, count, limits.get(attr.id)) };
+    const next = { ...attr, ...clearAttributeSlot({ ...placed, attributes: movedAttributes }, owner, count, limits.get(attr.id), sizeFor(doc2, attr.id), connectorCache) };
     movedAttributes.push(next);
     placedAttributes.set(attr.id, next);
     placed = { ...placed, attributes: movedAttributes };
@@ -49356,6 +49504,19 @@ var WebsocketProvider = class extends ObservableV2 {
   }
 };
 
+// src/collab/relayPresence.ts
+function sendOnlyLocalPresence(provider) {
+  const awareness = provider.awareness;
+  const send = provider._awarenessUpdateHandler;
+  awareness.off("update", send);
+  provider._awarenessUpdateHandler = ({ added, updated, removed }, origin) => {
+    const local = (ids) => ids.filter((id2) => id2 === awareness.clientID);
+    const changes = { added: local(added), updated: local(updated), removed: local(removed) };
+    if (changes.added.length || changes.updated.length || changes.removed.length) send(changes, origin);
+  };
+  awareness.on("update", provider._awarenessUpdateHandler);
+}
+
 // src/collab/comments.ts
 var COMMENTS = "comments";
 function readComments(ydoc) {
@@ -49651,7 +49812,7 @@ var AI_USER_ID = "erd-mcp";
 var AI_COLOR = "#6B3FA0";
 var ROOM_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 var MOVE_FRAME_MS = 16;
-var PRESENCE_FRAME_MS = 50;
+var PRESENCE_FRAME_MS = 200;
 var MOVE_MIN_MS = 320;
 var MOVE_MAX_MS = 1250;
 var MOVE_MS_PER_PX = 0.95;
@@ -49668,7 +49829,6 @@ var FAREWELL_MS = 700;
 var HOVER_MS = 90;
 var PRESS_MS = 380;
 var TYPING_MS = 900;
-var TYPE_CHAR_MS = 55;
 var THINK_MS = 900;
 var ENTRANCE_OFFSET = 320;
 function roomFromLink(input2) {
@@ -49838,6 +49998,8 @@ var LiveRoom = class _LiveRoom {
   lassoState = null;
   route = null;
   routeTimer;
+  idleTimer;
+  onIdle;
   constructor(room, ydoc, provider, awareness, relayUrl, relayOrigin) {
     this.room = room;
     this.ydoc = ydoc;
@@ -49845,6 +50007,7 @@ var LiveRoom = class _LiveRoom {
     this.awareness = awareness;
     this.relayUrl = relayUrl;
     this.relayOrigin = relayOrigin;
+    this.resetIdle();
   }
   /**
    * Connects before handing the room back, so a caller never writes into a
@@ -49866,6 +50029,7 @@ var LiveRoom = class _LiveRoom {
       disableBc: true,
       maxBackoffTime: 1e4
     });
+    sendOnlyLocalPresence(provider);
     const live = new _LiveRoom(room, ydoc, provider, awareness, relayUrl, relayOrigin);
     if (options.startCursor) live.cursor = { x: options.startCursor.x, y: options.startCursor.y };
     live.publishPresence({ cursor: live.cursor, selectedIds: [], view: "chen", typing: false });
@@ -50651,22 +50815,18 @@ var LiveRoom = class _LiveRoom {
       const progress = travelEase(elapsed / span);
       this.cursor = { x: from2.x + (to.x - from2.x) * progress, y: from2.y + (to.y - from2.y) * progress };
       this.intent = { kind: "drag", targetId: legs[1]?.toId };
-      this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+      const now = Date.now();
+      if (elapsed === 0 || now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+        this.lastCursorPublishAt = now;
+        this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+      }
       await pause(MOVE_FRAME_MS);
       elapsed += MOVE_FRAME_MS;
     }
     this.cursor = { ...to };
     return Date.now() - began;
   }
-  /**
-   * Types a shape's name out after the shape lands.
-   *
-   * `writeStep` writes the whole shape at once, so the name is already correct;
-   * this rewrites it a character at a time purely for the watcher, publishing
-   * `typing` on every keystroke for the indicator under the cursor. A shape
-   * arrives as a person makes it — drawn first, then named. Skipped when nobody
-   * is watching and for names too short to be worth replaying.
-   */
+  /** Keep the typing cue without rewriting an already committed name. */
   async typeName(doc2, step) {
     if (this.watching === 0 || this.closed) return;
     const name = shapeNameAt(doc2, step);
@@ -50674,15 +50834,8 @@ var LiveRoom = class _LiveRoom {
     const mapName = step.kind === "entity" ? ENTITIES : step.kind === "attribute" ? ATTRIBUTES : step.kind === "relationship" ? RELATIONSHIPS : null;
     const map4 = mapName ? this.ydoc.getMap(mapName).get(step.id) : void 0;
     if (!map4) return;
-    const generation = this.typingGeneration;
     this.refreshTyping();
-    for (let at = 1; at <= name.length; at++) {
-      if (this.typingGeneration !== generation || this.closed) return;
-      map4.set("name", name.slice(0, at));
-      this.refreshTyping();
-      this.publishPresence({ typing: true });
-      await pause(TYPE_CHAR_MS);
-    }
+    this.publishPresence({ typing: true });
   }
   /** Where the pointer is right now, for a caller that means to come back. */
   get pointer() {
@@ -50704,6 +50857,7 @@ var LiveRoom = class _LiveRoom {
   }
   close() {
     if (this.closed) return;
+    clearTimeout(this.idleTimer);
     this.closed = true;
     this.stopMotion();
     this.stopLasso();
@@ -50718,7 +50872,19 @@ var LiveRoom = class _LiveRoom {
     this.awareness.destroy();
     this.ydoc.destroy();
   }
+  resetIdle() {
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      try {
+        this.onIdle?.();
+      } finally {
+        this.close();
+      }
+    }, 6e4);
+  }
   publishPresence(patch) {
+    if (this.closed) return;
+    this.resetIdle();
     const base = {
       userId: AI_USER_ID,
       name: (env("ERD_MCP_AI_NAME") ?? "AI assistant").trim() || "AI assistant",
@@ -51092,7 +51258,7 @@ async function readDocument(key) {
   } catch {
     throw new Error(`${shown} is not valid JSON.`);
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(parsed.entities)) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !Object.hasOwn(parsed, "entities") || !Array.isArray(parsed.entities)) {
     throw new Error(`${shown} does not contain a diagram. Export a JSON file from ERD Maker.`);
   }
   return normalizeDocument(parsed);
@@ -51626,6 +51792,11 @@ async function openRoom(options = {}) {
   };
   const focus = session.doc.entities[0]?.id ?? session.doc.relationships[0]?.id ?? session.doc.isas[0]?.id ?? null;
   next.enter(session.doc, focus);
+  next.onIdle = () => {
+    if (session?.live !== next) return;
+    lastPointer = next.pointer;
+    session = { ...session, doc: next.snapshot(), live: null };
+  };
   const summary = summarizeDocument(session.doc, session.filePath);
   return {
     room,
@@ -52070,6 +52241,23 @@ function createServer() {
         "- For participation constraints or attributes on a relationship, use the structured form",
         "  (entities/relationships/isas) instead of text.",
         "",
+        "## Design before drawing",
+        "- Preserve supplied schema names, keys, types, nullability and relationship semantics. Do not invent",
+        "  requirements. Distinguish explicit constraints from assumptions; ask only when ambiguity changes the model.",
+        "- For new designs, identify entities, candidate keys and functional dependencies first. Prefer normalized",
+        "  relations; use junction entities for many-to-many relationships carrying attributes or lifecycle.",
+        "- Check both relationship directions: maximum cardinality and minimum participation are separate.",
+        "  A nullable FK does not imply that its parent must have children. Use role names for self-relations.",
+        "- Inspect generate_sql output as well as validate_diagram. Explain unsupported source constraints in your",
+        "  answer; never silently drop them or add a diagram comment unless requested.",
+        "",
+        "## Minimize work and context",
+        "- Prefer summarize_diagram over get_diagram; fetch full coordinates only for an explicit positioning task.",
+        "- Build a first draft in one create_diagram call with all attributes and relationships. For follow-ups,",
+        "  inspect once, then change only affected nodes; do not recreate the diagram or repeatedly arrange it.",
+        "- Validate after the batch, fix reported issues, then generate SQL once. Do not poll status or reread",
+        "  unchanged diagrams. Leave live rooms promptly when finished.",
+        "",
         "## One diagram at a time",
         "create_diagram or open_diagram makes a diagram current; add/update/remove tools edit it; every edit is written",
         "back to its file. list_diagrams shows what is saved. Use the add/update/remove tools for follow-ups, not for",
@@ -52080,13 +52268,13 @@ function createServer() {
         "happen, with the AI's name, cursor, and selection, and no refresh. Omit the link to start a room, or pass the",
         "share link the person gave you to join theirs. A room that already has content wins; the open diagram only",
         "seeds an empty room. create_share_link returns the live room while one is open, otherwise a snapshot URL.",
-        "leave_room signs out with a visible farewell \u2014 call it only when the person says they are done or asks you to",
-        "leave, not when your turn ends."
+        "Call leave_room after completing the requested live edits, before ending your turn. Rejoin with open_room for the next task.",
+        "Idle assistants disconnect automatically after 60 seconds to save cloud resources."
       ].join("\n")
     }
   );
   function json2(value) {
-    return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+    return { content: [{ type: "text", text: JSON.stringify(value) }] };
   }
   const viewSchema = external_exports.enum(["chen", "crowfoot"]);
   const attributeKindSchema = external_exports.enum(["simple", "key", "unique", "multivalued", "derived", "composite"]);
@@ -52369,7 +52557,7 @@ function createServer() {
           "5. If the person wants to watch, call open_room BEFORE create_diagram: pass their share link to join their room, or omit it to start a new one. Every edit then streams into their open tab without a refresh.",
           "6. Call create_diagram once with the whole model \u2014 every entity with its attributes listed on it, every relationship, every specialization \u2014 then validate_diagram, and fix anything it reports.",
           "7. Run generate_sql and include the DDL, along with the share link from create_diagram.",
-          "8. Leave the room open while the person keeps working. Call leave_room when they say they are done, or ask you to leave \u2014 your turn ending is not them being done.",
+          "8. Call leave_room when the requested edits are complete, before ending your turn. Rejoin with open_room for the next task.",
           "9. Model specializations with add_isa: a parent entity and every subclass that inherits its keys and values, added after create_diagram.",
           view ? `Show the diagram in the ${view} view after creating it.` : "",
           "",
@@ -52561,6 +52749,65 @@ var workerSocketFactory = (origin) => {
   return Bound;
 };
 
+// mcp/workerRoute.ts
+var MAX_BODY = 1024 * 1024;
+var SESSION = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+async function routeRequest(request, env2) {
+  const url2 = new URL(request.url);
+  if (url2.pathname === "/health" && request.method === "GET") {
+    return Response.json({ ok: true, server: "erd-maker", transport: "durable-object" });
+  }
+  if (url2.pathname !== "/mcp") return new Response("Not found", { status: 404 });
+  if (!["POST", "DELETE"].includes(request.method)) {
+    return new Response("Method not allowed", { status: 405, headers: { Allow: "POST, DELETE" } });
+  }
+  const session2 = request.headers.get("mcp-session-id");
+  if (session2 !== null && !SESSION.test(session2)) return new Response("Invalid session", { status: 400 });
+  if (!session2 && request.method !== "POST") return new Response("Session required", { status: 400 });
+  const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  if (!(await env2.REQUEST_LIMIT.limit({ key: ip })).success || !session2 && !(await env2.SESSION_LIMIT.limit({ key: ip })).success) {
+    return new Response("Too many requests", { status: 429, headers: { "Retry-After": "60" } });
+  }
+  if (request.method === "POST") {
+    if (request.headers.get("Content-Type")?.split(";")[0].trim() !== "application/json") {
+      return new Response("JSON required", { status: 415 });
+    }
+    if (Number(request.headers.get("Content-Length")) > MAX_BODY) return new Response("Body too large", { status: 413 });
+    const reader = request.body?.getReader();
+    const chunks = [];
+    let length2 = 0;
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        length2 += value.byteLength;
+        if (length2 > MAX_BODY) {
+          await reader.cancel();
+          return new Response("Body too large", { status: 413 });
+        }
+        chunks.push(value);
+      }
+    }
+    const body = new Uint8Array(length2);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      const message = JSON.parse(new TextDecoder().decode(body));
+      if (!message || Array.isArray(message) || message.jsonrpc !== "2.0" || !(typeof message.method === "string" || message.id != null && ("result" in message || "error" in message)) || !session2 && (message.method !== "initialize" || message.id == null)) {
+        return new Response("Invalid MCP request", { status: 400 });
+      }
+    } catch {
+      return new Response("Invalid JSON", { status: 400 });
+    }
+    request = new Request(request, { body });
+  }
+  const id2 = env2.ERD_MCP.idFromName(session2 ?? crypto.randomUUID());
+  return env2.ERD_MCP.get(id2).fetch(request);
+}
+
 // mcp/worker.ts
 var ErdMcpServer = class extends DurableObject {
   transport;
@@ -52591,17 +52838,7 @@ var ErdMcpServer = class extends DurableObject {
     return this.transport.handleRequest(request);
   }
 };
-var worker_default = {
-  async fetch(request, env2) {
-    const url2 = new URL(request.url);
-    if (url2.pathname === "/health") {
-      return Response.json({ ok: true, server: "erd-maker", transport: "durable-object" });
-    }
-    const sessionId = request.headers.get("mcp-session-id") ?? crypto.randomUUID();
-    const id2 = env2.ERD_MCP.idFromName(sessionId);
-    return env2.ERD_MCP.get(id2).fetch(request);
-  }
-};
+var worker_default = { fetch: routeRequest };
 export {
   ErdMcpServer,
   worker_default as default

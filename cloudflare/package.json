@@ -2,7 +2,7 @@
   "name": "erd-sync",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node relay-node.mjs", "check:node": "node check-node.mjs", "dev": "wrangler dev", "deploy": "wrangler deploy" },
+  "scripts": { "start": "node relay-node.mjs", "check:node": "node check-abuse.mjs && node check-node.mjs", "dev": "wrangler dev", "deploy": "wrangler deploy" },
   "dependencies": { "yjs": "^13.6.20", "y-protocols": "^1.0.6", "lib0": "^0.2.99", "ws": "^8.22.0" },
   "devDependencies": { "wrangler": "^4.0.0" }
 }

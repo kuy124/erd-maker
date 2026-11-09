@@ -446,6 +446,22 @@ describe('intent choreography', () => {
     vi.useFakeTimers();
   });
 
+  it('limits relationship drag presence to 5 Hz instead of every animation frame', async () => {
+    const { live, awareness } = headless();
+    const updates = vi.fn();
+    awareness.on('update', updates);
+    try {
+      const drawing = live.drawLink(sampleDoc(), { id: 'rel_places', kind: 'relationship' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await drawing;
+      expect(updates.mock.calls.length).toBeGreaterThan(1);
+      expect(updates.mock.calls.length).toBeLessThanOrEqual(5);
+      expect(live.pointer).toEqual(presenceAt(sampleDoc(), 'ent_order').cursor);
+    } finally {
+      live.close();
+    }
+  });
+
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();

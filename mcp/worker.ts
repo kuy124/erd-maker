@@ -18,10 +18,13 @@ import { workerSocketFactory } from './workerSocket';
 import { useSocketFactory } from './live';
 import { useWorkspace } from './diagram';
 import { useEnv } from './env';
+import { routeRequest } from './workerRoute';
 
 export interface Env {
   /** Durable Object namespace that owns the sessions. */
   ERD_MCP: DurableObjectNamespace;
+  REQUEST_LIMIT: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  SESSION_LIMIT: { limit(options: { key: string }): Promise<{ success: boolean }> };
   /** Optional settings, passed straight to env(). */
   DIAGRAMS_PREFIX?: string;
   ERD_MCP_RELAY_URL?: string;
@@ -78,22 +81,4 @@ export class ErdMcpServer extends DurableObject<Env> {
   }
 }
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === '/health') {
-      return Response.json({ ok: true, server: 'erd-maker', transport: 'durable-object' });
-    }
-
-    // Every client gets its own object, so two people never share a diagram
-    // or fight over one MCP session.
-    //
-    // A client that already has a session id is routed by it. A client on its
-    // first call has none yet, so it is given a fresh object named after a
-    // random id, which that object then reports as the session id.
-    const sessionId = request.headers.get('mcp-session-id') ?? crypto.randomUUID();
-    const id = env.ERD_MCP.idFromName(sessionId);
-    return env.ERD_MCP.get(id).fetch(request);
-  },
-};
+export default { fetch: routeRequest };

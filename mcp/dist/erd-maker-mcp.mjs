@@ -51576,6 +51576,25 @@ ${reason}`);
   }
 });
 
+// src/collab/relayPresence.ts
+function sendOnlyLocalPresence(provider) {
+  const awareness = provider.awareness;
+  const send = provider._awarenessUpdateHandler;
+  awareness.off("update", send);
+  provider._awarenessUpdateHandler = ({ added, updated, removed }, origin) => {
+    const local = (ids) => ids.filter((id2) => id2 === awareness.clientID);
+    const changes = { added: local(added), updated: local(updated), removed: local(removed) };
+    if (changes.added.length || changes.updated.length || changes.removed.length) send(changes, origin);
+  };
+  awareness.on("update", provider._awarenessUpdateHandler);
+}
+var init_relayPresence = __esm({
+  "src/collab/relayPresence.ts"() {
+    "use strict";
+    init_awareness();
+  }
+});
+
 // src/collab/comments.ts
 function readComments(ydoc) {
   return normalizeComments([...ydoc.getMap(COMMENTS)].map(([id2, value]) => value && typeof value === "object" ? { ...value, id: id2 } : null));
@@ -52269,6 +52288,7 @@ var init_live = __esm({
     init_yjs();
     init_awareness();
     init_y_websocket();
+    init_relayPresence();
     init_crowfoot();
     init_snapshot();
     init_comments2();
@@ -52374,6 +52394,7 @@ var init_live = __esm({
           disableBc: true,
           maxBackoffTime: 1e4
         });
+        sendOnlyLocalPresence(provider);
         const live = new _LiveRoom(room, ydoc, provider, awareness, relayUrl, relayOrigin);
         if (options.startCursor) live.cursor = { x: options.startCursor.x, y: options.startCursor.y };
         live.publishPresence({ cursor: live.cursor, selectedIds: [], view: "chen", typing: false });
@@ -53159,7 +53180,11 @@ var init_live = __esm({
           const progress = travelEase(elapsed / span);
           this.cursor = { x: from2.x + (to.x - from2.x) * progress, y: from2.y + (to.y - from2.y) * progress };
           this.intent = { kind: "drag", targetId: legs[1]?.toId };
-          this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+          const now = Date.now();
+          if (elapsed === 0 || now - this.lastCursorPublishAt >= PRESENCE_FRAME_MS) {
+            this.lastCursorPublishAt = now;
+            this.publishPresence({ cursor: this.cursor, selectedIds: this.cursorSelection, view, typing: false, pressing: true });
+          }
           await pause(MOVE_FRAME_MS);
           elapsed += MOVE_FRAME_MS;
         }
