@@ -81,9 +81,15 @@ describe('data type properties', () => {
     expect(select?.getAttribute('aria-describedby')).toBe('attr-data-type-help');
   });
 
-  it('keeps the type control out of Chen conceptual properties', () => {
+  it('allows editing the persisted data type in Chen properties', () => {
     const doc = document(); doc.view = 'chen';
-    expect(properties(doc).querySelector('#attr-data-type')).toBeNull();
+    doc.attributes[0]!.dataType = 'VARCHAR(64)';
+    const dom = properties(doc);
+    const select = dom.querySelector<HTMLSelectElement>('#attr-data-type');
+    expect(select).not.toBeNull();
+    expect(select?.disabled).toBe(false);
+    expect(select?.value).toBe('VARCHAR');
+    expect(dom.querySelector<HTMLInputElement>('#attr-type-length')?.value).toBe('64');
   });
 
   it('offers a values field for ENUM and only for ENUM', () => {
