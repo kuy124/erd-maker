@@ -273,13 +273,14 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   const positioned = useMemo(() => {
     const entries: { start: Map<string, { x: number; y: number }>; dx: number; dy: number }[] = [];
     const active = drag.drag;
-    if (active?.moved) entries.push({ start: active.start, dx: active.dx, dy: active.dy });
     for (const peer of peers) {
       if (peer.view !== 'crowfoot') continue;
       const d = peer.dragging;
       if (!d) continue;
       entries.push({ start: new Map(Object.entries(d.start)), dx: d.dx, dy: d.dy });
     }
+    // The pointer in this browser always wins over delayed peer previews.
+    if (active?.moved) entries.push({ start: active.start, dx: active.dx, dy: active.dy });
     if (entries.length === 0) return tables;
     return tables.map((table) => {
       let x = table.x; let y = table.y;

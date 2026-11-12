@@ -3,6 +3,7 @@ import { WebsocketProvider } from 'y-websocket';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { bridgeRelayPresence, sendOnlyLocalPresence } from '../../src/collab/relayPresence';
+import { readPeers } from '../../src/collab/provider';
 
 it('sends local presence and departures without echoing remote updates', () => {
   const doc = new Y.Doc();
@@ -53,13 +54,30 @@ it('keeps browser motion off the relay while receiving MCP presence and departur
     const deliver = () => applyAwarenessUpdate(relay, encodeAwarenessUpdate(remote, [remote.clientID]), 'server');
     remote.setLocalState({ name: 'AI', cursor: { x: 20, y: 30 } });
     deliver();
-    expect(direct.getStates().get(remote.clientID)?.cursor).toEqual({ x: 20, y: 30 });
+    expect(readPeers(direct, doc.clientID, relay)[0]?.cursor).toEqual({ x: 20, y: 30 });
+    expect(direct.meta.has(remote.clientID)).toBe(false);
     remote.setLocalState(null);
     deliver();
     expect(direct.getStates().has(remote.clientID)).toBe(false);
     remote.setLocalState({ name: 'Other browser', transport: 'webrtc' });
     deliver();
-    expect(direct.getStates().has(remote.clientID)).toBe(false);
+    expect(readPeers(direct, doc.clientID, relay)[0]?.name).toBe('Other browser');
+    // Even a far-newer relay clock must not poison incoming WebRTC updates.
+    for (let i = 0; i < 20; i++) remote.setLocalStateField('name', `Relay ${i}`);
+    deliver();
+    const rtcDoc = new Y.Doc();
+    rtcDoc.clientID = remote.clientID;
+    const rtc = new Awareness(rtcDoc);
+    rtc.setLocalState({ name: 'Direct browser', cursor: { x: 5, y: 6 } });
+    applyAwarenessUpdate(direct, encodeAwarenessUpdate(rtc, [rtc.clientID]), 'webrtc');
+    expect(readPeers(direct, doc.clientID, relay)[0]?.cursor).toEqual({ x: 5, y: 6 });
+    rtc.destroy(); rtcDoc.destroy();
+    // Relay identity refreshes must not replace direct cursor/selection data.
+    direct.getStates().set(remote.clientID, { name: 'Direct browser', cursor: { x: 5, y: 6 } });
+    remote.setLocalStateField('name', 'Relay browser');
+    deliver();
+    expect(direct.getStates().get(remote.clientID)?.cursor).toEqual({ x: 5, y: 6 });
+    expect(readPeers(direct, doc.clientID, relay)[0]?.cursor).toEqual({ x: 5, y: 6 });
     direct.setLocalState(null);
     expect(relay.getLocalState()).toBe(null);
   } finally {

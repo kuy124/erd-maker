@@ -263,14 +263,19 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
   useEffect(() => {
     const { awareness } = room;
     const update = () => {
-      const states = awareness.getStates();
-      setPeers(readPeers(awareness, room.ydoc.clientID));
-      setConnected(states.size > 1);
+      const peers = readPeers(awareness, room.ydoc.clientID, room.relayAwareness);
+      setPeers(peers);
+      setConnected(peers.length > 0);
     };
-    awareness.on('change', update);
+    const remoteUpdate = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
+      if ([...added, ...updated, ...removed].some(id => id !== room.ydoc.clientID)) update();
+    };
+    awareness.on('change', remoteUpdate);
+    room.relayAwareness?.on('change', remoteUpdate);
     update();
     return () => {
-      awareness.off('change', update);
+      awareness.off('change', remoteUpdate);
+      room.relayAwareness?.off('change', remoteUpdate);
     };
   }, [room]);
 

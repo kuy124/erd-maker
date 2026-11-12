@@ -67,6 +67,9 @@ export const shape = (page: Page, name: string) =>
 /** Creates a named entity through the shape rail, the most reliable creation path. */
 export async function addNamedEntity(page: Page, name: string) {
   await addShape(page, 'entity');
+  if (!await page.getByTestId('inspector-name').isVisible()) {
+    await page.getByRole('navigation', { name: 'Workspace panels' }).getByRole('button', { name: 'Properties', exact: true }).click();
+  }
   await page.getByTestId('inspector-name').fill(name);
 }
 

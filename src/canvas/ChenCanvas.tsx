@@ -458,9 +458,6 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
   const displayDoc = useMemo<ErdDocument>(() => {
     const entries: { start: Map<string, { x: number; y: number }>; dx: number; dy: number }[] = [];
     const active = drag.drag;
-    if (active?.moved) {
-      entries.push({ start: active.start, dx: active.dx, dy: active.dy });
-    }
     for (const peer of peers) {
       if (peer.view !== 'chen') continue;
       const d = peer.dragging;
@@ -471,6 +468,8 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
         dy: d.dy,
       });
     }
+    // The pointer in this browser always wins over delayed peer previews.
+    if (active?.moved) entries.push({ start: active.start, dx: active.dx, dy: active.dy });
     if (entries.length === 0) return doc;
     const move = <T extends Positioned>(list: T[]): T[] =>
       list.map((node) => {

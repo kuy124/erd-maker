@@ -13,6 +13,34 @@ import { addNamedEntity, documentAction, shape, signalingContext } from './actio
  */
 test.describe.configure({ timeout: 120_000 });
 
+test('a joiner drags locally and synchronizes the drop', async ({ browser }) => {
+  const owner = await signalingContext(browser);
+  const guest = await signalingContext(browser);
+  try {
+    const alice = await owner.newPage();
+    const bob = await guest.newPage();
+    await alice.goto('/');
+    await expect(alice.getByLabel('Diagram name')).toBeEnabled();
+    await addNamedEntity(alice, 'Movable');
+    await documentAction(alice, 'Share');
+    const link = await alice.getByLabel('Share link').inputValue();
+    await alice.getByRole('button', { name: 'Done', exact: true }).click();
+    await bob.goto(link);
+    const entity = shape(bob, 'Entity Movable');
+    await expect(entity).toBeVisible();
+    const before = (await entity.boundingBox())!;
+    await bob.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await bob.mouse.down();
+    await bob.mouse.move(before.x + before.width / 2 + 80, before.y + before.height / 2 + 40, { steps: 8 });
+    await expect.poll(async () => (await entity.boundingBox())!.x).toBeGreaterThan(before.x + 50);
+    await bob.mouse.up();
+    await expect(shape(alice, 'Entity Movable')).toHaveAttribute('transform', (await entity.getAttribute('transform'))!);
+  } finally {
+    await owner.close();
+    await guest.close();
+  }
+});
+
 test('a shape streams in for the watcher, not for its own creator', async ({ browser }) => {
   const aliceContext = await signalingContext(browser);
   const bobContext = await signalingContext(browser);
@@ -46,6 +74,7 @@ test('a shape streams in for the watcher, not for its own creator', async ({ bro
     await expect(shape(bob, 'Entity Bravo')).toBeVisible({ timeout: 30_000 });
     await expect(shape(bob, 'Entity Bravo')).toHaveClass(/\bnode--enter-entity\b/);
     await expect(shape(alice, 'Entity Bravo')).not.toHaveClass(/\bnode--enter-entity\b/);
+
   } finally {
     await aliceContext.close();
     await bobContext.close();

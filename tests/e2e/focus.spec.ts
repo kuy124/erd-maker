@@ -50,10 +50,23 @@ test('selecting a shape stays on the canvas until properties are requested', asy
   await expect(shape.locator('.selection-ring')).toBeVisible();
 });
 
+test('properties switch directly between entities without clearing selection', async ({ page }) => {
+  await openDiagram(page);
+  const canvas = page.getByTestId('canvas');
+  await canvas.getByRole('button', { name: 'Entity Customer', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Workspace panels' }).getByRole('button', { name: 'Properties', exact: true }).click();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Customer');
+  await canvas.getByRole('button', { name: 'Entity Order', exact: true }).click();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Order');
+  await canvas.getByRole('button', { name: 'Entity Customer', exact: true }).click();
+  await expect(page.getByLabel('Entity name')).toHaveValue('Customer');
+});
+
 test('selecting after naming a new shape preserves the canvas position', async ({ page }) => {
   await openDiagram(page);
   await page.getByTestId('canvas').focus();
   await page.keyboard.press('e');
+  await page.getByRole('navigation', { name: 'Workspace panels' }).getByRole('button', { name: 'Properties', exact: true }).click();
   await page.getByLabel('Entity name').fill('Invoice');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Fit', exact: true }).click();

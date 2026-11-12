@@ -69,6 +69,7 @@ export interface RoomHandle {
   room: string;
   ydoc: Y.Doc;
   awareness: Awareness;
+  relayAwareness?: Awareness;
   provider: WebrtcProvider;
   persistence: IndexeddbPersistence;
   /** Resolves once IndexedDB has loaded, so the first render is not empty. */
@@ -217,6 +218,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
   if (relay) {
     relays.set(provider, relay);
     relay.on('status', () => announceTransport(provider));
+    relay.on('sync', () => announceTransport(provider));
     relay.awareness.on('change', () => announceTransport(provider));
   }
 
@@ -325,6 +327,7 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     room,
     ydoc,
     awareness: presence,
+    relayAwareness: relay?.awareness,
     provider,
     persistence,
     whenLoaded: persistence.whenSynced.then(() => undefined),
@@ -372,9 +375,13 @@ function readDragging(raw: Partial<LocalPresence>): PeerState['dragging'] {
 }
 
 /** Reads every remote peer's presence, excluding our own client. */
-export function readPeers(awareness: Awareness, localClientId: number): PeerState[] {
+export function readPeers(awareness: Awareness, localClientId: number, relayAwareness?: Awareness): PeerState[] {
   const peers: PeerState[] = [];
-  awareness.getStates().forEach((state, clientId) => {
+  // Keep transport clocks separate. Direct presence wins without being echoed
+  // back through WebRTC or suppressed by a newer relay heartbeat clock.
+  const states = new Map(relayAwareness?.getStates());
+  awareness.getStates().forEach((state, id) => states.set(id, state));
+  states.forEach((state, clientId) => {
     if (clientId === localClientId) return;
     const raw = state as Partial<LocalPresence>;
     const dragging = readDragging(raw);
@@ -420,6 +427,9 @@ function directConnectionCount(provider: WebrtcProvider): number {
 
 /** What the connection to the room is doing, so the app can explain it. */
 export interface TransportState {
+  /** Relay connection and initial document exchange, independent of signalling. */
+  relayConnected?: boolean;
+  relaySynced?: boolean;
   idle?: boolean;
   /** The signalling server is reachable, so a peer in another device can be found. */
   signalling: boolean;
@@ -527,8 +537,8 @@ export function transportState(provider: WebrtcProvider): TransportState {
   for (const link of links?.values() ?? []) {
     if (link.state === 'failed') blocked += 1;
   }
-  if (relay?.wsconnected) direct += [...relay.awareness.getStates()].filter(([id, state]) =>
-    id !== provider.awareness.clientID && state.transport !== 'webrtc').length;
+  if (relay?.wsconnected && relay.synced) direct = Math.max(direct, [...relay.awareness.getStates()].filter(([id]) =>
+    id !== provider.awareness.clientID).length);
   // lib0's websocket client reconnects on its own, so this is the live answer.
   const signalling = !!relay?.wsconnected || provider.signalingConns.some((conn) => conn.connected);
   const now = Date.now();
@@ -539,6 +549,8 @@ export function transportState(provider: WebrtcProvider): TransportState {
   }
   const downSince = signallingDownSince.get(provider);
   return {
+    relayConnected: !!relay?.wsconnected,
+    relaySynced: !!relay?.wsconnected && relay.synced,
     idle: idleProviders.has(provider),
     signalling,
     direct,

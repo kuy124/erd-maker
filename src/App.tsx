@@ -1109,7 +1109,7 @@ function Editor({ room, seed, fromLink }: { room: RoomHandle; seed: ErdDocument 
             <button type="button" className="btn btn--ghost panel-close" aria-label="Close panel" onClick={closePanel}><span className="panel-close--desktop">×</span><span className="panel-close--phone">Done</span></button>
           </div>
           {rightTab === 'help' ? <HelpPanel /> : rightTab === 'comments' ? <CommentsPanel state={editor} open={openPanel === 'comments'} hasDraft={!!commentDraft.trim()} onPlace={beginComment} onLocate={focusComment} /> :
-            <Inspector state={editor} nameFocusReady={openPanel === 'properties'} />}
+            <Inspector key={JSON.stringify(state.selection)} state={editor} nameFocusReady={openPanel === 'properties'} />}
         </div>
       </div>
 
@@ -1214,14 +1214,16 @@ function connectionState(state: EditorState): { state: string; label: string; no
   if (state.transport.idle) return { state: 'offline', label: 'Disconnected (idle)', fix: true,
     note: 'Disconnected after five minutes of inactivity to save cloud resources. Your edits stay saved in this browser. Rejoin to resume live sync.' };
   if (import.meta.env.VITE_SYNC_URL) {
-    if (!state.transport.signalling) {
+    if (!state.transport.relayConnected) {
       if (state.transport.unreachable) return { state: 'offline', label: 'Offline', fix: true,
         note: 'Cloud sync cannot be reached from this network, so the room is not getting reconnects. Your edits stay saved in this browser; share a snapshot link to keep working together.' };
       return { state: 'offline', label: 'Reconnecting', fix: true,
         note: 'Reconnecting to cloud sync. Your edits stay saved in this browser.' };
     }
-    return { state: 'live', label: state.peers.length ? 'Live' : 'Connected', fix: false,
-      note: state.peers.length ? 'Connected to cloud sync with collaborators.' : 'Connected to cloud sync. Share this room link to invite collaborators.' };
+    if (!state.transport.relaySynced) return { state: 'waiting', label: 'Syncing', fix: true,
+      note: 'Cloud connection opened; waiting for the room document to finish syncing.' };
+    return { state: state.peers.length ? 'live' : 'waiting', label: state.peers.length ? 'Live' : 'Waiting for others', fix: false,
+      note: state.peers.length ? 'Connected to cloud sync with collaborators.' : 'Room synced with cloud storage. Share this room link to invite collaborators.' };
   }
   if (state.transport.direct > 0) {
     return { state: 'live', label: 'Live', fix: false,

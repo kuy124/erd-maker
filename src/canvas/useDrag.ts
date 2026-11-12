@@ -190,14 +190,12 @@ export interface DragApi {
 
 export function useDrag(options: Options): DragApi {
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [pan, setPan] = useState<PanState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
   const cancel = useCallback(() => {
     dragRef.current = null;
     panRef.current = null;
     setDrag(null);
-    setPan(null);
   }, []);
 
   // Keep the latest callbacks without re-binding listeners on every render.
@@ -219,12 +217,9 @@ export function useDrag(options: Options): DragApi {
       originY: latest.current.viewport.y,
     };
     panRef.current = next;
-    setPan(next);
   }, []);
 
   useEffect(() => {
-    if (!drag && !pan) return undefined;
-
     const onMove = (event: PointerEvent) => {
       const currentDrag = dragRef.current;
       if (currentDrag) {
@@ -266,7 +261,6 @@ export function useDrag(options: Options): DragApi {
       }
       if (panRef.current) {
         panRef.current = null;
-        setPan(null);
       }
     };
 
@@ -278,7 +272,7 @@ export function useDrag(options: Options): DragApi {
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
     };
-  }, [drag, pan]);
+  }, []);
 
   return {
     drag,
