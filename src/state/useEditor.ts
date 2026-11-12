@@ -317,7 +317,10 @@ export function useEditor(room: RoomHandle, initialDoc: ErdDocument | null): Edi
     const provider = room.provider;
     const update = () => {
       setDirectPeers(connectedPeerCount(provider));
-      setTransport(transportState(provider));
+      const next = transportState(provider);
+      setTransport(current => current.idle === next.idle && current.signalling === next.signalling &&
+        current.direct === next.direct && current.blocked === next.blocked &&
+        current.unreachable === next.unreachable && current.relaySynced === next.relaySynced ? current : next);
     };
     provider.on('peers', update);
     provider.on('status', update);

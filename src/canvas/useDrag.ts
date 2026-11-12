@@ -162,6 +162,37 @@ export interface PanState {
   originY: number;
 }
 
+/** Bound network previews without delaying local pointer rendering. */
+export function useDragPresence(drag: DragState | null, awareness: Awareness): void {
+  const latest = useRef(drag);
+  latest.current = drag;
+  const lastSent = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const publish = () => {
+      timer.current = null;
+      lastSent.current = performance.now();
+      const active = latest.current;
+      awareness.setLocalStateField('dragging', active?.moved ? {
+        ids: [...active.start.keys()], start: Object.fromEntries(active.start), dx: active.dx, dy: active.dy,
+      } : null);
+    };
+    if (!drag?.moved) {
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+      if (awareness.getLocalState()?.dragging) publish();
+    } else if (timer.current === null) {
+      const delay = 33 - (performance.now() - lastSent.current);
+      if (delay <= 0) publish();
+      else timer.current = setTimeout(publish, delay);
+    }
+  }, [drag, awareness]);
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+    awareness.setLocalStateField('dragging', null);
+  }, [awareness]);
+}
+
 interface Options {
   /** Converts a client point to world coordinates. */
   toWorld: (clientX: number, clientY: number) => Point;
@@ -192,7 +223,10 @@ export function useDrag(options: Options): DragApi {
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const panRef = useRef<PanState | null>(null);
+  const frame = useRef<number | null>(null);
   const cancel = useCallback(() => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+    frame.current = null;
     dragRef.current = null;
     panRef.current = null;
     setDrag(null);
@@ -231,7 +265,10 @@ export function useDrag(options: Options): DragApi {
           moved: true,
         };
         dragRef.current = next;
-        setDrag(next);
+        if (frame.current === null) frame.current = requestAnimationFrame(() => {
+          frame.current = null;
+          setDrag(dragRef.current);
+        });
         return;
       }
 
@@ -245,6 +282,8 @@ export function useDrag(options: Options): DragApi {
     };
 
     const onUp = () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
       const finished = dragRef.current;
       if (finished) {
         if (finished.moved) {
@@ -268,6 +307,8 @@ export function useDrag(options: Options): DragApi {
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
     return () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);

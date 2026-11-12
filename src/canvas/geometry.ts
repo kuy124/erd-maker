@@ -10,7 +10,7 @@
  * Convention: a node's `x`/`y` is the top-left of its bounding box.
  */
 
-import { sizeOf, allNodes, type ErdDocument, type Leg, type NodeId, type Positioned } from '../model/types';
+import { sizeOf, namedNodeSize, allNodes, type ErdDocument, type Leg, type NodeId, type Positioned } from '../model/types';
 import { deriveLinks, deriveTables, routeLinks } from '../model/crowfoot';
 import { placeEndpointLabels, placeRouteCaption } from '../model/connectorRouting';
 import { occupiedBoxes, unaryRolePoints } from '../model/placement';
@@ -18,6 +18,38 @@ import { occupiedBoxes, unaryRolePoints } from '../model/placement';
 export interface Point {
   x: number;
   y: number;
+}
+
+// Canvas snapshots are immutable: share lookups across every connector in a frame.
+const geometryIndexes = new WeakMap<ErdDocument, ReturnType<typeof buildGeometryIndex>>();
+function buildGeometryIndex(doc: ErdDocument) {
+  const nodes = new Map<string, { node: Positioned; kind: 'entity' | 'attribute' | 'relationship' | 'isa'; size: Size }>();
+  for (const [kind, list] of [['entity', doc.entities], ['attribute', doc.attributes],
+    ['relationship', doc.relationships], ['isa', doc.isas]] as const) {
+    for (const node of list) nodes.set(node.id, { node, kind,
+      size: namedNodeSize(kind, 'name' in node ? node.name : '') });
+  }
+  const roles = new Map<string, Map<string, Leg[]>>();
+  for (const leg of doc.legs) {
+    const from = nodes.get(leg.fromId), to = nodes.get(leg.toId);
+    const entity = from?.kind === 'entity' ? from : to?.kind === 'entity' ? to : undefined;
+    const relationship = from?.kind === 'relationship' ? from : to?.kind === 'relationship' ? to : undefined;
+    if (!entity || !relationship) continue;
+    let groups = roles.get(entity.node.id);
+    if (!groups) roles.set(entity.node.id, groups = new Map());
+    let group = groups.get(relationship.node.id);
+    if (!group) groups.set(relationship.node.id, group = []);
+    group.push(leg);
+  }
+  for (const groups of roles.values()) for (const group of groups.values()) {
+    group.sort((a, b) => Number(a.cardinality !== '1') - Number(b.cardinality !== '1') || a.id.localeCompare(b.id));
+  }
+  return { nodes, roles };
+}
+/** Opt immutable render snapshots into caching; mutable model callers stay fresh. */
+export function indexGeometrySnapshot(doc: ErdDocument) {
+  geometryIndexes.set(doc, buildGeometryIndex(doc));
+  return doc;
 }
 
 export const MIN_ZOOM = 0.01;
@@ -112,27 +144,27 @@ export function edgePoint(
   id: NodeId,
   target: Point,
 ): Point | undefined {
-  const node = findPositioned(doc, id);
+  const entry = geometryIndexes.get(doc)?.nodes.get(id);
+  const node = entry?.node ?? findPositioned(doc, id);
   if (!node) return undefined;
-  const size = sizeOf(doc, id);
+  const size = entry?.size ?? sizeOf(doc, id);
+  const kind = entry?.kind ?? (doc.attributes.some(a => a.id === id) ? 'attribute' :
+    doc.relationships.some(r => r.id === id) ? 'relationship' : 'entity');
   const center = centerOf(node, size);
 
-  if (doc.attributes.some((a) => a.id === id)) {
+  if (kind === 'attribute') {
     return ellipseEdge(center, target, size.w / 2, size.h / 2);
   }
-  if (doc.relationships.some((r) => r.id === id)) {
+  if (kind === 'relationship') {
     return diamondEdge(center, target, size.w / 2, size.h / 2);
   }
   return rectEdge(center, target, size.w / 2, size.h / 2);
 }
 
 function findPositioned(doc: ErdDocument, id: NodeId): Positioned | undefined {
-  return (
-    doc.entities.find((e) => e.id === id) ??
-    doc.attributes.find((a) => a.id === id) ??
-    doc.relationships.find((r) => r.id === id) ??
-    doc.isas.find((i) => i.id === id)
-  );
+  return geometryIndexes.get(doc)?.nodes.get(id)?.node ?? doc.entities.find(node => node.id === id) ??
+    doc.attributes.find(node => node.id === id) ?? doc.relationships.find(node => node.id === id) ??
+    doc.isas.find(node => node.id === id);
 }
 
 export interface Segment {
@@ -155,8 +187,9 @@ export function segmentBetween(doc: ErdDocument, fromId: NodeId, toId: NodeId): 
   const toNode = findPositioned(doc, toId);
   if (!fromNode || !toNode) return undefined;
 
-  const fromCenter = centerOf(fromNode, sizeOf(doc, fromId));
-  const toCenter = centerOf(toNode, sizeOf(doc, toId));
+  const index = geometryIndexes.get(doc);
+  const fromCenter = centerOf(fromNode, index?.nodes.get(fromId)?.size ?? sizeOf(doc, fromId));
+  const toCenter = centerOf(toNode, index?.nodes.get(toId)?.size ?? sizeOf(doc, toId));
 
   const from = edgePoint(doc, fromId, toCenter);
   const to = edgePoint(doc, toId, fromCenter);
@@ -171,11 +204,16 @@ export function segmentBetween(doc: ErdDocument, fromId: NodeId, toId: NodeId): 
 
 /** ERDPlus unary roles meet opposite diamond corners and use separate straight entity stubs. */
 export function segmentForLeg(doc: ErdDocument, leg: Leg): Segment | undefined {
-  const entity = doc.entities.find(node => node.id === leg.fromId || node.id === leg.toId);
-  const relationship = doc.relationships.find(node => node.id === leg.fromId || node.id === leg.toId);
+  const index = geometryIndexes.get(doc);
+  const from = index?.nodes.get(leg.fromId), to = index?.nodes.get(leg.toId);
+  const entity = index ? (from?.kind === 'entity' ? from : to?.kind === 'entity' ? to : undefined)?.node :
+    doc.entities.find(node => node.id === leg.fromId || node.id === leg.toId);
+  const relationship = index ? (from?.kind === 'relationship' ? from : to?.kind === 'relationship' ? to : undefined)?.node :
+    doc.relationships.find(node => node.id === leg.fromId || node.id === leg.toId);
   if (!entity || !relationship) return segmentBetween(doc, leg.fromId, leg.toId);
-  const roles = doc.legs.filter(row => (row.fromId === entity.id && row.toId === relationship.id) ||
-    (row.toId === entity.id && row.fromId === relationship.id)).sort((a, b) =>
+  const roles = index ? index.roles.get(entity.id)?.get(relationship.id) ?? [] :
+    doc.legs.filter(row => (row.fromId === entity.id && row.toId === relationship.id) ||
+      (row.toId === entity.id && row.fromId === relationship.id)).sort((a, b) =>
       Number(a.cardinality !== '1') - Number(b.cardinality !== '1') || a.id.localeCompare(b.id));
   if (roles.length < 2) return segmentBetween(doc, leg.fromId, leg.toId);
   const role = roles.findIndex(row => row.id === leg.id) / (roles.length - 1);

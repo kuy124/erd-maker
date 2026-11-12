@@ -30,7 +30,7 @@ import {
 } from '../model/crowfoot';
 import type { EditorState } from '../state/useEditor';
 import { dragSet, nodesInRect, type Point } from './geometry';
-import { useDrag, usePeerCursor } from './useDrag';
+import { useDrag, useDragPresence, usePeerCursor } from './useDrag';
 import { CardinalityMarker, GroupFrames, PeerCursors } from './NodeShapes';
 
 interface Props {
@@ -134,21 +134,7 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   }, [drag.drag]);
 
   // Tell peers while we carry a table, so its shape follows live before drop.
-  useEffect(() => {
-    const active = drag.drag;
-    if (!active?.moved) {
-      state.awareness.setLocalStateField('dragging', null);
-      return;
-    }
-    const start: Record<string, { x: number; y: number }> = {};
-    for (const [id, pos] of active.start) start[id] = pos;
-    state.awareness.setLocalStateField('dragging', {
-      ids: [...active.start.keys()],
-      start,
-      dx: active.dx,
-      dy: active.dy,
-    });
-  }, [drag.drag, state.awareness]);
+  useDragPresence(drag.drag, state.awareness);
 
   // The table view had no presence at all; moving the mouse is now enough to be seen.
   usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
@@ -307,7 +293,9 @@ export function CrowFootCanvas({ state, svgRef, emptyActions, emptyState, onTabl
   }, [byId]);
   // Where every table is drawn, so a connector can be kept off them.
   const obstacles = useMemo(() => positioned.map(tableObstacle), [positioned]);
-  const routes = useMemo(() => routeLinks(positioned, links), [positioned, links]);
+  const previewing = !!drag.drag?.moved || peers.some(peer => peer.view === 'crowfoot' && peer.dragging);
+  // ponytail: preview skips global lane refinement; full routing resumes on drop.
+  const routes = useMemo(() => routeLinks(positioned, links, !previewing), [positioned, links, previewing]);
 
   const isEmpty = positioned.length === 0;
 

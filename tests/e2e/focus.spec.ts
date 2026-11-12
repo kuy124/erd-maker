@@ -18,6 +18,22 @@ async function openDiagram(page: Page) {
   await expect(page.getByTestId('canvas').getByRole('button', { name: 'Entity Customer', exact: true })).toBeVisible();
 }
 
+test('phone notation switch stays inside the header and switches views', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await openDiagram(page);
+  const header = (await page.locator('.topbar').boundingBox())!;
+  const switcher = (await page.locator('.notation').boundingBox())!;
+  expect(switcher.x).toBeGreaterThanOrEqual(header.x);
+  expect(switcher.y + switcher.height).toBeLessThanOrEqual(header.y + header.height);
+  expect(switcher.width).toBeLessThanOrEqual(header.width);
+  const crowfoot = page.locator('.notation').getByRole('button', { name: /crow/i });
+  await crowfoot.click();
+  await expect(crowfoot).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.notation').getByRole('button', { name: 'Chen', exact: true }).click();
+  await expect(page.getByTestId('canvas').getByRole('button', { name: 'Entity Customer', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+});
+
 for (const width of [320, 1440]) for (const colorScheme of ['light', 'dark'] as const) {
   test(`the canvas fills the ${width}px ${colorScheme} workspace with panels closed`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

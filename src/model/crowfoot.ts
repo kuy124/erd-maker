@@ -711,7 +711,7 @@ function routeCost(points: RoutePoint[], ports: Point[], previous: ReturnType<ty
 }
 
 /** Route the whole diagram, so unrelated connections do not claim one lane. */
-export function routeLinks(tables: CrowTable[], links: CrowLink[]) {
+export function routeLinks(tables: CrowTable[], links: CrowLink[], refineLanes = true) {
   const byId = new Map(tables.map(table => [table.entityId, table]));
   const obstacles = tables.map(tableObstacle);
   const routes = new Map<string, ReturnType<typeof routeColumns>>();
@@ -731,7 +731,7 @@ export function routeLinks(tables: CrowTable[], links: CrowLink[]) {
     const stubs = { start: Math.abs(base.guard.aStub.x - base.a.x), end: Math.abs(base.guard.bStub.x - base.b.x) };
     // ponytail: three local lane moves; use a global router if very dense,
     // non-planar schemas require more than separated, table-safe channels.
-    if (!fixed) for (let pass = 0; pass < 3; pass++) {
+    if (refineLanes && !fixed) for (let pass = 0; pass < 3; pass++) {
       let best = points, cost = routeCost(points, ports, previous);
       for (let segment = 0; segment < points.length - 1; segment++) {
         for (const offset of [-108, -90, -72, -54, -36, -18, 18, 36, 54, 72, 90, 108]) {

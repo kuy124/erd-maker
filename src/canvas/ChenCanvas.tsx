@@ -13,11 +13,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditorState } from '../state/useEditor';
 import { descendantAttributeIds } from '../model/attributes';
-import { documentBounds, dragSet, edgePoint, legLabelPoints, nodesInRect, offsetToward, segmentForLeg, type Point } from './geometry';
+import { documentBounds, dragSet, edgePoint, indexGeometrySnapshot, legLabelPoints, nodesInRect, offsetToward, segmentForLeg, type Point } from './geometry';
 import { AttributeShape, CardinalityMarker, DepartingNode, EntityShape, GroupFrames, IsaShape, PeerCursors, RelationshipShape, type DepartingEntry } from './NodeShapes';
 import { useDepartures } from './departures';
 import { attributeEdgeId, connectorIds, isaChildEdgeId, isaParentEdgeId } from './entrance';
-import { useDrag, usePeerCursor } from './useDrag';
+import { useDrag, useDragPresence, usePeerCursor } from './useDrag';
 import { useCanvasZoom } from './useCanvasZoom';
 import { CommentPins, useCommentPlacement } from './CommentPins';
 import { allNodes, findNode, NODE_SIZE, sizeOf, type ErdDocument, type Positioned } from '../model/types';
@@ -124,21 +124,7 @@ export function ChenCanvas({ state, svgRef, connectFrom, setConnectFrom, emptyAc
   // Tell peers while we carry (drag) a shape, so theirs follows live instead
   // of waiting for the drop. Awareness is the right channel: ephemeral, no
   // history, no merge into the document.
-  useEffect(() => {
-    const active = drag.drag;
-    if (!active?.moved) {
-      state.awareness.setLocalStateField('dragging', null);
-      return;
-    }
-    const start: Record<string, { x: number; y: number }> = {};
-    for (const [id, pos] of active.start) start[id] = pos;
-    state.awareness.setLocalStateField('dragging', {
-      ids: [...active.start.keys()],
-      start,
-      dx: active.dx,
-      dy: active.dy,
-    });
-  }, [drag.drag, state.awareness]);
+  useDragPresence(drag.drag, state.awareness);
 
   // Independent of dragging: moving the mouse is enough to be seen.
 usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
@@ -255,7 +241,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
     [doc, selection, toWorld, drag],
   );
 
-  const handleNodePointerDown = useCallback(
+  const nodePointerDown = useCallback(
     (id: string) => (event: React.PointerEvent) => {
       // Right and middle buttons belong to the context menu and to panning, not
       // to selection. Letting them through would clear the selection the menu is
@@ -306,6 +292,23 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
       focusCanvas,
     ],
   );
+
+  // Keep memoized shapes cached while handlers still read the current editor.
+  const latestNodePointerDown = useRef(nodePointerDown);
+  latestNodePointerDown.current = nodePointerDown;
+  const nodeHandlers = useRef(new Map<string, (event: React.PointerEvent) => void>());
+  const handleNodePointerDown = (id: string) => {
+    let handler = nodeHandlers.current.get(id);
+    if (!handler) {
+      handler = event => latestNodePointerDown.current(id)(event);
+      nodeHandlers.current.set(id, handler);
+    }
+    return handler;
+  };
+  useEffect(() => {
+    const live = new Set(allNodes(doc).map(node => node.id));
+    for (const id of nodeHandlers.current.keys()) if (!live.has(id)) nodeHandlers.current.delete(id);
+  }, [doc]);
 
   /** Tracks the marquee in a ref so the window listener sees the live value. */
   const marquee = useRef<{ from: Point; to: Point } | null>(null);
@@ -470,7 +473,7 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
     }
     // The pointer in this browser always wins over delayed peer previews.
     if (active?.moved) entries.push({ start: active.start, dx: active.dx, dy: active.dy });
-    if (entries.length === 0) return doc;
+    if (entries.length === 0) return indexGeometrySnapshot(doc);
     const move = <T extends Positioned>(list: T[]): T[] =>
       list.map((node) => {
         let x = node.x; let y = node.y;
@@ -483,13 +486,13 @@ usePeerCursor(toWorld, state.awareness, state.pointer, followActive ?? false);
         if (x === node.x && y === node.y) return node;
         return { ...node, x, y } as T;
       });
-    return {
+    return indexGeometrySnapshot({
       ...doc,
       entities: move(doc.entities),
       attributes: move(doc.attributes),
       relationships: move(doc.relationships),
       isas: move(doc.isas),
-    };
+    });
   }, [doc, drag.drag, peers]);
 
   const peerBySelection = useMemo(() => {
