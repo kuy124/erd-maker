@@ -268,12 +268,25 @@ export function createRoom(room: string, options: RoomOptions = {}): RoomHandle 
     recoverRelay?.();
     if (directConnectionCount(provider) > 0 || Date.now() - lastReconnect < 10000) return;
     lastReconnect = Date.now();
+    /*
+     * Reconnecting is not leaving.
+     *
+     * y-webrtc's `disconnect()` clears this browser's local awareness state,
+     * and `connect()` never puts it back. Nobody re-publishes afterwards: the
+     * earlier writes were one-shot effects, and `setLocalStateField` is a no-op
+     * while the state is null. So a single transport retry silently deleted the
+     * person from the room for good — the header read "Waiting for others"
+     * while their edits kept arriving over the relay, and their cursor stopped
+     * moving on every other screen.
+     */
+    const beforeReconnect = presence.getLocalState();
     provider.disconnect();
     // y-webrtc appends on connect but does not empty this array on disconnect.
     // Do not accumulate destroyed signalling clients after every retry.
     provider.signalingConns.length = 0;
     peerLinks.get(provider)?.clear();
     provider.connect();
+    if (beforeReconnect && !presence.getLocalState()) presence.setLocalState(beforeReconnect);
     announceTransport(provider);
   };
   let suspendedPresence: ReturnType<Awareness['getLocalState']> = null;

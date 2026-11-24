@@ -55,6 +55,28 @@ it('closes an idle assistant and preserves a snapshot before destroying it', () 
   expect(destroy).toHaveBeenCalledOnce();
 });
 
+it('keeps this browser in the room across a transport retry', () => {
+  vi.useFakeTimers();
+  const room = createRoom('reconnect-presence-room', { persist: false, signalling: [] });
+  try {
+    room.awareness.setLocalState({ name: 'Human', color: '#123456', cursor: { x: 1, y: 2 } });
+    // y-webrtc clears the local awareness state inside disconnect; retrying
+    // signalling must not silently delete this person from the room.
+    const disconnect = room.provider.disconnect.bind(room.provider);
+    vi.spyOn(room.provider, 'disconnect').mockImplementation(() => {
+      disconnect();
+      room.awareness.setLocalState(null);
+    });
+    const connect = vi.spyOn(room.provider, 'connect').mockImplementation(() => {});
+    window.dispatchEvent(new Event('online'));
+    vi.advanceTimersByTime(20_000);
+    expect(connect).toHaveBeenCalled();
+    expect(room.awareness.getLocalState()).toBeTruthy();
+  } finally {
+    room.destroy();
+  }
+});
+
 it('disconnects a navigated-away room and does not recover before pageshow', () => {
   vi.useFakeTimers();
   const room = createRoom('pagehide-test-room', { persist: false, signalling: [] });

@@ -34,7 +34,8 @@ it('sends local presence and departures without echoing remote updates', () => {
   }
 });
 
-it('keeps browser motion off the relay while receiving MCP presence and departures', () => {
+it('carries identity on the relay, and motion only when a peer has no direct link', () => {
+  vi.useFakeTimers();
   const doc = new Y.Doc();
   const remoteDoc = new Y.Doc();
   const direct = new Awareness(doc);
@@ -45,15 +46,35 @@ it('keeps browser motion off the relay while receiving MCP presence and departur
     direct.setLocalState({ name: 'Browser', color: '#123456', cursor: null });
     let updates = 0;
     relay.on('update', () => { updates += 1; });
-    for (let x = 0; x < 100; x++) {
-      direct.setLocalStateField('cursor', { x, y: 10 });
-      direct.setLocalStateField('dragging', { dx: x, dy: 0 });
-    }
+
+    // Nobody is in this room but us, so the relay needs only the name badge.
+    for (let x = 0; x < 100; x++) direct.setLocalStateField('cursor', { x, y: 10 });
+    vi.advanceTimersByTime(1000);
     expect(updates).toBe(0);
     expect(relay.getLocalState()).toEqual({ transport: 'webrtc', name: 'Browser', color: '#123456', userId: undefined });
+
+    // A peer that is only reachable through the relay needs the pointer too,
+    // or the room shows an avatar and no mouse.
     const deliver = () => applyAwarenessUpdate(relay, encodeAwarenessUpdate(remote, [remote.clientID]), 'server');
     remote.setLocalState({ name: 'AI', cursor: { x: 20, y: 30 } });
     deliver();
+    // Gaining a relay-only peer is not motion, so the full state goes at once.
+    expect(relay.getLocalState()).toMatchObject({ cursor: { x: 99, y: 10 } });
+
+    // Throttled: a burst of pointer moves is coalesced to one frame.
+    const before = updates;
+    for (let x = 0; x < 20; x++) direct.setLocalStateField('cursor', { x, y: 60 });
+    expect(updates).toBe(before);
+    vi.advanceTimersByTime(300);
+    expect(updates).toBe(before + 1);
+    expect(relay.getLocalState()).toMatchObject({ cursor: { x: 19, y: 60 } });
+
+    // A state change is not a pointer move, so it is not held back.
+    const beforeTyping = updates;
+    direct.setLocalStateField('typing', true);
+    expect(updates).toBe(beforeTyping + 1);
+    expect(relay.getLocalState()).toMatchObject({ typing: true });
+
     expect(readPeers(direct, doc.clientID, relay)[0]?.cursor).toEqual({ x: 20, y: 30 });
     expect(direct.meta.has(remote.clientID)).toBe(false);
     remote.setLocalState(null);
@@ -78,11 +99,17 @@ it('keeps browser motion off the relay while receiving MCP presence and departur
     deliver();
     expect(direct.getStates().get(remote.clientID)?.cursor).toEqual({ x: 5, y: 6 });
     expect(readPeers(direct, doc.clientID, relay)[0]?.cursor).toEqual({ x: 5, y: 6 });
+
+    // A transport retry clears local presence; that is not a departure, and
+    // blanking the relay badge is what made rooms read "Waiting for others"
+    // while edits kept arriving.
+    const identityBefore = relay.getLocalState();
     direct.setLocalState(null);
-    expect(relay.getLocalState()).toBe(null);
+    expect(relay.getLocalState()).toEqual(identityBefore);
   } finally {
     stop();
     direct.destroy(); relay.destroy(); remote.destroy();
     doc.destroy(); remoteDoc.destroy();
+    vi.useRealTimers();
   }
 });
